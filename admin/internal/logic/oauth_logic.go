@@ -260,8 +260,36 @@ func (l *OAuthLogic) GetProvider(code string) (*model.OAuthProvider, error) {
 	return &provider, nil
 }
 
-// ListProviders 获取所有启用的OAuth提供商
-func (l *OAuthLogic) ListProviders() ([]model.OAuthProvider, error) {
+// ListProviders 获取OAuth提供商列表（分页）
+func (l *OAuthLogic) ListProviders(req *types.ListProvidersRequest) ([]model.OAuthProvider, int64, error) {
+	var providers []model.OAuthProvider
+	var total int64
+
+	query := l.db.Model(&model.OAuthProvider{})
+
+	if req.Name != "" {
+		query = query.Where("name LIKE ?", "%"+req.Name+"%")
+	}
+	if req.Status != nil {
+		query = query.Where("status = ?", *req.Status)
+	}
+
+	query.Count(&total)
+
+	if req.Page > 0 && req.PageSize > 0 {
+		offset := (req.Page - 1) * req.PageSize
+		query = query.Offset(offset).Limit(req.PageSize)
+	}
+
+	if err := query.Order("sort ASC").Find(&providers).Error; err != nil {
+		return nil, 0, err
+	}
+
+	return providers, total, nil
+}
+
+// ListAllProviders 获取所有启用的OAuth提供商（公开接口用）
+func (l *OAuthLogic) ListAllProviders() ([]model.OAuthProvider, error) {
 	var providers []model.OAuthProvider
 	if err := l.db.Where("status = 1").Order("sort ASC").Find(&providers).Error; err != nil {
 		return nil, err

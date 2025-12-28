@@ -42,3 +42,11 @@ type UpdateProviderRequest struct {
 	Icon         string `json:"icon"`
 	Remark       string `json:"remark"`
 }
+
+// ListProvidersRequest OAuth提供商列表请求
+type ListProvidersRequest struct {
+	Page     int    `json:"page"`
+	PageSize int    `json:"pageSize"`
+	Name     string `json:"name"`
+	Status   *int8  `json:"status"`
+}

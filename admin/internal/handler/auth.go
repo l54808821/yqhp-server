@@ -140,7 +140,7 @@ func (h *AuthHandler) ChangePassword(c *fiber.Ctx) error {
 
 // GetOAuthProviders 获取OAuth提供商列表
 func (h *AuthHandler) GetOAuthProviders(c *fiber.Ctx) error {
-	providers, err := h.oauthLogic.ListProviders()
+	providers, err := h.oauthLogic.ListAllProviders()
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}

@@ -22,11 +22,24 @@ func NewOAuthProviderHandler(oauthLogic *logic.OAuthLogic) *OAuthProviderHandler
 
 // List 获取OAuth提供商列表
 func (h *OAuthProviderHandler) List(c *fiber.Ctx) error {
-	providers, err := h.oauthLogic.ListProviders()
+	var req types.ListProvidersRequest
+	if err := c.BodyParser(&req); err != nil {
+		return response.Error(c, "参数解析失败")
+	}
+
+	if req.Page <= 0 {
+		req.Page = 1
+	}
+	if req.PageSize <= 0 {
+		req.PageSize = 10
+	}
+
+	providers, total, err := h.oauthLogic.ListProviders(&req)
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}
-	return response.Success(c, providers)
+
+	return response.Page(c, providers, total, req.Page, req.PageSize)
 }
 
 // Get 获取OAuth提供商详情

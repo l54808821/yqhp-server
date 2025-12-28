@@ -44,11 +44,11 @@ log:
 # SaToken配置
 sa_token:
   token_name: satoken
-  token_style: uuid # uuid, simple-uuid, random-32, random-64, random-128
+  token_style: jwt # uuid, simple-uuid, random-32, random-64, random-128, jwt, hash, timestamp, tik
   timeout: 86400 # token有效期(秒) 24小时
   active_timeout: 1800 # token活跃检测超时时间(秒) 30分钟
   is_concurrent: true # 是否允许同一账号并发登录
   is_share: true # 是否共用token
   max_login_count: 12 # 同一账号最大登录数量
   is_log: true # 是否输出日志
-  jwt_secret_key: yqhp-admin-jwt-secret-key-2024
+  jwt_secret_key: yqhp-admin-jwt-secret-key-2024 # JWT密钥(仅token_style为jwt时使用)

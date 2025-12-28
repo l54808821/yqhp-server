@@ -6,6 +6,7 @@ import (
 	"yqhp/admin/internal/config"
 
 	"github.com/click33/sa-token-go/core"
+	satokenConfig "github.com/click33/sa-token-go/core/config"
 	"github.com/click33/sa-token-go/storage/memory"
 	satokenRedis "github.com/click33/sa-token-go/storage/redis"
 	"github.com/click33/sa-token-go/stputil"
@@ -43,22 +44,60 @@ func InitSaToken(cfg *config.Config) error {
 		fmt.Println("[SaToken] 使用内存存储（警告：服务重启后token会丢失）")
 	}
 
+	// 解析TokenStyle
+	tokenStyle := parseTokenStyle(cfg.SaToken.TokenStyle)
+	fmt.Printf("[SaToken] Token风格: %s\n", cfg.SaToken.TokenStyle)
+
 	// 使用Builder模式创建Manager
-	manager = core.NewBuilder().
+	builder := core.NewBuilder().
 		Storage(storage).
 		TokenName(cfg.SaToken.TokenName).
+		TokenStyle(tokenStyle).
 		Timeout(cfg.SaToken.Timeout).
 		ActiveTimeout(cfg.SaToken.ActiveTimeout).
 		IsConcurrent(cfg.SaToken.IsConcurrent).
 		IsShare(cfg.SaToken.IsShare).
 		MaxLoginCount(cfg.SaToken.MaxLoginCount).
-		IsLog(cfg.SaToken.IsLog).
-		Build()
+		IsLog(cfg.SaToken.IsLog)
+
+	// 如果使用JWT风格，设置JWT密钥
+	if tokenStyle == satokenConfig.TokenStyleJWT && cfg.SaToken.JwtSecretKey != "" {
+		builder = builder.JwtSecretKey(cfg.SaToken.JwtSecretKey)
+		fmt.Println("[SaToken] JWT密钥已配置")
+	}
+
+	manager = builder.Build()
 
 	// 设置全局Manager
 	stputil.SetManager(manager)
 
 	return nil
+}
+
+// parseTokenStyle 解析Token风格配置
+func parseTokenStyle(style string) satokenConfig.TokenStyle {
+	switch style {
+	case "uuid":
+		return satokenConfig.TokenStyleUUID
+	case "simple-uuid":
+		return satokenConfig.TokenStyleSimple
+	case "random-32":
+		return satokenConfig.TokenStyleRandom32
+	case "random-64":
+		return satokenConfig.TokenStyleRandom64
+	case "random-128":
+		return satokenConfig.TokenStyleRandom128
+	case "jwt":
+		return satokenConfig.TokenStyleJWT
+	case "hash":
+		return satokenConfig.TokenStyleHash
+	case "timestamp":
+		return satokenConfig.TokenStyleTimestamp
+	case "tik":
+		return satokenConfig.TokenStyleTik
+	default:
+		return satokenConfig.TokenStyleUUID
+	}
 }
 
 // GetManager 获取Manager

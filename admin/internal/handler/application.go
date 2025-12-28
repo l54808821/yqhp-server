@@ -2,6 +2,7 @@ package handler
 
 import (
 	"strconv"
+
 	"yqhp/admin/internal/logic"
 	"yqhp/admin/internal/types"
 	"yqhp/common/response"
@@ -9,18 +10,8 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-// ApplicationHandler 应用处理器
-type ApplicationHandler struct {
-	appLogic *logic.ApplicationLogic
-}
-
-// NewApplicationHandler 创建应用处理器
-func NewApplicationHandler(appLogic *logic.ApplicationLogic) *ApplicationHandler {
-	return &ApplicationHandler{appLogic: appLogic}
-}
-
-// List 获取应用列表
-func (h *ApplicationHandler) List(c *fiber.Ctx) error {
+// AppList 获取应用列表
+func AppList(c *fiber.Ctx) error {
 	var req types.ListApplicationsRequest
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
@@ -33,7 +24,7 @@ func (h *ApplicationHandler) List(c *fiber.Ctx) error {
 		req.PageSize = 10
 	}
 
-	apps, total, err := h.appLogic.ListApplications(&req)
+	apps, total, err := logic.NewApplicationLogic(c).ListApplications(&req)
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}
@@ -41,23 +32,23 @@ func (h *ApplicationHandler) List(c *fiber.Ctx) error {
 	return response.Page(c, apps, total, req.Page, req.PageSize)
 }
 
-// All 获取所有应用
-func (h *ApplicationHandler) All(c *fiber.Ctx) error {
-	apps, err := h.appLogic.GetAllApplications()
+// AppAll 获取所有应用
+func AppAll(c *fiber.Ctx) error {
+	apps, err := logic.NewApplicationLogic(c).GetAllApplications()
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}
 	return response.Success(c, apps)
 }
 
-// Get 获取应用详情
-func (h *ApplicationHandler) Get(c *fiber.Ctx) error {
+// AppGet 获取应用详情
+func AppGet(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "参数错误")
 	}
 
-	app, err := h.appLogic.GetApplication(id)
+	app, err := logic.NewApplicationLogic(c).GetApplication(id)
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}
@@ -65,8 +56,8 @@ func (h *ApplicationHandler) Get(c *fiber.Ctx) error {
 	return response.Success(c, app)
 }
 
-// Create 创建应用
-func (h *ApplicationHandler) Create(c *fiber.Ctx) error {
+// AppCreate 创建应用
+func AppCreate(c *fiber.Ctx) error {
 	var req types.CreateApplicationRequest
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
@@ -76,7 +67,7 @@ func (h *ApplicationHandler) Create(c *fiber.Ctx) error {
 		return response.Error(c, "应用名称和编码不能为空")
 	}
 
-	app, err := h.appLogic.CreateApplication(&req)
+	app, err := logic.NewApplicationLogic(c).CreateApplication(&req)
 	if err != nil {
 		return response.Error(c, err.Error())
 	}
@@ -84,8 +75,8 @@ func (h *ApplicationHandler) Create(c *fiber.Ctx) error {
 	return response.Success(c, app)
 }
 
-// Update 更新应用
-func (h *ApplicationHandler) Update(c *fiber.Ctx) error {
+// AppUpdate 更新应用
+func AppUpdate(c *fiber.Ctx) error {
 	var req types.UpdateApplicationRequest
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
@@ -95,21 +86,21 @@ func (h *ApplicationHandler) Update(c *fiber.Ctx) error {
 		return response.Error(c, "应用ID不能为空")
 	}
 
-	if err := h.appLogic.UpdateApplication(&req); err != nil {
+	if err := logic.NewApplicationLogic(c).UpdateApplication(&req); err != nil {
 		return response.Error(c, err.Error())
 	}
 
 	return response.Success(c, nil)
 }
 
-// Delete 删除应用
-func (h *ApplicationHandler) Delete(c *fiber.Ctx) error {
+// AppDelete 删除应用
+func AppDelete(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "参数错误")
 	}
 
-	if err := h.appLogic.DeleteApplication(id); err != nil {
+	if err := logic.NewApplicationLogic(c).DeleteApplication(id); err != nil {
 		return response.Error(c, err.Error())
 	}
 

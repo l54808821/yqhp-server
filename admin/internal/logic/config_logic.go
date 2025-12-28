@@ -1,29 +1,35 @@
 package logic
 
 import (
+	"context"
 	"errors"
 
 	"yqhp/admin/internal/model"
+	"yqhp/admin/internal/query"
+	"yqhp/admin/internal/svc"
 	"yqhp/admin/internal/types"
 
-	"gorm.io/gorm"
+	"github.com/gofiber/fiber/v2"
 )
 
 // ConfigLogic 系统配置逻辑
 type ConfigLogic struct {
-	db *gorm.DB
+	ctx context.Context
 }
 
 // NewConfigLogic 创建配置逻辑
-func NewConfigLogic(db *gorm.DB) *ConfigLogic {
-	return &ConfigLogic{db: db}
+func NewConfigLogic(c *fiber.Ctx) *ConfigLogic {
+	return &ConfigLogic{ctx: c.Context()}
+}
+
+func (l *ConfigLogic) db() *query.Query {
+	return svc.Ctx.Query
 }
 
 // CreateConfig 创建配置
 func (l *ConfigLogic) CreateConfig(req *types.CreateConfigRequest) (*model.SysConfig, error) {
-	// 检查Key是否存在
-	var count int64
-	l.db.Model(&model.SysConfig{}).Where("`key` = ? AND is_delete = ?", req.Key, false).Count(&count)
+	cfg := l.db().SysConfig
+	count, _ := cfg.WithContext(l.ctx).Where(cfg.Key.Eq(req.Key), cfg.IsDelete.Is(false)).Count()
 	if count > 0 {
 		return nil, errors.New("配置键已存在")
 	}
@@ -38,7 +44,7 @@ func (l *ConfigLogic) CreateConfig(req *types.CreateConfigRequest) (*model.SysCo
 		IsDelete: model.BoolPtr(false),
 	}
 
-	if err := l.db.Create(config).Error; err != nil {
+	if err := cfg.WithContext(l.ctx).Create(config); err != nil {
 		return nil, err
 	}
 
@@ -47,27 +53,21 @@ func (l *ConfigLogic) CreateConfig(req *types.CreateConfigRequest) (*model.SysCo
 
 // UpdateConfig 更新配置
 func (l *ConfigLogic) UpdateConfig(req *types.UpdateConfigRequest) error {
-	// 检查是否为内置配置
-	var config model.SysConfig
-	if err := l.db.Where("is_delete = ?", false).First(&config, req.ID).Error; err != nil {
-		return err
-	}
-
-	updates := map[string]any{
+	cfg := l.db().SysConfig
+	_, err := cfg.WithContext(l.ctx).Where(cfg.ID.Eq(int64(req.ID))).Updates(map[string]any{
 		"name":   req.Name,
 		"value":  req.Value,
 		"type":   req.Type,
 		"remark": req.Remark,
-	}
-
-	return l.db.Model(&model.SysConfig{}).Where("id = ?", req.ID).Updates(updates).Error
+	})
+	return err
 }
 
-// DeleteConfig 删除配置（软删除）
+// DeleteConfig 删除配置
 func (l *ConfigLogic) DeleteConfig(id int64) error {
-	// 检查是否为内置配置
-	var config model.SysConfig
-	if err := l.db.Where("is_delete = ?", false).First(&config, id).Error; err != nil {
+	cfg := l.db().SysConfig
+	config, err := cfg.WithContext(l.ctx).Where(cfg.ID.Eq(id), cfg.IsDelete.Is(false)).First()
+	if err != nil {
 		return err
 	}
 
@@ -75,66 +75,45 @@ func (l *ConfigLogic) DeleteConfig(id int64) error {
 		return errors.New("内置配置不允许删除")
 	}
 
-	return l.db.Model(&config).Update("is_delete", true).Error
+	_, err = cfg.WithContext(l.ctx).Where(cfg.ID.Eq(id)).Update(cfg.IsDelete, true)
+	return err
 }
 
 // GetConfig 获取配置详情
 func (l *ConfigLogic) GetConfig(id int64) (*model.SysConfig, error) {
-	var config model.SysConfig
-	if err := l.db.Where("is_delete = ?", false).First(&config, id).Error; err != nil {
-		return nil, err
-	}
-	return &config, nil
+	cfg := l.db().SysConfig
+	return cfg.WithContext(l.ctx).Where(cfg.ID.Eq(id), cfg.IsDelete.Is(false)).First()
 }
 
 // GetConfigByKey 根据Key获取配置
 func (l *ConfigLogic) GetConfigByKey(key string) (*model.SysConfig, error) {
-	var config model.SysConfig
-	if err := l.db.Where("`key` = ? AND is_delete = ?", key, false).First(&config).Error; err != nil {
-		return nil, err
-	}
-	return &config, nil
-}
-
-// GetConfigValue 获取配置值
-func (l *ConfigLogic) GetConfigValue(key string) (string, error) {
-	config, err := l.GetConfigByKey(key)
-	if err != nil {
-		return "", err
-	}
-	return model.GetString(config.Value), nil
+	cfg := l.db().SysConfig
+	return cfg.WithContext(l.ctx).Where(cfg.Key.Eq(key), cfg.IsDelete.Is(false)).First()
 }
 
 // ListConfigs 获取配置列表
-func (l *ConfigLogic) ListConfigs(req *types.ListConfigsRequest) ([]model.SysConfig, int64, error) {
-	var configs []model.SysConfig
-	var total int64
-
-	query := l.db.Model(&model.SysConfig{}).Where("is_delete = ?", false)
+func (l *ConfigLogic) ListConfigs(req *types.ListConfigsRequest) ([]*model.SysConfig, int64, error) {
+	cfg := l.db().SysConfig
+	q := cfg.WithContext(l.ctx).Where(cfg.IsDelete.Is(false))
 
 	if req.Name != "" {
-		query = query.Where("name LIKE ?", "%"+req.Name+"%")
+		q = q.Where(cfg.Name.Like("%" + req.Name + "%"))
 	}
 	if req.Key != "" {
-		query = query.Where("`key` LIKE ?", "%"+req.Key+"%")
+		q = q.Where(cfg.Key.Like("%" + req.Key + "%"))
 	}
 
-	query.Count(&total)
+	total, _ := q.Count()
 
 	if req.Page > 0 && req.PageSize > 0 {
-		offset := (req.Page - 1) * req.PageSize
-		query = query.Offset(offset).Limit(req.PageSize)
+		q = q.Offset((req.Page - 1) * req.PageSize).Limit(req.PageSize)
 	}
 
-	if err := query.Find(&configs).Error; err != nil {
-		return nil, 0, err
-	}
-
-	return configs, total, nil
+	configs, err := q.Find()
+	return configs, total, err
 }
 
-// RefreshConfig 刷新配置缓存(可扩展)
+// RefreshConfig 刷新配置缓存
 func (l *ConfigLogic) RefreshConfig() error {
-	// 这里可以实现配置缓存刷新逻辑
 	return nil
 }

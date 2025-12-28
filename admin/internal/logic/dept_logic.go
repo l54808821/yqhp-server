@@ -1,22 +1,29 @@
 package logic
 
 import (
+	"context"
 	"errors"
 
 	"yqhp/admin/internal/model"
+	"yqhp/admin/internal/query"
+	"yqhp/admin/internal/svc"
 	"yqhp/admin/internal/types"
 
-	"gorm.io/gorm"
+	"github.com/gofiber/fiber/v2"
 )
 
 // DeptLogic 部门逻辑
 type DeptLogic struct {
-	db *gorm.DB
+	ctx context.Context
 }
 
 // NewDeptLogic 创建部门逻辑
-func NewDeptLogic(db *gorm.DB) *DeptLogic {
-	return &DeptLogic{db: db}
+func NewDeptLogic(c *fiber.Ctx) *DeptLogic {
+	return &DeptLogic{ctx: c.Context()}
+}
+
+func (l *DeptLogic) db() *query.Query {
+	return svc.Ctx.Query
 }
 
 // CreateDept 创建部门
@@ -34,7 +41,7 @@ func (l *DeptLogic) CreateDept(req *types.CreateDeptRequest) (*model.SysDept, er
 		IsDelete: model.BoolPtr(false),
 	}
 
-	if err := l.db.Create(dept).Error; err != nil {
+	if err := l.db().SysDept.WithContext(l.ctx).Create(dept); err != nil {
 		return nil, err
 	}
 
@@ -43,12 +50,12 @@ func (l *DeptLogic) CreateDept(req *types.CreateDeptRequest) (*model.SysDept, er
 
 // UpdateDept 更新部门
 func (l *DeptLogic) UpdateDept(req *types.UpdateDeptRequest) error {
-	// 不能将自己设为父部门
 	if req.ParentID == req.ID {
 		return errors.New("不能将自己设为父部门")
 	}
 
-	updates := map[string]any{
+	d := l.db().SysDept
+	_, err := d.WithContext(l.ctx).Where(d.ID.Eq(int64(req.ID))).Updates(map[string]any{
 		"parent_id": req.ParentID,
 		"name":      req.Name,
 		"code":      req.Code,
@@ -58,65 +65,59 @@ func (l *DeptLogic) UpdateDept(req *types.UpdateDeptRequest) error {
 		"sort":      req.Sort,
 		"status":    req.Status,
 		"remark":    req.Remark,
-	}
-
-	return l.db.Model(&model.SysDept{}).Where("id = ?", req.ID).Updates(updates).Error
+	})
+	return err
 }
 
-// DeleteDept 删除部门（软删除）
+// DeleteDept 删除部门
 func (l *DeptLogic) DeleteDept(id int64) error {
-	// 检查是否有子部门
-	var count int64
-	l.db.Model(&model.SysDept{}).Where("parent_id = ? AND is_delete = ?", id, false).Count(&count)
+	d := l.db().SysDept
+	count, _ := d.WithContext(l.ctx).Where(d.ParentID.Eq(id), d.IsDelete.Is(false)).Count()
 	if count > 0 {
 		return errors.New("该部门下有子部门，无法删除")
 	}
 
-	// 检查是否有用户
-	l.db.Model(&model.SysUser{}).Where("dept_id = ? AND is_delete = ?", id, false).Count(&count)
+	u := l.db().SysUser
+	count, _ = u.WithContext(l.ctx).Where(u.DeptID.Eq(id), u.IsDelete.Is(false)).Count()
 	if count > 0 {
 		return errors.New("该部门下有用户，无法删除")
 	}
 
-	return l.db.Model(&model.SysDept{}).Where("id = ?", id).Update("is_delete", true).Error
+	_, err := d.WithContext(l.ctx).Where(d.ID.Eq(id)).Update(d.IsDelete, true)
+	return err
 }
 
 // GetDept 获取部门详情
 func (l *DeptLogic) GetDept(id int64) (*model.SysDept, error) {
-	var dept model.SysDept
-	if err := l.db.Where("is_delete = ?", false).First(&dept, id).Error; err != nil {
-		return nil, err
-	}
-	return &dept, nil
+	d := l.db().SysDept
+	return d.WithContext(l.ctx).Where(d.ID.Eq(id), d.IsDelete.Is(false)).First()
 }
 
 // GetDeptTree 获取部门树
 func (l *DeptLogic) GetDeptTree() ([]model.DeptWithChildren, error) {
-	var depts []model.SysDept
-	if err := l.db.Where("is_delete = ?", false).Order("sort ASC").Find(&depts).Error; err != nil {
+	d := l.db().SysDept
+	depts, err := d.WithContext(l.ctx).Where(d.IsDelete.Is(false)).Order(d.Sort).Find()
+	if err != nil {
 		return nil, err
 	}
 
 	return buildDeptTree(depts, 0), nil
 }
 
-// GetAllDepts 获取所有部门(平铺)
-func (l *DeptLogic) GetAllDepts() ([]model.SysDept, error) {
-	var depts []model.SysDept
-	if err := l.db.Where("is_delete = ?", false).Order("sort ASC").Find(&depts).Error; err != nil {
-		return nil, err
-	}
-	return depts, nil
+// GetAllDepts 获取所有部门
+func (l *DeptLogic) GetAllDepts() ([]*model.SysDept, error) {
+	d := l.db().SysDept
+	return d.WithContext(l.ctx).Where(d.IsDelete.Is(false)).Order(d.Sort).Find()
 }
 
 // buildDeptTree 构建部门树
-func buildDeptTree(depts []model.SysDept, parentID int64) []model.DeptWithChildren {
+func buildDeptTree(depts []*model.SysDept, parentID int64) []model.DeptWithChildren {
 	var tree []model.DeptWithChildren
 	for _, dept := range depts {
 		deptParentID := model.GetInt64(dept.ParentID)
 		if deptParentID == parentID {
 			node := model.DeptWithChildren{
-				SysDept: dept,
+				SysDept: *dept,
 			}
 			children := buildDeptTree(depts, dept.ID)
 			if len(children) > 0 {

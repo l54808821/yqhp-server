@@ -1,29 +1,35 @@
 package logic
 
 import (
+	"context"
 	"errors"
 
 	"yqhp/admin/internal/model"
+	"yqhp/admin/internal/query"
+	"yqhp/admin/internal/svc"
 	"yqhp/admin/internal/types"
 
-	"gorm.io/gorm"
+	"github.com/gofiber/fiber/v2"
 )
 
 // DictLogic 字典逻辑
 type DictLogic struct {
-	db *gorm.DB
+	ctx context.Context
 }
 
 // NewDictLogic 创建字典逻辑
-func NewDictLogic(db *gorm.DB) *DictLogic {
-	return &DictLogic{db: db}
+func NewDictLogic(c *fiber.Ctx) *DictLogic {
+	return &DictLogic{ctx: c.Context()}
+}
+
+func (l *DictLogic) db() *query.Query {
+	return svc.Ctx.Query
 }
 
 // CreateDictType 创建字典类型
 func (l *DictLogic) CreateDictType(req *types.CreateDictTypeRequest) (*model.SysDictType, error) {
-	// 检查编码是否存在
-	var count int64
-	l.db.Model(&model.SysDictType{}).Where("code = ? AND is_delete = ?", req.Code, false).Count(&count)
+	dt := l.db().SysDictType
+	count, _ := dt.WithContext(l.ctx).Where(dt.Code.Eq(req.Code), dt.IsDelete.Is(false)).Count()
 	if count > 0 {
 		return nil, errors.New("字典类型编码已存在")
 	}
@@ -36,7 +42,7 @@ func (l *DictLogic) CreateDictType(req *types.CreateDictTypeRequest) (*model.Sys
 		IsDelete: model.BoolPtr(false),
 	}
 
-	if err := l.db.Create(dictType).Error; err != nil {
+	if err := dt.WithContext(l.ctx).Create(dictType); err != nil {
 		return nil, err
 	}
 
@@ -45,66 +51,59 @@ func (l *DictLogic) CreateDictType(req *types.CreateDictTypeRequest) (*model.Sys
 
 // UpdateDictType 更新字典类型
 func (l *DictLogic) UpdateDictType(req *types.UpdateDictTypeRequest) error {
-	updates := map[string]any{
+	dt := l.db().SysDictType
+	_, err := dt.WithContext(l.ctx).Where(dt.ID.Eq(int64(req.ID))).Updates(map[string]any{
 		"name":   req.Name,
 		"status": req.Status,
 		"remark": req.Remark,
-	}
-
-	return l.db.Model(&model.SysDictType{}).Where("id = ?", req.ID).Updates(updates).Error
+	})
+	return err
 }
 
-// DeleteDictType 删除字典类型（软删除）
+// DeleteDictType 删除字典类型
 func (l *DictLogic) DeleteDictType(id int64) error {
-	var dictType model.SysDictType
-	if err := l.db.Where("is_delete = ?", false).First(&dictType, id).Error; err != nil {
+	dt := l.db().SysDictType
+	dictType, err := dt.WithContext(l.ctx).Where(dt.ID.Eq(id), dt.IsDelete.Is(false)).First()
+	if err != nil {
 		return err
 	}
 
-	// 软删除字典数据
-	l.db.Model(&model.SysDictDatum{}).Where("type_code = ? AND is_delete = ?", dictType.Code, false).Update("is_delete", true)
-	// 软删除字典类型
-	return l.db.Model(&dictType).Update("is_delete", true).Error
+	dd := l.db().SysDictDatum
+	dd.WithContext(l.ctx).Where(dd.TypeCode.Eq(dictType.Code), dd.IsDelete.Is(false)).Update(dd.IsDelete, true)
+
+	_, err = dt.WithContext(l.ctx).Where(dt.ID.Eq(id)).Update(dt.IsDelete, true)
+	return err
 }
 
 // GetDictType 获取字典类型详情
 func (l *DictLogic) GetDictType(id int64) (*model.SysDictType, error) {
-	var dictType model.SysDictType
-	if err := l.db.Where("is_delete = ?", false).First(&dictType, id).Error; err != nil {
-		return nil, err
-	}
-	return &dictType, nil
+	dt := l.db().SysDictType
+	return dt.WithContext(l.ctx).Where(dt.ID.Eq(id), dt.IsDelete.Is(false)).First()
 }
 
 // ListDictTypes 获取字典类型列表
-func (l *DictLogic) ListDictTypes(req *types.ListDictTypesRequest) ([]model.SysDictType, int64, error) {
-	var dictTypes []model.SysDictType
-	var total int64
-
-	query := l.db.Model(&model.SysDictType{}).Where("is_delete = ?", false)
+func (l *DictLogic) ListDictTypes(req *types.ListDictTypesRequest) ([]*model.SysDictType, int64, error) {
+	dt := l.db().SysDictType
+	q := dt.WithContext(l.ctx).Where(dt.IsDelete.Is(false))
 
 	if req.Name != "" {
-		query = query.Where("name LIKE ?", "%"+req.Name+"%")
+		q = q.Where(dt.Name.Like("%" + req.Name + "%"))
 	}
 	if req.Code != "" {
-		query = query.Where("code LIKE ?", "%"+req.Code+"%")
+		q = q.Where(dt.Code.Like("%" + req.Code + "%"))
 	}
 	if req.Status != nil {
-		query = query.Where("status = ?", *req.Status)
+		q = q.Where(dt.Status.Eq(int32(*req.Status)))
 	}
 
-	query.Count(&total)
+	total, _ := q.Count()
 
 	if req.Page > 0 && req.PageSize > 0 {
-		offset := (req.Page - 1) * req.PageSize
-		query = query.Offset(offset).Limit(req.PageSize)
+		q = q.Offset((req.Page - 1) * req.PageSize).Limit(req.PageSize)
 	}
 
-	if err := query.Find(&dictTypes).Error; err != nil {
-		return nil, 0, err
-	}
-
-	return dictTypes, total, nil
+	dictTypes, err := q.Find()
+	return dictTypes, total, err
 }
 
 // CreateDictData 创建字典数据
@@ -122,7 +121,7 @@ func (l *DictLogic) CreateDictData(req *types.CreateDictDataRequest) (*model.Sys
 		IsDelete:  model.BoolPtr(false),
 	}
 
-	if err := l.db.Create(dictData).Error; err != nil {
+	if err := l.db().SysDictDatum.WithContext(l.ctx).Create(dictData); err != nil {
 		return nil, err
 	}
 
@@ -131,7 +130,8 @@ func (l *DictLogic) CreateDictData(req *types.CreateDictDataRequest) (*model.Sys
 
 // UpdateDictData 更新字典数据
 func (l *DictLogic) UpdateDictData(req *types.UpdateDictDataRequest) error {
-	updates := map[string]any{
+	dd := l.db().SysDictDatum
+	_, err := dd.WithContext(l.ctx).Where(dd.ID.Eq(int64(req.ID))).Updates(map[string]any{
 		"label":      req.Label,
 		"value":      req.Value,
 		"sort":       req.Sort,
@@ -140,54 +140,44 @@ func (l *DictLogic) UpdateDictData(req *types.UpdateDictDataRequest) error {
 		"css_class":  req.CssClass,
 		"list_class": req.ListClass,
 		"remark":     req.Remark,
-	}
-
-	return l.db.Model(&model.SysDictDatum{}).Where("id = ?", req.ID).Updates(updates).Error
+	})
+	return err
 }
 
-// DeleteDictData 删除字典数据（软删除）
+// DeleteDictData 删除字典数据
 func (l *DictLogic) DeleteDictData(id int64) error {
-	return l.db.Model(&model.SysDictDatum{}).Where("id = ?", id).Update("is_delete", true).Error
+	dd := l.db().SysDictDatum
+	_, err := dd.WithContext(l.ctx).Where(dd.ID.Eq(id)).Update(dd.IsDelete, true)
+	return err
 }
 
 // GetDictDataByTypeCode 根据类型编码获取字典数据
-func (l *DictLogic) GetDictDataByTypeCode(typeCode string) ([]model.SysDictDatum, error) {
-	var dictData []model.SysDictDatum
-	if err := l.db.Where("type_code = ? AND status = 1 AND is_delete = ?", typeCode, false).
-		Order("sort ASC").
-		Find(&dictData).Error; err != nil {
-		return nil, err
-	}
-	return dictData, nil
+func (l *DictLogic) GetDictDataByTypeCode(typeCode string) ([]*model.SysDictDatum, error) {
+	dd := l.db().SysDictDatum
+	return dd.WithContext(l.ctx).Where(dd.TypeCode.Eq(typeCode), dd.Status.Eq(1), dd.IsDelete.Is(false)).Order(dd.Sort).Find()
 }
 
 // ListDictData 获取字典数据列表
-func (l *DictLogic) ListDictData(req *types.ListDictDataRequest) ([]model.SysDictDatum, int64, error) {
-	var dictData []model.SysDictDatum
-	var total int64
-
-	query := l.db.Model(&model.SysDictDatum{}).Where("is_delete = ?", false)
+func (l *DictLogic) ListDictData(req *types.ListDictDataRequest) ([]*model.SysDictDatum, int64, error) {
+	dd := l.db().SysDictDatum
+	q := dd.WithContext(l.ctx).Where(dd.IsDelete.Is(false))
 
 	if req.TypeCode != "" {
-		query = query.Where("type_code = ?", req.TypeCode)
+		q = q.Where(dd.TypeCode.Eq(req.TypeCode))
 	}
 	if req.Label != "" {
-		query = query.Where("label LIKE ?", "%"+req.Label+"%")
+		q = q.Where(dd.Label.Like("%" + req.Label + "%"))
 	}
 	if req.Status != nil {
-		query = query.Where("status = ?", *req.Status)
+		q = q.Where(dd.Status.Eq(int32(*req.Status)))
 	}
 
-	query.Count(&total)
+	total, _ := q.Count()
 
 	if req.Page > 0 && req.PageSize > 0 {
-		offset := (req.Page - 1) * req.PageSize
-		query = query.Offset(offset).Limit(req.PageSize)
+		q = q.Offset((req.Page - 1) * req.PageSize).Limit(req.PageSize)
 	}
 
-	if err := query.Order("sort ASC").Find(&dictData).Error; err != nil {
-		return nil, 0, err
-	}
-
-	return dictData, total, nil
+	data, err := q.Order(dd.Sort).Find()
+	return data, total, err
 }

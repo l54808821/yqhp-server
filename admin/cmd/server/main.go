@@ -10,6 +10,7 @@ import (
 	"yqhp/admin/internal/auth"
 	"yqhp/admin/internal/config"
 	"yqhp/admin/internal/router"
+	"yqhp/admin/internal/svc"
 	"yqhp/common/database"
 
 	"github.com/gofiber/fiber/v2"
@@ -29,6 +30,9 @@ func main() {
 	defer database.Close()
 
 	db := database.GetDB()
+
+	// 初始化服务上下文
+	svc.Init(cfg, db)
 
 	// 初始化SaToken
 	if err := auth.InitSaToken(cfg); err != nil {

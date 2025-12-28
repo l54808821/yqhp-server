@@ -1,34 +1,40 @@
 package logic
 
 import (
+	"context"
 	"errors"
 
 	"yqhp/admin/internal/model"
+	"yqhp/admin/internal/query"
+	"yqhp/admin/internal/svc"
 	"yqhp/admin/internal/types"
 
-	"gorm.io/gorm"
+	"github.com/gofiber/fiber/v2"
 )
 
 // ApplicationLogic 应用逻辑
 type ApplicationLogic struct {
-	db *gorm.DB
+	ctx context.Context
 }
 
 // NewApplicationLogic 创建应用逻辑
-func NewApplicationLogic(db *gorm.DB) *ApplicationLogic {
-	return &ApplicationLogic{db: db}
+func NewApplicationLogic(c *fiber.Ctx) *ApplicationLogic {
+	return &ApplicationLogic{ctx: c.Context()}
+}
+
+func (l *ApplicationLogic) db() *query.Query {
+	return svc.Ctx.Query
 }
 
 // CreateApplication 创建应用
 func (l *ApplicationLogic) CreateApplication(req *types.CreateApplicationRequest) (*model.SysApplication, error) {
-	// 检查应用编码是否存在
-	var count int64
-	l.db.Model(&model.SysApplication{}).Where("code = ? AND is_delete = ?", req.Code, false).Count(&count)
+	app := l.db().SysApplication
+	count, _ := app.WithContext(l.ctx).Where(app.Code.Eq(req.Code), app.IsDelete.Is(false)).Count()
 	if count > 0 {
 		return nil, errors.New("应用编码已存在")
 	}
 
-	app := &model.SysApplication{
+	application := &model.SysApplication{
 		Name:        req.Name,
 		Code:        req.Code,
 		Description: model.StringPtr(req.Description),
@@ -38,99 +44,78 @@ func (l *ApplicationLogic) CreateApplication(req *types.CreateApplicationRequest
 		IsDelete:    model.BoolPtr(false),
 	}
 
-	if err := l.db.Create(app).Error; err != nil {
+	if err := app.WithContext(l.ctx).Create(application); err != nil {
 		return nil, err
 	}
 
-	return app, nil
+	return application, nil
 }
 
 // UpdateApplication 更新应用
 func (l *ApplicationLogic) UpdateApplication(req *types.UpdateApplicationRequest) error {
-	updates := map[string]any{
+	app := l.db().SysApplication
+	_, err := app.WithContext(l.ctx).Where(app.ID.Eq(int64(req.ID))).Updates(map[string]any{
 		"name":        req.Name,
 		"description": req.Description,
 		"icon":        req.Icon,
 		"sort":        req.Sort,
 		"status":      req.Status,
-	}
-
-	return l.db.Model(&model.SysApplication{}).Where("id = ?", req.ID).Updates(updates).Error
+	})
+	return err
 }
 
-// DeleteApplication 删除应用（软删除）
+// DeleteApplication 删除应用
 func (l *ApplicationLogic) DeleteApplication(id int64) error {
-	// 检查是否有角色使用该应用
-	var roleCount int64
-	l.db.Model(&model.SysRole{}).Where("app_id = ? AND is_delete = ?", id, false).Count(&roleCount)
+	r := l.db().SysRole
+	roleCount, _ := r.WithContext(l.ctx).Where(r.AppID.Eq(id), r.IsDelete.Is(false)).Count()
 	if roleCount > 0 {
 		return errors.New("该应用下有角色，无法删除")
 	}
 
-	// 检查是否有资源使用该应用
-	var resourceCount int64
-	l.db.Model(&model.SysResource{}).Where("app_id = ? AND is_delete = ?", id, false).Count(&resourceCount)
+	res := l.db().SysResource
+	resourceCount, _ := res.WithContext(l.ctx).Where(res.AppID.Eq(id), res.IsDelete.Is(false)).Count()
 	if resourceCount > 0 {
 		return errors.New("该应用下有资源，无法删除")
 	}
 
-	return l.db.Model(&model.SysApplication{}).Where("id = ?", id).Update("is_delete", true).Error
+	app := l.db().SysApplication
+	_, err := app.WithContext(l.ctx).Where(app.ID.Eq(id)).Update(app.IsDelete, true)
+	return err
 }
 
 // GetApplication 获取应用详情
 func (l *ApplicationLogic) GetApplication(id int64) (*model.SysApplication, error) {
-	var app model.SysApplication
-	if err := l.db.Where("is_delete = ?", false).First(&app, id).Error; err != nil {
-		return nil, err
-	}
-	return &app, nil
-}
-
-// GetApplicationByCode 根据编码获取应用
-func (l *ApplicationLogic) GetApplicationByCode(code string) (*model.SysApplication, error) {
-	var app model.SysApplication
-	if err := l.db.Where("code = ? AND is_delete = ?", code, false).First(&app).Error; err != nil {
-		return nil, err
-	}
-	return &app, nil
+	app := l.db().SysApplication
+	return app.WithContext(l.ctx).Where(app.ID.Eq(id), app.IsDelete.Is(false)).First()
 }
 
 // ListApplications 获取应用列表
-func (l *ApplicationLogic) ListApplications(req *types.ListApplicationsRequest) ([]model.SysApplication, int64, error) {
-	var apps []model.SysApplication
-	var total int64
-
-	query := l.db.Model(&model.SysApplication{}).Where("is_delete = ?", false)
+func (l *ApplicationLogic) ListApplications(req *types.ListApplicationsRequest) ([]*model.SysApplication, int64, error) {
+	app := l.db().SysApplication
+	q := app.WithContext(l.ctx).Where(app.IsDelete.Is(false))
 
 	if req.Name != "" {
-		query = query.Where("name LIKE ?", "%"+req.Name+"%")
+		q = q.Where(app.Name.Like("%" + req.Name + "%"))
 	}
 	if req.Code != "" {
-		query = query.Where("code LIKE ?", "%"+req.Code+"%")
+		q = q.Where(app.Code.Like("%" + req.Code + "%"))
 	}
 	if req.Status != nil {
-		query = query.Where("status = ?", *req.Status)
+		q = q.Where(app.Status.Eq(int32(*req.Status)))
 	}
 
-	query.Count(&total)
+	total, _ := q.Count()
 
 	if req.Page > 0 && req.PageSize > 0 {
-		offset := (req.Page - 1) * req.PageSize
-		query = query.Offset(offset).Limit(req.PageSize)
+		q = q.Offset((req.Page - 1) * req.PageSize).Limit(req.PageSize)
 	}
 
-	if err := query.Order("sort ASC").Find(&apps).Error; err != nil {
-		return nil, 0, err
-	}
-
-	return apps, total, nil
+	apps, err := q.Order(app.Sort).Find()
+	return apps, total, err
 }
 
-// GetAllApplications 获取所有应用(用于下拉选择)
-func (l *ApplicationLogic) GetAllApplications() ([]model.SysApplication, error) {
-	var apps []model.SysApplication
-	if err := l.db.Where("status = 1 AND is_delete = ?", false).Order("sort ASC").Find(&apps).Error; err != nil {
-		return nil, err
-	}
-	return apps, nil
+// GetAllApplications 获取所有应用
+func (l *ApplicationLogic) GetAllApplications() ([]*model.SysApplication, error) {
+	app := l.db().SysApplication
+	return app.WithContext(l.ctx).Where(app.Status.Eq(1), app.IsDelete.Is(false)).Order(app.Sort).Find()
 }

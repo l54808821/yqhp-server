@@ -1,0 +1,75 @@
+# 应用配置
+app:
+  name: yqhp-admin
+  version: 1.0.0
+  env: dev # dev, test, prod
+
+# 服务器配置
+server:
+  port: 5320
+  host: 0.0.0.0
+  read_timeout: 60
+  write_timeout: 60
+
+# 数据库配置
+database:
+  driver: mysql
+  host: 127.0.0.1
+  port: 3306
+  username: root
+  password: 123456
+  database: yqhp_admin
+  charset: utf8mb4
+  max_idle_conns: 10
+  max_open_conns: 100
+  conn_max_lifetime: 3600
+
+# Redis配置
+redis:
+  host: 127.0.0.1
+  port: 6379
+  password: "123456"
+  db: 0
+
+# 日志配置
+log:
+  level: debug # debug, info, warn, error
+  format: text # json, text
+  output: stdout # stdout, file
+  file_path: ./logs/app.log
+  max_size: 100 # MB
+  max_backups: 7
+  max_age: 30 # days
+
+# SaToken配置
+sa_token:
+  token_name: satoken
+  token_style: uuid # uuid, simple-uuid, random-32, random-64, random-128
+  timeout: 86400 # token有效期(秒) 24小时
+  active_timeout: 1800 # token活跃检测超时时间(秒) 30分钟
+  is_concurrent: true # 是否允许同一账号并发登录
+  is_share: true # 是否共用token
+  max_login_count: 12 # 同一账号最大登录数量
+  is_log: true # 是否输出日志
+  jwt_secret_key: yqhp-admin-jwt-secret-key-2024
+
+# OAuth2配置
+oauth2:
+  # 微信登录配置
+  wechat:
+    enabled: false
+    app_id: ""
+    app_secret: ""
+    redirect_uri: ""
+  # 飞书登录配置
+  feishu:
+    enabled: false
+    app_id: ""
+    app_secret: ""
+    redirect_uri: ""
+  # GitHub登录配置
+  github:
+    enabled: false
+    client_id: ""
+    client_secret: ""
+    redirect_uri: ""

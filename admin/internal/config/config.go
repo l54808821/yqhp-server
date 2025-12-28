@@ -12,24 +12,6 @@ import (
 // Config 应用配置
 type Config struct {
 	commonConfig.Config `yaml:",inline"`
-	OAuth2              OAuth2Config `yaml:"oauth2"`
-}
-
-// OAuth2Config OAuth2配置
-type OAuth2Config struct {
-	Wechat OAuth2Provider `yaml:"wechat"`
-	Feishu OAuth2Provider `yaml:"feishu"`
-	GitHub OAuth2Provider `yaml:"github"`
-}
-
-// OAuth2Provider OAuth2提供商配置
-type OAuth2Provider struct {
-	Enabled      bool   `yaml:"enabled"`
-	AppID        string `yaml:"app_id"`
-	ClientID     string `yaml:"client_id"`
-	AppSecret    string `yaml:"app_secret"`
-	ClientSecret string `yaml:"client_secret"`
-	RedirectURI  string `yaml:"redirect_uri"`
 }
 
 var (
@@ -62,4 +44,3 @@ func LoadConfig(path string) (*Config, error) {
 func GetConfig() *Config {
 	return globalConfig
 }
-

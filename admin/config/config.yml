@@ -52,24 +52,3 @@ sa_token:
   max_login_count: 12 # 同一账号最大登录数量
   is_log: true # 是否输出日志
   jwt_secret_key: yqhp-admin-jwt-secret-key-2024
-
-# OAuth2配置
-oauth2:
-  # 微信登录配置
-  wechat:
-    enabled: false
-    app_id: ""
-    app_secret: ""
-    redirect_uri: ""
-  # 飞书登录配置
-  feishu:
-    enabled: false
-    app_id: ""
-    app_secret: ""
-    redirect_uri: ""
-  # GitHub登录配置
-  github:
-    enabled: false
-    client_id: ""
-    client_secret: ""
-    redirect_uri: ""

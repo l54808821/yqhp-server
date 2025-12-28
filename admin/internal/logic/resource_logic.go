@@ -21,16 +21,17 @@ func NewResourceLogic(db *gorm.DB) *ResourceLogic {
 
 // CreateResource 创建资源
 func (l *ResourceLogic) CreateResource(req *types.CreateResourceRequest) (*model.Resource, error) {
-	// 检查权限标识是否存在
+	// 检查同一应用下权限标识是否存在
 	if req.Code != "" {
 		var count int64
-		l.db.Model(&model.Resource{}).Where("code = ?", req.Code).Count(&count)
+		l.db.Model(&model.Resource{}).Where("app_id = ? AND code = ?", req.AppID, req.Code).Count(&count)
 		if count > 0 {
 			return nil, errors.New("权限标识已存在")
 		}
 	}
 
 	resource := &model.Resource{
+		AppID:     req.AppID,
 		ParentID:  req.ParentID,
 		Name:      req.Name,
 		Code:      req.Code,
@@ -56,10 +57,16 @@ func (l *ResourceLogic) CreateResource(req *types.CreateResourceRequest) (*model
 
 // UpdateResource 更新资源
 func (l *ResourceLogic) UpdateResource(req *types.UpdateResourceRequest) error {
-	// 检查权限标识是否存在
+	// 获取原资源信息
+	var original model.Resource
+	if err := l.db.First(&original, req.ID).Error; err != nil {
+		return err
+	}
+
+	// 检查同一应用下权限标识是否存在
 	if req.Code != "" {
 		var count int64
-		l.db.Model(&model.Resource{}).Where("code = ? AND id != ?", req.Code, req.ID).Count(&count)
+		l.db.Model(&model.Resource{}).Where("app_id = ? AND code = ? AND id != ?", original.AppID, req.Code, req.ID).Count(&count)
 		if count > 0 {
 			return errors.New("权限标识已存在")
 		}
@@ -119,10 +126,29 @@ func (l *ResourceLogic) GetResourceTree() ([]model.Resource, error) {
 	return buildResourceTree(resources, 0), nil
 }
 
+// GetResourceTreeByAppID 获取指定应用的资源树
+func (l *ResourceLogic) GetResourceTreeByAppID(appID uint) ([]model.Resource, error) {
+	var resources []model.Resource
+	if err := l.db.Where("app_id = ? AND status = 1", appID).Order("sort ASC").Find(&resources).Error; err != nil {
+		return nil, err
+	}
+
+	return buildResourceTree(resources, 0), nil
+}
+
 // GetAllResources 获取所有资源(平铺)
 func (l *ResourceLogic) GetAllResources() ([]model.Resource, error) {
 	var resources []model.Resource
 	if err := l.db.Order("sort ASC").Find(&resources).Error; err != nil {
+		return nil, err
+	}
+	return resources, nil
+}
+
+// GetAllResourcesByAppID 获取指定应用的所有资源(平铺)
+func (l *ResourceLogic) GetAllResourcesByAppID(appID uint) ([]model.Resource, error) {
+	var resources []model.Resource
+	if err := l.db.Where("app_id = ?", appID).Order("sort ASC").Find(&resources).Error; err != nil {
 		return nil, err
 	}
 	return resources, nil

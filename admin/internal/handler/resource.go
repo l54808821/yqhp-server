@@ -23,6 +23,19 @@ func NewResourceHandler(resourceLogic *logic.ResourceLogic) *ResourceHandler {
 
 // Tree 获取资源树
 func (h *ResourceHandler) Tree(c *fiber.Ctx) error {
+	appIDStr := c.Query("appId")
+	if appIDStr != "" {
+		appID, err := strconv.ParseUint(appIDStr, 10, 64)
+		if err != nil {
+			return response.Error(c, "参数错误")
+		}
+		tree, err := h.resourceLogic.GetResourceTreeByAppID(uint(appID))
+		if err != nil {
+			return response.Error(c, "获取失败")
+		}
+		return response.Success(c, tree)
+	}
+
 	tree, err := h.resourceLogic.GetResourceTree()
 	if err != nil {
 		return response.Error(c, "获取失败")
@@ -32,6 +45,19 @@ func (h *ResourceHandler) Tree(c *fiber.Ctx) error {
 
 // All 获取所有资源
 func (h *ResourceHandler) All(c *fiber.Ctx) error {
+	appIDStr := c.Query("appId")
+	if appIDStr != "" {
+		appID, err := strconv.ParseUint(appIDStr, 10, 64)
+		if err != nil {
+			return response.Error(c, "参数错误")
+		}
+		resources, err := h.resourceLogic.GetAllResourcesByAppID(uint(appID))
+		if err != nil {
+			return response.Error(c, "获取失败")
+		}
+		return response.Success(c, resources)
+	}
+
 	resources, err := h.resourceLogic.GetAllResources()
 	if err != nil {
 		return response.Error(c, "获取失败")

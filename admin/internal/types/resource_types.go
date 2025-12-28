@@ -2,6 +2,7 @@ package types
 
 // CreateResourceRequest 创建资源请求
 type CreateResourceRequest struct {
+	AppID     uint   `json:"appId" validate:"required"`
 	ParentID  uint   `json:"parentId"`
 	Name      string `json:"name" validate:"required"`
 	Code      string `json:"code"`
@@ -35,4 +36,9 @@ type UpdateResourceRequest struct {
 	IsFrame   bool   `json:"isFrame"`
 	Status    int8   `json:"status"`
 	Remark    string `json:"remark"`
+}
+
+// ListResourcesRequest 资源列表请求
+type ListResourcesRequest struct {
+	AppID uint `json:"appId"`
 }

@@ -1,31 +1,29 @@
 package types
 
-// CreateRoleRequest 创建角色请求
-type CreateRoleRequest struct {
-	AppID       uint   `json:"appId" validate:"required"`
+// CreateApplicationRequest 创建应用请求
+type CreateApplicationRequest struct {
 	Name        string `json:"name" validate:"required"`
 	Code        string `json:"code" validate:"required"`
+	Description string `json:"description"`
+	Icon        string `json:"icon"`
 	Sort        int    `json:"sort"`
 	Status      int8   `json:"status"`
-	Remark      string `json:"remark"`
-	ResourceIDs []uint `json:"resourceIds"`
 }
 
-// UpdateRoleRequest 更新角色请求
-type UpdateRoleRequest struct {
+// UpdateApplicationRequest 更新应用请求
+type UpdateApplicationRequest struct {
 	ID          uint   `json:"id" validate:"required"`
 	Name        string `json:"name"`
+	Description string `json:"description"`
+	Icon        string `json:"icon"`
 	Sort        int    `json:"sort"`
 	Status      int8   `json:"status"`
-	Remark      string `json:"remark"`
-	ResourceIDs []uint `json:"resourceIds"`
 }
 
-// ListRolesRequest 角色列表请求
-type ListRolesRequest struct {
+// ListApplicationsRequest 应用列表请求
+type ListApplicationsRequest struct {
 	Page     int    `json:"page"`
 	PageSize int    `json:"pageSize"`
-	AppID    uint   `json:"appId"`
 	Name     string `json:"name"`
 	Code     string `json:"code"`
 	Status   *int8  `json:"status"`

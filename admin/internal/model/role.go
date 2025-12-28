@@ -3,8 +3,9 @@ package model
 // Role 角色模型
 type Role struct {
 	BaseModel
-	Name      string     `gorm:"size:50;uniqueIndex;not null" json:"name"`
-	Code      string     `gorm:"size:50;uniqueIndex;not null" json:"code"`
+	AppID     uint       `gorm:"index;not null;default:0" json:"appId"` // 所属应用ID
+	Name      string     `gorm:"size:50;not null" json:"name"`
+	Code      string     `gorm:"size:50;not null;index" json:"code"`
 	Sort      int        `gorm:"default:0" json:"sort"`
 	Status    int8       `gorm:"default:1" json:"status"` // 0:禁用 1:启用
 	Remark    string     `gorm:"size:500" json:"remark"`
@@ -26,4 +27,3 @@ type RoleResource struct {
 func (RoleResource) TableName() string {
 	return "sys_role_resource"
 }
-

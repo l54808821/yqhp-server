@@ -21,14 +21,15 @@ func NewRoleLogic(db *gorm.DB) *RoleLogic {
 
 // CreateRole 创建角色
 func (l *RoleLogic) CreateRole(req *types.CreateRoleRequest) (*model.Role, error) {
-	// 检查角色编码是否存在
+	// 检查同一应用下角色编码是否存在
 	var count int64
-	l.db.Model(&model.Role{}).Where("code = ?", req.Code).Count(&count)
+	l.db.Model(&model.Role{}).Where("app_id = ? AND code = ?", req.AppID, req.Code).Count(&count)
 	if count > 0 {
 		return nil, errors.New("角色编码已存在")
 	}
 
 	role := &model.Role{
+		AppID:  req.AppID,
 		Name:   req.Name,
 		Code:   req.Code,
 		Sort:   req.Sort,
@@ -111,6 +112,9 @@ func (l *RoleLogic) ListRoles(req *types.ListRolesRequest) ([]model.Role, int64,
 
 	query := l.db.Model(&model.Role{})
 
+	if req.AppID > 0 {
+		query = query.Where("app_id = ?", req.AppID)
+	}
 	if req.Name != "" {
 		query = query.Where("name LIKE ?", "%"+req.Name+"%")
 	}
@@ -139,6 +143,15 @@ func (l *RoleLogic) ListRoles(req *types.ListRolesRequest) ([]model.Role, int64,
 func (l *RoleLogic) GetAllRoles() ([]model.Role, error) {
 	var roles []model.Role
 	if err := l.db.Where("status = 1").Order("sort ASC").Find(&roles).Error; err != nil {
+		return nil, err
+	}
+	return roles, nil
+}
+
+// GetRolesByAppID 获取指定应用的所有角色
+func (l *RoleLogic) GetRolesByAppID(appID uint) ([]model.Role, error) {
+	var roles []model.Role
+	if err := l.db.Where("app_id = ? AND status = 1", appID).Order("sort ASC").Find(&roles).Error; err != nil {
 		return nil, err
 	}
 	return roles, nil

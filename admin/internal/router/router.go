@@ -22,6 +22,7 @@ func Setup(app *fiber.App, db *gorm.DB) {
 	configLogic := logic.NewConfigLogic(db)
 	oauthLogic := logic.NewOAuthLogic(db)
 	tokenLogic := logic.NewTokenLogic(db)
+	appLogic := logic.NewApplicationLogic(db)
 	permissionService := auth.NewPermissionService(db)
 
 	// 初始化处理器
@@ -34,6 +35,7 @@ func Setup(app *fiber.App, db *gorm.DB) {
 	configHandler := handler.NewConfigHandler(configLogic)
 	tokenHandler := handler.NewTokenHandler(tokenLogic)
 	oauthProviderHandler := handler.NewOAuthProviderHandler(oauthLogic)
+	appHandler := handler.NewApplicationHandler(appLogic)
 
 	// 全局中间件
 	app.Use(commonMiddleware.CORS())
@@ -49,7 +51,7 @@ func Setup(app *fiber.App, db *gorm.DB) {
 	// 需要认证的路由
 	authApi := api.Group("", middleware.AuthMiddleware())
 	setupAuthRoutes(authApi, authHandler, userHandler, roleHandler, resourceHandler,
-		deptHandler, dictHandler, configHandler, tokenHandler, oauthProviderHandler, permissionService)
+		deptHandler, dictHandler, configHandler, tokenHandler, oauthProviderHandler, appHandler, permissionService)
 }
 
 // setupPublicRoutes 设置公开路由
@@ -76,6 +78,7 @@ func setupAuthRoutes(
 	configHandler *handler.ConfigHandler,
 	tokenHandler *handler.TokenHandler,
 	oauthProviderHandler *handler.OAuthProviderHandler,
+	appHandler *handler.ApplicationHandler,
 	permissionService *auth.PermissionService,
 ) {
 	// 认证相关
@@ -174,6 +177,15 @@ func setupAuthRoutes(
 	tokens.Post("/kickout-by-token", middleware.PermissionMiddleware(permissionService, "system:token:kickout"), tokenHandler.KickOutByToken)
 	tokens.Post("/disable/:id", middleware.PermissionMiddleware(permissionService, "system:token:disable"), tokenHandler.DisableUser)
 	tokens.Post("/enable/:id", middleware.PermissionMiddleware(permissionService, "system:token:enable"), tokenHandler.EnableUser)
+
+	// 应用管理
+	apps := system.Group("/applications")
+	apps.Post("/list", appHandler.List)
+	apps.Get("/all", appHandler.All)
+	apps.Get("/:id", appHandler.Get)
+	apps.Post("", middleware.PermissionMiddleware(permissionService, "system:app:add"), appHandler.Create)
+	apps.Put("", middleware.PermissionMiddleware(permissionService, "system:app:edit"), appHandler.Update)
+	apps.Delete("/:id", middleware.PermissionMiddleware(permissionService, "system:app:delete"), appHandler.Delete)
 
 	// 日志管理
 	logs := system.Group("/logs")

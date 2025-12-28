@@ -23,12 +23,13 @@ import (
 
 // OAuthLogic OAuth逻辑
 type OAuthLogic struct {
-	ctx context.Context
+	ctx   context.Context
+	fiber *fiber.Ctx
 }
 
 // NewOAuthLogic 创建OAuth逻辑
 func NewOAuthLogic(c *fiber.Ctx) *OAuthLogic {
-	return &OAuthLogic{ctx: c.Context()}
+	return &OAuthLogic{ctx: c.Context(), fiber: c}
 }
 
 func (l *OAuthLogic) db() *query.Query {
@@ -238,6 +239,9 @@ func (l *OAuthLogic) findOrCreateUser(provider *model.SysOauthProvider, userInfo
 		"last_login_ip": ip,
 	})
 
+	// 保存用户token记录
+	l.saveUserToken(user.ID, token, ip, now)
+
 	return &types.OAuthLoginResponse{
 		Token:    token,
 		UserInfo: types.ToUserInfo(user),
@@ -404,6 +408,27 @@ func (l *OAuthLogic) GetUserBindings(userID int64) ([]*types.OAuthBindingInfo, e
 		return nil, err
 	}
 	return types.ToOAuthBindingInfoList(bindings), nil
+}
+
+// saveUserToken 保存用户token记录
+func (l *OAuthLogic) saveUserToken(userID int64, token string, ip string, now time.Time) {
+	expireAt := now.Add(24 * time.Hour)
+	var userAgent string
+	if l.fiber != nil {
+		userAgent = l.fiber.Get("User-Agent")
+	}
+	userToken := &model.SysUserToken{
+		UserID:       model.Int64Ptr(userID),
+		Token:        model.StringPtr(token),
+		Device:       model.StringPtr("pc"),
+		Platform:     model.StringPtr("web"),
+		IP:           model.StringPtr(ip),
+		UserAgent:    model.StringPtr(userAgent),
+		ExpireAt:     &expireAt,
+		LastActiveAt: &now,
+		IsDelete:     model.BoolPtr(false),
+	}
+	l.db().SysUserToken.WithContext(l.ctx).Create(userToken)
 }
 
 // getStringValue 从map中获取字符串值

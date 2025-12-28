@@ -17,12 +17,13 @@ import (
 
 // UserLogic 用户逻辑
 type UserLogic struct {
-	ctx context.Context
+	ctx   context.Context
+	fiber *fiber.Ctx
 }
 
 // NewUserLogic 创建用户逻辑
 func NewUserLogic(c *fiber.Ctx) *UserLogic {
-	return &UserLogic{ctx: c.Context()}
+	return &UserLogic{ctx: c.Context(), fiber: c}
 }
 
 // db 获取数据库实例（复杂查询用）
@@ -146,12 +147,17 @@ func (l *UserLogic) Login(req *types.LoginRequest, ip string) (*types.LoginRespo
 
 func (l *UserLogic) saveUserToken(userID int64, token string, ip string, now time.Time) {
 	expireAt := now.Add(24 * time.Hour)
+	var userAgent string
+	if l.fiber != nil {
+		userAgent = l.fiber.Get("User-Agent")
+	}
 	userToken := &model.SysUserToken{
 		UserID:       model.Int64Ptr(userID),
 		Token:        model.StringPtr(token),
 		Device:       model.StringPtr("pc"),
 		Platform:     model.StringPtr("web"),
 		IP:           model.StringPtr(ip),
+		UserAgent:    model.StringPtr(userAgent),
 		ExpireAt:     &expireAt,
 		LastActiveAt: &now,
 		IsDelete:     model.BoolPtr(false),

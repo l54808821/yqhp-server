@@ -37,6 +37,7 @@ type TokenInfo struct {
 	Device       string    `json:"device"`
 	Platform     string    `json:"platform"`
 	IP           string    `json:"ip"`
+	UserAgent    string    `json:"userAgent"`
 	ExpireAt     *DateTime `json:"expireAt"`
 	LastActiveAt *DateTime `json:"lastActiveAt"`
 	CreatedAt    *DateTime `json:"createdAt"`

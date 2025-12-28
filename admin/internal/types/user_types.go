@@ -46,36 +46,43 @@ type UserInfo struct {
 // RoleRef 角色引用（简化版）
 type RoleRef struct {
 	ID     int64  `json:"id"`
+	AppID  int64  `json:"appId"`
 	Name   string `json:"name"`
 	Code   string `json:"code"`
 	Status int32  `json:"status"`
 }
 
+// AppRoleConfig 应用角色配置（用于用户角色分配）
+type AppRoleConfig struct {
+	AppID   int64   `json:"appId"`
+	RoleIDs []int64 `json:"roleIds"`
+}
+
 // CreateUserRequest 创建用户请求
 type CreateUserRequest struct {
-	Username string `json:"username" validate:"required"`
-	Password string `json:"password" validate:"required"`
-	Nickname string `json:"nickname"`
-	Email    string `json:"email"`
-	Phone    string `json:"phone"`
-	Gender   int8   `json:"gender"`
-	DeptID   uint   `json:"deptId"`
-	RoleIDs  []uint `json:"roleIds"`
-	Remark   string `json:"remark"`
+	Username string          `json:"username" validate:"required"`
+	Password string          `json:"password" validate:"required"`
+	Nickname string          `json:"nickname"`
+	Email    string          `json:"email"`
+	Phone    string          `json:"phone"`
+	Gender   int8            `json:"gender"`
+	DeptID   uint            `json:"deptId"`
+	AppRoles []AppRoleConfig `json:"appRoles"` // 按应用配置角色
+	Remark   string          `json:"remark"`
 }
 
 // UpdateUserRequest 更新用户请求
 type UpdateUserRequest struct {
-	ID       uint    `json:"id" validate:"required"`
-	Nickname string  `json:"nickname"`
-	Avatar   string  `json:"avatar"`
-	Email    string  `json:"email"`
-	Phone    string  `json:"phone"`
-	Gender   int8    `json:"gender"`
-	DeptID   uint    `json:"deptId"`
-	Status   int8    `json:"status"`
-	RoleIDs  *[]uint `json:"roleIds"` // 使用指针类型，区分"没传"和"传了空数组"
-	Remark   string  `json:"remark"`
+	ID       uint             `json:"id" validate:"required"`
+	Nickname string           `json:"nickname"`
+	Avatar   string           `json:"avatar"`
+	Email    string           `json:"email"`
+	Phone    string           `json:"phone"`
+	Gender   int8             `json:"gender"`
+	DeptID   uint             `json:"deptId"`
+	Status   int8             `json:"status"`
+	AppRoles *[]AppRoleConfig `json:"appRoles"` // 使用指针类型，区分"没传"和"传了空数组"
+	Remark   string           `json:"remark"`
 }
 
 // ListUsersRequest 用户列表请求

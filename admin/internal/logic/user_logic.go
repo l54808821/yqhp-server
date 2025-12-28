@@ -244,15 +244,18 @@ func (l *UserLogic) CreateUser(req *types.CreateUserRequest) (*types.UserInfo, e
 		return nil, err
 	}
 
-	// 关联角色
-	if len(req.RoleIDs) > 0 {
+	// 关联角色（按应用）
+	if len(req.AppRoles) > 0 {
 		ur := l.db().SysUserRole
-		for _, roleID := range req.RoleIDs {
-			ur.WithContext(l.ctx).Create(&model.SysUserRole{
-				UserID:   user.ID,
-				RoleID:   int64(roleID),
-				IsDelete: model.BoolPtr(false),
-			})
+		for _, appRole := range req.AppRoles {
+			for _, roleID := range appRole.RoleIDs {
+				ur.WithContext(l.ctx).Create(&model.SysUserRole{
+					UserID:   user.ID,
+					AppID:    appRole.AppID,
+					RoleID:   roleID,
+					IsDelete: model.BoolPtr(false),
+				})
+			}
 		}
 	}
 
@@ -278,43 +281,32 @@ func (l *UserLogic) UpdateUser(req *types.UpdateUserRequest) error {
 		return err
 	}
 
-	// 只有当明确传递了 RoleIDs 时才更新角色关联
-	if req.RoleIDs != nil {
+	// 只有当明确传递了 AppRoles 时才更新角色关联
+	if req.AppRoles != nil {
 		ur := l.db().SysUserRole
 		userID := int64(req.ID)
 
-		// 获取当前用户的所有角色关联
-		existingRoles, _ := ur.WithContext(l.ctx).Where(ur.UserID.Eq(userID)).Find()
-		existingMap := make(map[int64]*model.SysUserRole)
-		for _, r := range existingRoles {
-			existingMap[r.RoleID] = r
-		}
+		// 先将该用户所有角色标记为删除
+		ur.WithContext(l.ctx).Where(ur.UserID.Eq(userID)).Update(ur.IsDelete, true)
 
-		// 新的角色ID集合
-		newRoleIDs := make(map[int64]bool)
-		for _, roleID := range *req.RoleIDs {
-			newRoleIDs[int64(roleID)] = true
-		}
+		// 重新创建角色关联
+		for _, appRole := range *req.AppRoles {
+			for _, roleID := range appRole.RoleIDs {
+				// 尝试恢复已存在的记录，或创建新记录
+				result, _ := ur.WithContext(l.ctx).Where(
+					ur.UserID.Eq(userID),
+					ur.AppID.Eq(appRole.AppID),
+					ur.RoleID.Eq(roleID),
+				).Update(ur.IsDelete, false)
 
-		// 处理需要删除的角色（在旧列表中但不在新列表中）
-		for roleID, role := range existingMap {
-			if !newRoleIDs[roleID] {
-				// 标记删除
-				ur.WithContext(l.ctx).Where(ur.UserID.Eq(userID), ur.RoleID.Eq(roleID)).Update(ur.IsDelete, true)
-			} else if role.IsDelete != nil && *role.IsDelete {
-				// 如果之前被删除了，现在需要恢复
-				ur.WithContext(l.ctx).Where(ur.UserID.Eq(userID), ur.RoleID.Eq(roleID)).Update(ur.IsDelete, false)
-			}
-		}
-
-		// 处理需要新增的角色（在新列表中但不在旧列表中）
-		for roleID := range newRoleIDs {
-			if _, exists := existingMap[roleID]; !exists {
-				ur.WithContext(l.ctx).Create(&model.SysUserRole{
-					UserID:   userID,
-					RoleID:   roleID,
-					IsDelete: model.BoolPtr(false),
-				})
+				if result.RowsAffected == 0 {
+					ur.WithContext(l.ctx).Create(&model.SysUserRole{
+						UserID:   userID,
+						AppID:    appRole.AppID,
+						RoleID:   roleID,
+						IsDelete: model.BoolPtr(false),
+					})
+				}
 			}
 		}
 	}
@@ -397,19 +389,28 @@ func (l *UserLogic) ListUsers(req *types.ListUsersRequest) ([]*types.UserInfo, i
 	return list, total, nil
 }
 
-// GetUserRoleIDs 获取用户的角色ID列表
-func (l *UserLogic) GetUserRoleIDs(userID int64) ([]int64, error) {
+// GetUserRoleIDs 获取用户的角色ID列表（按应用分组）
+func (l *UserLogic) GetUserRoleIDs(userID int64) ([]types.AppRoleConfig, error) {
 	ur := l.db().SysUserRole
 	roles, err := ur.WithContext(l.ctx).Where(ur.UserID.Eq(userID), ur.IsDelete.Is(false)).Find()
 	if err != nil {
 		return nil, err
 	}
 
-	ids := make([]int64, len(roles))
-	for i, r := range roles {
-		ids[i] = r.RoleID
+	// 按应用分组
+	appRolesMap := make(map[int64][]int64)
+	for _, r := range roles {
+		appRolesMap[r.AppID] = append(appRolesMap[r.AppID], r.RoleID)
 	}
-	return ids, nil
+
+	result := make([]types.AppRoleConfig, 0, len(appRolesMap))
+	for appID, roleIDs := range appRolesMap {
+		result = append(result, types.AppRoleConfig{
+			AppID:   appID,
+			RoleIDs: roleIDs,
+		})
+	}
+	return result, nil
 }
 
 // BatchGetUsers 批量获取用户基本信息

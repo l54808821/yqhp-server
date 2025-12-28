@@ -47,8 +47,8 @@ INSERT INTO sys_user (id, created_at, updated_at, is_delete, created_by, updated
 -- =============================================
 -- 5. 初始化用户角色关联
 -- =============================================
-INSERT INTO sys_user_role (user_id, role_id, is_delete) VALUES
-(1, 1, 0);
+INSERT INTO sys_user_role (user_id, role_id, app_id, is_delete) VALUES
+(1, 1, 1, 0);
 
 -- =============================================
 -- 6. 初始化菜单资源

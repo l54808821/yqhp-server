@@ -29,6 +29,7 @@ func newSysUserRole(db *gorm.DB, opts ...gen.DOOption) sysUserRole {
 	_sysUserRole.ALL = field.NewAsterisk(tableName)
 	_sysUserRole.UserID = field.NewInt64(tableName, "user_id")
 	_sysUserRole.RoleID = field.NewInt64(tableName, "role_id")
+	_sysUserRole.AppID = field.NewInt64(tableName, "app_id")
 	_sysUserRole.IsDelete = field.NewBool(tableName, "is_delete")
 
 	_sysUserRole.fillFieldMap()
@@ -42,6 +43,7 @@ type sysUserRole struct {
 	ALL      field.Asterisk
 	UserID   field.Int64
 	RoleID   field.Int64
+	AppID    field.Int64 // 应用ID
 	IsDelete field.Bool
 
 	fieldMap map[string]field.Expr
@@ -61,6 +63,7 @@ func (s *sysUserRole) updateTableName(table string) *sysUserRole {
 	s.ALL = field.NewAsterisk(table)
 	s.UserID = field.NewInt64(table, "user_id")
 	s.RoleID = field.NewInt64(table, "role_id")
+	s.AppID = field.NewInt64(table, "app_id")
 	s.IsDelete = field.NewBool(table, "is_delete")
 
 	s.fillFieldMap()
@@ -88,9 +91,10 @@ func (s *sysUserRole) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (s *sysUserRole) fillFieldMap() {
-	s.fieldMap = make(map[string]field.Expr, 3)
+	s.fieldMap = make(map[string]field.Expr, 4)
 	s.fieldMap["user_id"] = s.UserID
 	s.fieldMap["role_id"] = s.RoleID
+	s.fieldMap["app_id"] = s.AppID
 	s.fieldMap["is_delete"] = s.IsDelete
 }
 

@@ -117,7 +117,16 @@ func ToUserInfoList(users []*model.SysUser) []*UserInfo {
 }
 
 func ToRoleRef(r *model.SysRole) *RoleRef {
-	return Copy[RoleRef](r)
+	if r == nil {
+		return nil
+	}
+	return &RoleRef{
+		ID:     r.ID,
+		AppID:  r.AppID,
+		Name:   r.Name,
+		Code:   r.Code,
+		Status: model.GetInt32(r.Status),
+	}
 }
 
 func ToRoleRefList(roles []*model.SysRole) []RoleRef {

@@ -8,8 +8,9 @@ const TableNameSysUserRole = "sys_user_role"
 
 // SysUserRole mapped from table <sys_user_role>
 type SysUserRole struct {
-	UserID   int64 `gorm:"column:user_id;type:bigint unsigned;primaryKey" json:"user_id"`
-	RoleID   int64 `gorm:"column:role_id;type:bigint unsigned;primaryKey" json:"role_id"`
+	UserID   int64 `gorm:"column:user_id;type:bigint unsigned;primaryKey;uniqueIndex:uk_user_app_role,priority:1" json:"user_id"`
+	RoleID   int64 `gorm:"column:role_id;type:bigint unsigned;primaryKey;uniqueIndex:uk_user_app_role,priority:3" json:"role_id"`
+	AppID    int64 `gorm:"column:app_id;type:bigint;primaryKey;uniqueIndex:uk_user_app_role,priority:2;comment:应用ID" json:"app_id"` // 应用ID
 	IsDelete *bool `gorm:"column:is_delete;type:tinyint(1);index:idx_sys_user_role_is_delete,priority:1" json:"is_delete"`
 }
 

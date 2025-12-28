@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"yqhp/admin/internal/ctxutil"
 	"yqhp/admin/internal/model"
 	"yqhp/admin/internal/query"
 	"yqhp/admin/internal/svc"
@@ -19,7 +20,7 @@ type ApplicationLogic struct {
 
 // NewApplicationLogic 创建应用逻辑
 func NewApplicationLogic(c *fiber.Ctx) *ApplicationLogic {
-	return &ApplicationLogic{ctx: c.Context()}
+	return &ApplicationLogic{ctx: c.UserContext()}
 }
 
 func (l *ApplicationLogic) db() *query.Query {
@@ -34,6 +35,7 @@ func (l *ApplicationLogic) CreateApplication(req *types.CreateApplicationRequest
 		return nil, errors.New("应用编码已存在")
 	}
 
+	userID := ctxutil.GetUserID(l.ctx)
 	application := &model.SysApplication{
 		Name:        req.Name,
 		Code:        req.Code,
@@ -42,6 +44,8 @@ func (l *ApplicationLogic) CreateApplication(req *types.CreateApplicationRequest
 		Sort:        model.Int64Ptr(int64(req.Sort)),
 		Status:      model.Int32Ptr(int32(req.Status)),
 		IsDelete:    model.BoolPtr(false),
+		CreatedBy:   model.Int64Ptr(userID),
+		UpdatedBy:   model.Int64Ptr(userID),
 	}
 
 	if err := app.WithContext(l.ctx).Create(application); err != nil {
@@ -53,6 +57,7 @@ func (l *ApplicationLogic) CreateApplication(req *types.CreateApplicationRequest
 
 // UpdateApplication 更新应用
 func (l *ApplicationLogic) UpdateApplication(req *types.UpdateApplicationRequest) error {
+	userID := ctxutil.GetUserID(l.ctx)
 	app := l.db().SysApplication
 	_, err := app.WithContext(l.ctx).Where(app.ID.Eq(int64(req.ID))).Updates(map[string]any{
 		"name":        req.Name,
@@ -60,6 +65,7 @@ func (l *ApplicationLogic) UpdateApplication(req *types.UpdateApplicationRequest
 		"icon":        req.Icon,
 		"sort":        req.Sort,
 		"status":      req.Status,
+		"updated_by":  userID,
 	})
 	return err
 }

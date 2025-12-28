@@ -31,6 +31,8 @@ func newSysDictDatum(db *gorm.DB, opts ...gen.DOOption) sysDictDatum {
 	_sysDictDatum.CreatedAt = field.NewTime(tableName, "created_at")
 	_sysDictDatum.UpdatedAt = field.NewTime(tableName, "updated_at")
 	_sysDictDatum.IsDelete = field.NewBool(tableName, "is_delete")
+	_sysDictDatum.CreatedBy = field.NewInt64(tableName, "created_by")
+	_sysDictDatum.UpdatedBy = field.NewInt64(tableName, "updated_by")
 	_sysDictDatum.TypeCode = field.NewString(tableName, "type_code")
 	_sysDictDatum.Label = field.NewString(tableName, "label")
 	_sysDictDatum.Value = field.NewString(tableName, "value")
@@ -54,6 +56,8 @@ type sysDictDatum struct {
 	CreatedAt field.Time
 	UpdatedAt field.Time
 	IsDelete  field.Bool
+	CreatedBy field.Int64 // 创建人ID
+	UpdatedBy field.Int64 // 更新人ID
 	TypeCode  field.String
 	Label     field.String
 	Value     field.String
@@ -83,6 +87,8 @@ func (s *sysDictDatum) updateTableName(table string) *sysDictDatum {
 	s.CreatedAt = field.NewTime(table, "created_at")
 	s.UpdatedAt = field.NewTime(table, "updated_at")
 	s.IsDelete = field.NewBool(table, "is_delete")
+	s.CreatedBy = field.NewInt64(table, "created_by")
+	s.UpdatedBy = field.NewInt64(table, "updated_by")
 	s.TypeCode = field.NewString(table, "type_code")
 	s.Label = field.NewString(table, "label")
 	s.Value = field.NewString(table, "value")
@@ -120,11 +126,13 @@ func (s *sysDictDatum) GetFieldByName(fieldName string) (field.OrderExpr, bool) 
 }
 
 func (s *sysDictDatum) fillFieldMap() {
-	s.fieldMap = make(map[string]field.Expr, 13)
+	s.fieldMap = make(map[string]field.Expr, 15)
 	s.fieldMap["id"] = s.ID
 	s.fieldMap["created_at"] = s.CreatedAt
 	s.fieldMap["updated_at"] = s.UpdatedAt
 	s.fieldMap["is_delete"] = s.IsDelete
+	s.fieldMap["created_by"] = s.CreatedBy
+	s.fieldMap["updated_by"] = s.UpdatedBy
 	s.fieldMap["type_code"] = s.TypeCode
 	s.fieldMap["label"] = s.Label
 	s.fieldMap["value"] = s.Value

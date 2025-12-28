@@ -16,6 +16,8 @@ type SysResource struct {
 	CreatedAt *time.Time `gorm:"column:created_at;type:datetime" json:"created_at"`
 	UpdatedAt *time.Time `gorm:"column:updated_at;type:datetime" json:"updated_at"`
 	IsDelete  *bool      `gorm:"column:is_delete;type:tinyint(1);index:idx_sys_resource_is_delete,priority:1" json:"is_delete"`
+	CreatedBy *int64     `gorm:"column:created_by;type:bigint unsigned;comment:创建人ID" json:"created_by"` // 创建人ID
+	UpdatedBy *int64     `gorm:"column:updated_by;type:bigint unsigned;comment:更新人ID" json:"updated_by"` // 更新人ID
 	AppID     int64      `gorm:"column:app_id;type:bigint unsigned;not null;index:idx_sys_resource_app_id,priority:1" json:"app_id"`
 	ParentID  *int64     `gorm:"column:parent_id;type:bigint unsigned" json:"parent_id"`
 	Name      string     `gorm:"column:name;type:varchar(50);not null" json:"name"`

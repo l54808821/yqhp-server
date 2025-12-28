@@ -31,6 +31,8 @@ func newSysRole(db *gorm.DB, opts ...gen.DOOption) sysRole {
 	_sysRole.CreatedAt = field.NewTime(tableName, "created_at")
 	_sysRole.UpdatedAt = field.NewTime(tableName, "updated_at")
 	_sysRole.IsDelete = field.NewBool(tableName, "is_delete")
+	_sysRole.CreatedBy = field.NewInt64(tableName, "created_by")
+	_sysRole.UpdatedBy = field.NewInt64(tableName, "updated_by")
 	_sysRole.AppID = field.NewInt64(tableName, "app_id")
 	_sysRole.Name = field.NewString(tableName, "name")
 	_sysRole.Code = field.NewString(tableName, "code")
@@ -51,6 +53,8 @@ type sysRole struct {
 	CreatedAt field.Time
 	UpdatedAt field.Time
 	IsDelete  field.Bool
+	CreatedBy field.Int64 // 创建人ID
+	UpdatedBy field.Int64 // 更新人ID
 	AppID     field.Int64
 	Name      field.String
 	Code      field.String
@@ -77,6 +81,8 @@ func (s *sysRole) updateTableName(table string) *sysRole {
 	s.CreatedAt = field.NewTime(table, "created_at")
 	s.UpdatedAt = field.NewTime(table, "updated_at")
 	s.IsDelete = field.NewBool(table, "is_delete")
+	s.CreatedBy = field.NewInt64(table, "created_by")
+	s.UpdatedBy = field.NewInt64(table, "updated_by")
 	s.AppID = field.NewInt64(table, "app_id")
 	s.Name = field.NewString(table, "name")
 	s.Code = field.NewString(table, "code")
@@ -107,11 +113,13 @@ func (s *sysRole) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (s *sysRole) fillFieldMap() {
-	s.fieldMap = make(map[string]field.Expr, 10)
+	s.fieldMap = make(map[string]field.Expr, 12)
 	s.fieldMap["id"] = s.ID
 	s.fieldMap["created_at"] = s.CreatedAt
 	s.fieldMap["updated_at"] = s.UpdatedAt
 	s.fieldMap["is_delete"] = s.IsDelete
+	s.fieldMap["created_by"] = s.CreatedBy
+	s.fieldMap["updated_by"] = s.UpdatedBy
 	s.fieldMap["app_id"] = s.AppID
 	s.fieldMap["name"] = s.Name
 	s.fieldMap["code"] = s.Code

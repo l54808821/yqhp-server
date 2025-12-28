@@ -31,6 +31,8 @@ func newSysResource(db *gorm.DB, opts ...gen.DOOption) sysResource {
 	_sysResource.CreatedAt = field.NewTime(tableName, "created_at")
 	_sysResource.UpdatedAt = field.NewTime(tableName, "updated_at")
 	_sysResource.IsDelete = field.NewBool(tableName, "is_delete")
+	_sysResource.CreatedBy = field.NewInt64(tableName, "created_by")
+	_sysResource.UpdatedBy = field.NewInt64(tableName, "updated_by")
 	_sysResource.AppID = field.NewInt64(tableName, "app_id")
 	_sysResource.ParentID = field.NewInt64(tableName, "parent_id")
 	_sysResource.Name = field.NewString(tableName, "name")
@@ -60,6 +62,8 @@ type sysResource struct {
 	CreatedAt field.Time
 	UpdatedAt field.Time
 	IsDelete  field.Bool
+	CreatedBy field.Int64 // 创建人ID
+	UpdatedBy field.Int64 // 更新人ID
 	AppID     field.Int64
 	ParentID  field.Int64
 	Name      field.String
@@ -95,6 +99,8 @@ func (s *sysResource) updateTableName(table string) *sysResource {
 	s.CreatedAt = field.NewTime(table, "created_at")
 	s.UpdatedAt = field.NewTime(table, "updated_at")
 	s.IsDelete = field.NewBool(table, "is_delete")
+	s.CreatedBy = field.NewInt64(table, "created_by")
+	s.UpdatedBy = field.NewInt64(table, "updated_by")
 	s.AppID = field.NewInt64(table, "app_id")
 	s.ParentID = field.NewInt64(table, "parent_id")
 	s.Name = field.NewString(table, "name")
@@ -136,11 +142,13 @@ func (s *sysResource) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (s *sysResource) fillFieldMap() {
-	s.fieldMap = make(map[string]field.Expr, 19)
+	s.fieldMap = make(map[string]field.Expr, 21)
 	s.fieldMap["id"] = s.ID
 	s.fieldMap["created_at"] = s.CreatedAt
 	s.fieldMap["updated_at"] = s.UpdatedAt
 	s.fieldMap["is_delete"] = s.IsDelete
+	s.fieldMap["created_by"] = s.CreatedBy
+	s.fieldMap["updated_by"] = s.UpdatedBy
 	s.fieldMap["app_id"] = s.AppID
 	s.fieldMap["parent_id"] = s.ParentID
 	s.fieldMap["name"] = s.Name

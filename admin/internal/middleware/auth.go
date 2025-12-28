@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"yqhp/admin/internal/auth"
+	"yqhp/admin/internal/ctxutil"
 	"yqhp/common/response"
 
 	"github.com/gofiber/fiber/v2"
@@ -30,9 +31,19 @@ func AuthMiddleware() fiber.Handler {
 			return response.Unauthorized(c, "获取用户信息失败")
 		}
 
+		// 解析用户ID
+		userID, err := parseUserID(loginId)
+		if err != nil {
+			return response.Unauthorized(c, "用户信息无效")
+		}
+
 		// 将用户ID存入上下文
 		c.Locals("userId", loginId)
 		c.Locals("token", token)
+
+		// 将用户ID存入context（供Logic层使用）
+		ctx := ctxutil.WithUserID(c.Context(), userID)
+		c.SetUserContext(ctx)
 
 		return c.Next()
 	}

@@ -31,6 +31,8 @@ func newSysDept(db *gorm.DB, opts ...gen.DOOption) sysDept {
 	_sysDept.CreatedAt = field.NewTime(tableName, "created_at")
 	_sysDept.UpdatedAt = field.NewTime(tableName, "updated_at")
 	_sysDept.IsDelete = field.NewBool(tableName, "is_delete")
+	_sysDept.CreatedBy = field.NewInt64(tableName, "created_by")
+	_sysDept.UpdatedBy = field.NewInt64(tableName, "updated_by")
 	_sysDept.ParentID = field.NewInt64(tableName, "parent_id")
 	_sysDept.Name = field.NewString(tableName, "name")
 	_sysDept.Code = field.NewString(tableName, "code")
@@ -54,6 +56,8 @@ type sysDept struct {
 	CreatedAt field.Time
 	UpdatedAt field.Time
 	IsDelete  field.Bool
+	CreatedBy field.Int64 // 创建人ID
+	UpdatedBy field.Int64 // 更新人ID
 	ParentID  field.Int64
 	Name      field.String
 	Code      field.String
@@ -83,6 +87,8 @@ func (s *sysDept) updateTableName(table string) *sysDept {
 	s.CreatedAt = field.NewTime(table, "created_at")
 	s.UpdatedAt = field.NewTime(table, "updated_at")
 	s.IsDelete = field.NewBool(table, "is_delete")
+	s.CreatedBy = field.NewInt64(table, "created_by")
+	s.UpdatedBy = field.NewInt64(table, "updated_by")
 	s.ParentID = field.NewInt64(table, "parent_id")
 	s.Name = field.NewString(table, "name")
 	s.Code = field.NewString(table, "code")
@@ -116,11 +122,13 @@ func (s *sysDept) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (s *sysDept) fillFieldMap() {
-	s.fieldMap = make(map[string]field.Expr, 13)
+	s.fieldMap = make(map[string]field.Expr, 15)
 	s.fieldMap["id"] = s.ID
 	s.fieldMap["created_at"] = s.CreatedAt
 	s.fieldMap["updated_at"] = s.UpdatedAt
 	s.fieldMap["is_delete"] = s.IsDelete
+	s.fieldMap["created_by"] = s.CreatedBy
+	s.fieldMap["updated_by"] = s.UpdatedBy
 	s.fieldMap["parent_id"] = s.ParentID
 	s.fieldMap["name"] = s.Name
 	s.fieldMap["code"] = s.Code

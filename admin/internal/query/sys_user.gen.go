@@ -31,6 +31,8 @@ func newSysUser(db *gorm.DB, opts ...gen.DOOption) sysUser {
 	_sysUser.CreatedAt = field.NewTime(tableName, "created_at")
 	_sysUser.UpdatedAt = field.NewTime(tableName, "updated_at")
 	_sysUser.IsDelete = field.NewBool(tableName, "is_delete")
+	_sysUser.CreatedBy = field.NewInt64(tableName, "created_by")
+	_sysUser.UpdatedBy = field.NewInt64(tableName, "updated_by")
 	_sysUser.Username = field.NewString(tableName, "username")
 	_sysUser.Password = field.NewString(tableName, "password")
 	_sysUser.Nickname = field.NewString(tableName, "nickname")
@@ -57,6 +59,8 @@ type sysUser struct {
 	CreatedAt   field.Time
 	UpdatedAt   field.Time
 	IsDelete    field.Bool
+	CreatedBy   field.Int64 // 创建人ID
+	UpdatedBy   field.Int64 // 更新人ID
 	Username    field.String
 	Password    field.String
 	Nickname    field.String
@@ -89,6 +93,8 @@ func (s *sysUser) updateTableName(table string) *sysUser {
 	s.CreatedAt = field.NewTime(table, "created_at")
 	s.UpdatedAt = field.NewTime(table, "updated_at")
 	s.IsDelete = field.NewBool(table, "is_delete")
+	s.CreatedBy = field.NewInt64(table, "created_by")
+	s.UpdatedBy = field.NewInt64(table, "updated_by")
 	s.Username = field.NewString(table, "username")
 	s.Password = field.NewString(table, "password")
 	s.Nickname = field.NewString(table, "nickname")
@@ -125,11 +131,13 @@ func (s *sysUser) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (s *sysUser) fillFieldMap() {
-	s.fieldMap = make(map[string]field.Expr, 16)
+	s.fieldMap = make(map[string]field.Expr, 18)
 	s.fieldMap["id"] = s.ID
 	s.fieldMap["created_at"] = s.CreatedAt
 	s.fieldMap["updated_at"] = s.UpdatedAt
 	s.fieldMap["is_delete"] = s.IsDelete
+	s.fieldMap["created_by"] = s.CreatedBy
+	s.fieldMap["updated_by"] = s.UpdatedBy
 	s.fieldMap["username"] = s.Username
 	s.fieldMap["password"] = s.Password
 	s.fieldMap["nickname"] = s.Nickname

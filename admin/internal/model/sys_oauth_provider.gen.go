@@ -16,6 +16,8 @@ type SysOauthProvider struct {
 	CreatedAt    *time.Time `gorm:"column:created_at;type:datetime" json:"created_at"`
 	UpdatedAt    *time.Time `gorm:"column:updated_at;type:datetime" json:"updated_at"`
 	IsDelete     *bool      `gorm:"column:is_delete;type:tinyint(1);index:idx_sys_oauth_provider_is_delete,priority:1" json:"is_delete"`
+	CreatedBy    *int64     `gorm:"column:created_by;type:bigint unsigned;comment:创建人ID" json:"created_by"` // 创建人ID
+	UpdatedBy    *int64     `gorm:"column:updated_by;type:bigint unsigned;comment:更新人ID" json:"updated_by"` // 更新人ID
 	Name         string     `gorm:"column:name;type:varchar(50);not null" json:"name"`
 	Code         string     `gorm:"column:code;type:varchar(50);not null;uniqueIndex:idx_sys_oauth_provider_code,priority:1" json:"code"`
 	ClientID     *string    `gorm:"column:client_id;type:varchar(255)" json:"client_id"`

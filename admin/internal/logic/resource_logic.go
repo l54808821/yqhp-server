@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"yqhp/admin/internal/ctxutil"
 	"yqhp/admin/internal/model"
 	"yqhp/admin/internal/query"
 	"yqhp/admin/internal/svc"
@@ -19,7 +20,7 @@ type ResourceLogic struct {
 
 // NewResourceLogic 创建资源逻辑
 func NewResourceLogic(c *fiber.Ctx) *ResourceLogic {
-	return &ResourceLogic{ctx: c.Context()}
+	return &ResourceLogic{ctx: c.UserContext()}
 }
 
 func (l *ResourceLogic) db() *query.Query {
@@ -36,6 +37,7 @@ func (l *ResourceLogic) CreateResource(req *types.CreateResourceRequest) (*types
 		}
 	}
 
+	userID := ctxutil.GetUserID(l.ctx)
 	resource := &model.SysResource{
 		AppID:     int64(req.AppID),
 		ParentID:  model.Int64Ptr(int64(req.ParentID)),
@@ -53,6 +55,8 @@ func (l *ResourceLogic) CreateResource(req *types.CreateResourceRequest) (*types
 		Status:    model.Int32Ptr(int32(req.Status)),
 		Remark:    model.StringPtr(req.Remark),
 		IsDelete:  model.BoolPtr(false),
+		CreatedBy: model.Int64Ptr(userID),
+		UpdatedBy: model.Int64Ptr(userID),
 	}
 
 	if err := r.WithContext(l.ctx).Create(resource); err != nil {
@@ -77,21 +81,23 @@ func (l *ResourceLogic) UpdateResource(req *types.UpdateResourceRequest) error {
 		}
 	}
 
+	userID := ctxutil.GetUserID(l.ctx)
 	_, err = r.WithContext(l.ctx).Where(r.ID.Eq(int64(req.ID))).Updates(map[string]any{
-		"parent_id": req.ParentID,
-		"name":      req.Name,
-		"code":      req.Code,
-		"type":      req.Type,
-		"path":      req.Path,
-		"component": req.Component,
-		"redirect":  req.Redirect,
-		"icon":      req.Icon,
-		"sort":      req.Sort,
-		"is_hidden": req.IsHidden,
-		"is_cache":  req.IsCache,
-		"is_frame":  req.IsFrame,
-		"status":    req.Status,
-		"remark":    req.Remark,
+		"parent_id":  req.ParentID,
+		"name":       req.Name,
+		"code":       req.Code,
+		"type":       req.Type,
+		"path":       req.Path,
+		"component":  req.Component,
+		"redirect":   req.Redirect,
+		"icon":       req.Icon,
+		"sort":       req.Sort,
+		"is_hidden":  req.IsHidden,
+		"is_cache":   req.IsCache,
+		"is_frame":   req.IsFrame,
+		"status":     req.Status,
+		"remark":     req.Remark,
+		"updated_by": userID,
 	})
 	return err
 }

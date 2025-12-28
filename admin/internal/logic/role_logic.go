@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"yqhp/admin/internal/ctxutil"
 	"yqhp/admin/internal/model"
 	"yqhp/admin/internal/query"
 	"yqhp/admin/internal/svc"
@@ -19,7 +20,7 @@ type RoleLogic struct {
 
 // NewRoleLogic 创建角色逻辑
 func NewRoleLogic(c *fiber.Ctx) *RoleLogic {
-	return &RoleLogic{ctx: c.Context()}
+	return &RoleLogic{ctx: c.UserContext()}
 }
 
 func (l *RoleLogic) db() *query.Query {
@@ -34,14 +35,17 @@ func (l *RoleLogic) CreateRole(req *types.CreateRoleRequest) (*types.RoleInfo, e
 		return nil, errors.New("角色编码已存在")
 	}
 
+	userID := ctxutil.GetUserID(l.ctx)
 	role := &model.SysRole{
-		AppID:    int64(req.AppID),
-		Name:     req.Name,
-		Code:     req.Code,
-		Sort:     model.Int64Ptr(int64(req.Sort)),
-		Status:   model.Int32Ptr(int32(req.Status)),
-		Remark:   model.StringPtr(req.Remark),
-		IsDelete: model.BoolPtr(false),
+		AppID:     int64(req.AppID),
+		Name:      req.Name,
+		Code:      req.Code,
+		Sort:      model.Int64Ptr(int64(req.Sort)),
+		Status:    model.Int32Ptr(int32(req.Status)),
+		Remark:    model.StringPtr(req.Remark),
+		IsDelete:  model.BoolPtr(false),
+		CreatedBy: model.Int64Ptr(userID),
+		UpdatedBy: model.Int64Ptr(userID),
 	}
 
 	if err := r.WithContext(l.ctx).Create(role); err != nil {
@@ -65,12 +69,14 @@ func (l *RoleLogic) CreateRole(req *types.CreateRoleRequest) (*types.RoleInfo, e
 
 // UpdateRole 更新角色
 func (l *RoleLogic) UpdateRole(req *types.UpdateRoleRequest) error {
+	userID := ctxutil.GetUserID(l.ctx)
 	r := l.db().SysRole
 	_, err := r.WithContext(l.ctx).Where(r.ID.Eq(int64(req.ID))).Updates(map[string]any{
-		"name":   req.Name,
-		"sort":   req.Sort,
-		"status": req.Status,
-		"remark": req.Remark,
+		"name":       req.Name,
+		"sort":       req.Sort,
+		"status":     req.Status,
+		"remark":     req.Remark,
+		"updated_by": userID,
 	})
 	if err != nil {
 		return err

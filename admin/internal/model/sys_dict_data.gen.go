@@ -16,6 +16,8 @@ type SysDictDatum struct {
 	CreatedAt *time.Time `gorm:"column:created_at;type:datetime" json:"created_at"`
 	UpdatedAt *time.Time `gorm:"column:updated_at;type:datetime" json:"updated_at"`
 	IsDelete  *bool      `gorm:"column:is_delete;type:tinyint(1);index:idx_sys_dict_data_is_delete,priority:1" json:"is_delete"`
+	CreatedBy *int64     `gorm:"column:created_by;type:bigint unsigned;comment:创建人ID" json:"created_by"` // 创建人ID
+	UpdatedBy *int64     `gorm:"column:updated_by;type:bigint unsigned;comment:更新人ID" json:"updated_by"` // 更新人ID
 	TypeCode  string     `gorm:"column:type_code;type:varchar(100);not null;index:idx_sys_dict_data_type_code,priority:1" json:"type_code"`
 	Label     string     `gorm:"column:label;type:varchar(100);not null" json:"label"`
 	Value     string     `gorm:"column:value;type:varchar(100);not null" json:"value"`

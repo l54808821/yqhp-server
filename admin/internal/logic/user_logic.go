@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"yqhp/admin/internal/auth"
+	"yqhp/admin/internal/ctxutil"
 	"yqhp/admin/internal/model"
 	"yqhp/admin/internal/query"
 	"yqhp/admin/internal/svc"
@@ -23,7 +24,7 @@ type UserLogic struct {
 
 // NewUserLogic 创建用户逻辑
 func NewUserLogic(c *fiber.Ctx) *UserLogic {
-	return &UserLogic{ctx: c.Context(), fiber: c}
+	return &UserLogic{ctx: c.UserContext(), fiber: c}
 }
 
 // db 获取数据库实例（复杂查询用）
@@ -223,17 +224,20 @@ func (l *UserLogic) CreateUser(req *types.CreateUserRequest) (*types.UserInfo, e
 		return nil, errors.New("用户名已存在")
 	}
 
+	currentUserID := ctxutil.GetUserID(l.ctx)
 	user := &model.SysUser{
-		Username: req.Username,
-		Password: utils.MD5(req.Password),
-		Nickname: model.StringPtr(req.Nickname),
-		Email:    model.StringPtr(req.Email),
-		Phone:    model.StringPtr(req.Phone),
-		Gender:   model.Int32Ptr(int32(req.Gender)),
-		DeptID:   model.Int64Ptr(int64(req.DeptID)),
-		Status:   model.Int32Ptr(1),
-		Remark:   model.StringPtr(req.Remark),
-		IsDelete: model.BoolPtr(false),
+		Username:  req.Username,
+		Password:  utils.MD5(req.Password),
+		Nickname:  model.StringPtr(req.Nickname),
+		Email:     model.StringPtr(req.Email),
+		Phone:     model.StringPtr(req.Phone),
+		Gender:    model.Int32Ptr(int32(req.Gender)),
+		DeptID:    model.Int64Ptr(int64(req.DeptID)),
+		Status:    model.Int32Ptr(1),
+		Remark:    model.StringPtr(req.Remark),
+		IsDelete:  model.BoolPtr(false),
+		CreatedBy: model.Int64Ptr(currentUserID),
+		UpdatedBy: model.Int64Ptr(currentUserID),
 	}
 
 	if err := u.WithContext(l.ctx).Create(user); err != nil {
@@ -257,16 +261,18 @@ func (l *UserLogic) CreateUser(req *types.CreateUserRequest) (*types.UserInfo, e
 
 // UpdateUser 更新用户
 func (l *UserLogic) UpdateUser(req *types.UpdateUserRequest) error {
+	currentUserID := ctxutil.GetUserID(l.ctx)
 	u := l.db().SysUser
 	_, err := u.WithContext(l.ctx).Where(u.ID.Eq(int64(req.ID))).Updates(map[string]any{
-		"nickname": req.Nickname,
-		"avatar":   req.Avatar,
-		"email":    req.Email,
-		"phone":    req.Phone,
-		"gender":   req.Gender,
-		"dept_id":  req.DeptID,
-		"status":   req.Status,
-		"remark":   req.Remark,
+		"nickname":   req.Nickname,
+		"avatar":     req.Avatar,
+		"email":      req.Email,
+		"phone":      req.Phone,
+		"gender":     req.Gender,
+		"dept_id":    req.DeptID,
+		"status":     req.Status,
+		"remark":     req.Remark,
+		"updated_by": currentUserID,
 	})
 	if err != nil {
 		return err

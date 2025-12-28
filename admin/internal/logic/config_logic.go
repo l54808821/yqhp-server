@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"yqhp/admin/internal/ctxutil"
 	"yqhp/admin/internal/model"
 	"yqhp/admin/internal/query"
 	"yqhp/admin/internal/svc"
@@ -19,7 +20,7 @@ type ConfigLogic struct {
 
 // NewConfigLogic 创建配置逻辑
 func NewConfigLogic(c *fiber.Ctx) *ConfigLogic {
-	return &ConfigLogic{ctx: c.Context()}
+	return &ConfigLogic{ctx: c.UserContext()}
 }
 
 func (l *ConfigLogic) db() *query.Query {
@@ -34,14 +35,17 @@ func (l *ConfigLogic) CreateConfig(req *types.CreateConfigRequest) (*types.Confi
 		return nil, errors.New("配置键已存在")
 	}
 
+	userID := ctxutil.GetUserID(l.ctx)
 	config := &model.SysConfig{
-		Name:     req.Name,
-		Key:      req.Key,
-		Value:    model.StringPtr(req.Value),
-		Type:     model.StringPtr(req.Type),
-		IsBuilt:  model.BoolPtr(req.IsBuilt),
-		Remark:   model.StringPtr(req.Remark),
-		IsDelete: model.BoolPtr(false),
+		Name:      req.Name,
+		Key:       req.Key,
+		Value:     model.StringPtr(req.Value),
+		Type:      model.StringPtr(req.Type),
+		IsBuilt:   model.BoolPtr(req.IsBuilt),
+		Remark:    model.StringPtr(req.Remark),
+		IsDelete:  model.BoolPtr(false),
+		CreatedBy: model.Int64Ptr(userID),
+		UpdatedBy: model.Int64Ptr(userID),
 	}
 
 	if err := cfg.WithContext(l.ctx).Create(config); err != nil {
@@ -53,12 +57,14 @@ func (l *ConfigLogic) CreateConfig(req *types.CreateConfigRequest) (*types.Confi
 
 // UpdateConfig 更新配置
 func (l *ConfigLogic) UpdateConfig(req *types.UpdateConfigRequest) error {
+	userID := ctxutil.GetUserID(l.ctx)
 	cfg := l.db().SysConfig
 	_, err := cfg.WithContext(l.ctx).Where(cfg.ID.Eq(int64(req.ID))).Updates(map[string]any{
-		"name":   req.Name,
-		"value":  req.Value,
-		"type":   req.Type,
-		"remark": req.Remark,
+		"name":       req.Name,
+		"value":      req.Value,
+		"type":       req.Type,
+		"remark":     req.Remark,
+		"updated_by": userID,
 	})
 	return err
 }

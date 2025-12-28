@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"yqhp/admin/internal/ctxutil"
 	"yqhp/admin/internal/model"
 	"yqhp/admin/internal/query"
 	"yqhp/admin/internal/svc"
@@ -19,7 +20,7 @@ type DictLogic struct {
 
 // NewDictLogic 创建字典逻辑
 func NewDictLogic(c *fiber.Ctx) *DictLogic {
-	return &DictLogic{ctx: c.Context()}
+	return &DictLogic{ctx: c.UserContext()}
 }
 
 func (l *DictLogic) db() *query.Query {
@@ -34,12 +35,15 @@ func (l *DictLogic) CreateDictType(req *types.CreateDictTypeRequest) (*types.Dic
 		return nil, errors.New("字典类型编码已存在")
 	}
 
+	userID := ctxutil.GetUserID(l.ctx)
 	dictType := &model.SysDictType{
-		Name:     req.Name,
-		Code:     req.Code,
-		Status:   model.Int32Ptr(int32(req.Status)),
-		Remark:   model.StringPtr(req.Remark),
-		IsDelete: model.BoolPtr(false),
+		Name:      req.Name,
+		Code:      req.Code,
+		Status:    model.Int32Ptr(int32(req.Status)),
+		Remark:    model.StringPtr(req.Remark),
+		IsDelete:  model.BoolPtr(false),
+		CreatedBy: model.Int64Ptr(userID),
+		UpdatedBy: model.Int64Ptr(userID),
 	}
 
 	if err := dt.WithContext(l.ctx).Create(dictType); err != nil {
@@ -51,11 +55,13 @@ func (l *DictLogic) CreateDictType(req *types.CreateDictTypeRequest) (*types.Dic
 
 // UpdateDictType 更新字典类型
 func (l *DictLogic) UpdateDictType(req *types.UpdateDictTypeRequest) error {
+	userID := ctxutil.GetUserID(l.ctx)
 	dt := l.db().SysDictType
 	_, err := dt.WithContext(l.ctx).Where(dt.ID.Eq(int64(req.ID))).Updates(map[string]any{
-		"name":   req.Name,
-		"status": req.Status,
-		"remark": req.Remark,
+		"name":       req.Name,
+		"status":     req.Status,
+		"remark":     req.Remark,
+		"updated_by": userID,
 	})
 	return err
 }
@@ -115,6 +121,7 @@ func (l *DictLogic) ListDictTypes(req *types.ListDictTypesRequest) ([]*types.Dic
 
 // CreateDictData 创建字典数据
 func (l *DictLogic) CreateDictData(req *types.CreateDictDataRequest) (*types.DictDataInfo, error) {
+	userID := ctxutil.GetUserID(l.ctx)
 	dictData := &model.SysDictDatum{
 		TypeCode:  req.TypeCode,
 		Label:     req.Label,
@@ -126,6 +133,8 @@ func (l *DictLogic) CreateDictData(req *types.CreateDictDataRequest) (*types.Dic
 		ListClass: model.StringPtr(req.ListClass),
 		Remark:    model.StringPtr(req.Remark),
 		IsDelete:  model.BoolPtr(false),
+		CreatedBy: model.Int64Ptr(userID),
+		UpdatedBy: model.Int64Ptr(userID),
 	}
 
 	if err := l.db().SysDictDatum.WithContext(l.ctx).Create(dictData); err != nil {
@@ -137,6 +146,7 @@ func (l *DictLogic) CreateDictData(req *types.CreateDictDataRequest) (*types.Dic
 
 // UpdateDictData 更新字典数据
 func (l *DictLogic) UpdateDictData(req *types.UpdateDictDataRequest) error {
+	userID := ctxutil.GetUserID(l.ctx)
 	dd := l.db().SysDictDatum
 	_, err := dd.WithContext(l.ctx).Where(dd.ID.Eq(int64(req.ID))).Updates(map[string]any{
 		"label":      req.Label,
@@ -147,6 +157,7 @@ func (l *DictLogic) UpdateDictData(req *types.UpdateDictDataRequest) error {
 		"css_class":  req.CssClass,
 		"list_class": req.ListClass,
 		"remark":     req.Remark,
+		"updated_by": userID,
 	})
 	return err
 }

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"yqhp/admin/internal/auth"
+	"yqhp/admin/internal/ctxutil"
 	"yqhp/admin/internal/model"
 	"yqhp/admin/internal/query"
 	"yqhp/admin/internal/svc"
@@ -29,7 +30,7 @@ type OAuthLogic struct {
 
 // NewOAuthLogic 创建OAuth逻辑
 func NewOAuthLogic(c *fiber.Ctx) *OAuthLogic {
-	return &OAuthLogic{ctx: c.Context(), fiber: c}
+	return &OAuthLogic{ctx: c.UserContext(), fiber: c}
 }
 
 func (l *OAuthLogic) db() *query.Query {
@@ -292,6 +293,7 @@ func (l *OAuthLogic) ListAllProviders() ([]*types.OAuthProviderInfo, error) {
 
 // CreateProvider 创建OAuth提供商
 func (l *OAuthLogic) CreateProvider(req *types.CreateProviderRequest) (*types.OAuthProviderInfo, error) {
+	userID := ctxutil.GetUserID(l.ctx)
 	provider := &model.SysOauthProvider{
 		Name:         req.Name,
 		Code:         req.Code,
@@ -307,6 +309,8 @@ func (l *OAuthLogic) CreateProvider(req *types.CreateProviderRequest) (*types.OA
 		Icon:         model.StringPtr(req.Icon),
 		Remark:       model.StringPtr(req.Remark),
 		IsDelete:     model.BoolPtr(false),
+		CreatedBy:    model.Int64Ptr(userID),
+		UpdatedBy:    model.Int64Ptr(userID),
 	}
 
 	if err := l.db().SysOauthProvider.WithContext(l.ctx).Create(provider); err != nil {
@@ -318,6 +322,7 @@ func (l *OAuthLogic) CreateProvider(req *types.CreateProviderRequest) (*types.OA
 
 // UpdateProvider 更新OAuth提供商
 func (l *OAuthLogic) UpdateProvider(req *types.UpdateProviderRequest) error {
+	userID := ctxutil.GetUserID(l.ctx)
 	p := l.db().SysOauthProvider
 	_, err := p.WithContext(l.ctx).Where(p.ID.Eq(int64(req.ID))).Updates(map[string]any{
 		"name":          req.Name,
@@ -332,6 +337,7 @@ func (l *OAuthLogic) UpdateProvider(req *types.UpdateProviderRequest) error {
 		"sort":          req.Sort,
 		"icon":          req.Icon,
 		"remark":        req.Remark,
+		"updated_by":    userID,
 	})
 	return err
 }

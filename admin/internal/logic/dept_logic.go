@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	"yqhp/admin/internal/ctxutil"
 	"yqhp/admin/internal/model"
 	"yqhp/admin/internal/query"
 	"yqhp/admin/internal/svc"
@@ -19,7 +20,7 @@ type DeptLogic struct {
 
 // NewDeptLogic 创建部门逻辑
 func NewDeptLogic(c *fiber.Ctx) *DeptLogic {
-	return &DeptLogic{ctx: c.Context()}
+	return &DeptLogic{ctx: c.UserContext()}
 }
 
 func (l *DeptLogic) db() *query.Query {
@@ -28,17 +29,20 @@ func (l *DeptLogic) db() *query.Query {
 
 // CreateDept 创建部门
 func (l *DeptLogic) CreateDept(req *types.CreateDeptRequest) (*types.DeptInfo, error) {
+	userID := ctxutil.GetUserID(l.ctx)
 	dept := &model.SysDept{
-		ParentID: model.Int64Ptr(int64(req.ParentID)),
-		Name:     req.Name,
-		Code:     model.StringPtr(req.Code),
-		Leader:   model.StringPtr(req.Leader),
-		Phone:    model.StringPtr(req.Phone),
-		Email:    model.StringPtr(req.Email),
-		Sort:     model.Int64Ptr(int64(req.Sort)),
-		Status:   model.Int32Ptr(int32(req.Status)),
-		Remark:   model.StringPtr(req.Remark),
-		IsDelete: model.BoolPtr(false),
+		ParentID:  model.Int64Ptr(int64(req.ParentID)),
+		Name:      req.Name,
+		Code:      model.StringPtr(req.Code),
+		Leader:    model.StringPtr(req.Leader),
+		Phone:     model.StringPtr(req.Phone),
+		Email:     model.StringPtr(req.Email),
+		Sort:      model.Int64Ptr(int64(req.Sort)),
+		Status:    model.Int32Ptr(int32(req.Status)),
+		Remark:    model.StringPtr(req.Remark),
+		IsDelete:  model.BoolPtr(false),
+		CreatedBy: model.Int64Ptr(userID),
+		UpdatedBy: model.Int64Ptr(userID),
 	}
 
 	if err := l.db().SysDept.WithContext(l.ctx).Create(dept); err != nil {
@@ -54,17 +58,19 @@ func (l *DeptLogic) UpdateDept(req *types.UpdateDeptRequest) error {
 		return errors.New("不能将自己设为父部门")
 	}
 
+	userID := ctxutil.GetUserID(l.ctx)
 	d := l.db().SysDept
 	_, err := d.WithContext(l.ctx).Where(d.ID.Eq(int64(req.ID))).Updates(map[string]any{
-		"parent_id": req.ParentID,
-		"name":      req.Name,
-		"code":      req.Code,
-		"leader":    req.Leader,
-		"phone":     req.Phone,
-		"email":     req.Email,
-		"sort":      req.Sort,
-		"status":    req.Status,
-		"remark":    req.Remark,
+		"parent_id":  req.ParentID,
+		"name":       req.Name,
+		"code":       req.Code,
+		"leader":     req.Leader,
+		"phone":      req.Phone,
+		"email":      req.Email,
+		"sort":       req.Sort,
+		"status":     req.Status,
+		"remark":     req.Remark,
+		"updated_by": userID,
 	})
 	return err
 }

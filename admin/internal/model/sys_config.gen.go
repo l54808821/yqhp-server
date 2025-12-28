@@ -16,6 +16,8 @@ type SysConfig struct {
 	CreatedAt *time.Time `gorm:"column:created_at;type:datetime" json:"created_at"`
 	UpdatedAt *time.Time `gorm:"column:updated_at;type:datetime" json:"updated_at"`
 	IsDelete  *bool      `gorm:"column:is_delete;type:tinyint(1);index:idx_sys_config_is_delete,priority:1" json:"is_delete"`
+	CreatedBy *int64     `gorm:"column:created_by;type:bigint unsigned;comment:创建人ID" json:"created_by"` // 创建人ID
+	UpdatedBy *int64     `gorm:"column:updated_by;type:bigint unsigned;comment:更新人ID" json:"updated_by"` // 更新人ID
 	Name      string     `gorm:"column:name;type:varchar(100);not null" json:"name"`
 	Key       string     `gorm:"column:key;type:varchar(100);not null;uniqueIndex:idx_sys_config_key,priority:1" json:"key"`
 	Value     *string    `gorm:"column:value;type:text" json:"value"`

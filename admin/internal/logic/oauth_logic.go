@@ -394,10 +394,10 @@ func (l *OAuthLogic) CreateProvider(req *types.CreateProviderRequest) (*types.OA
 func (l *OAuthLogic) UpdateProvider(req *types.UpdateProviderRequest) error {
 	userID := ctxutil.GetUserID(l.ctx)
 	p := l.db().SysOauthProvider
-	_, err := p.WithContext(l.ctx).Where(p.ID.Eq(int64(req.ID))).Updates(map[string]any{
+
+	updates := map[string]any{
 		"name":          req.Name,
 		"client_id":     req.ClientID,
-		"client_secret": req.ClientSecret,
 		"redirect_uri":  req.RedirectURI,
 		"auth_url":      req.AuthURL,
 		"token_url":     req.TokenURL,
@@ -408,7 +408,14 @@ func (l *OAuthLogic) UpdateProvider(req *types.UpdateProviderRequest) error {
 		"icon":          req.Icon,
 		"remark":        req.Remark,
 		"updated_by":    userID,
-	})
+	}
+
+	// 只有当 clientSecret 不为空时才更新
+	if req.ClientSecret != "" {
+		updates["client_secret"] = req.ClientSecret
+	}
+
+	_, err := p.WithContext(l.ctx).Where(p.ID.Eq(int64(req.ID))).Updates(updates)
 	return err
 }
 

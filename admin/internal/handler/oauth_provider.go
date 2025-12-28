@@ -44,7 +44,7 @@ func OAuthProviderGet(c *fiber.Ctx) error {
 		return response.Error(c, "获取失败")
 	}
 
-	return response.Success(c, provider)
+	return response.Success(c, types.ToOAuthProviderInfo(provider))
 }
 
 // OAuthProviderCreate 创建OAuth提供商

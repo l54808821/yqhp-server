@@ -49,26 +49,25 @@ type ListProvidersRequest struct {
 	Status   *int8  `json:"status"`
 }
 
-// OAuthProviderInfo OAuth提供商响应
+// OAuthProviderInfo OAuth提供商响应（不包含敏感信息）
 type OAuthProviderInfo struct {
-	ID           int64     `json:"id"`
-	Name         string    `json:"name"`
-	Code         string    `json:"code"`
-	ClientID     string    `json:"clientId"`
-	ClientSecret string    `json:"clientSecret"`
-	RedirectURI  string    `json:"redirectUri"`
-	AuthURL      string    `json:"authUrl"`
-	TokenURL     string    `json:"tokenUrl"`
-	UserInfoURL  string    `json:"userInfoUrl"`
-	Scope        string    `json:"scope"`
-	Status       int32     `json:"status"`
-	Sort         int64     `json:"sort"`
-	Icon         string    `json:"icon"`
-	Remark       string    `json:"remark"`
-	CreatedBy    int64     `json:"createdBy"`
-	UpdatedBy    int64     `json:"updatedBy"`
-	CreatedAt    *DateTime `json:"createdAt"`
-	UpdatedAt    *DateTime `json:"updatedAt"`
+	ID          int64     `json:"id"`
+	Name        string    `json:"name"`
+	Code        string    `json:"code"`
+	ClientID    string    `json:"clientId"`
+	RedirectURI string    `json:"redirectUri"`
+	AuthURL     string    `json:"authUrl"`
+	TokenURL    string    `json:"tokenUrl"`
+	UserInfoURL string    `json:"userInfoUrl"`
+	Scope       string    `json:"scope"`
+	Status      int32     `json:"status"`
+	Sort        int64     `json:"sort"`
+	Icon        string    `json:"icon"`
+	Remark      string    `json:"remark"`
+	CreatedBy   int64     `json:"createdBy"`
+	UpdatedBy   int64     `json:"updatedBy"`
+	CreatedAt   *DateTime `json:"createdAt"`
+	UpdatedAt   *DateTime `json:"updatedAt"`
 }
 
 // OAuthBindingInfo 用户绑定的第三方账号信息

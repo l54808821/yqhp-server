@@ -20,17 +20,18 @@ func NewDeptLogic(db *gorm.DB) *DeptLogic {
 }
 
 // CreateDept 创建部门
-func (l *DeptLogic) CreateDept(req *types.CreateDeptRequest) (*model.Dept, error) {
-	dept := &model.Dept{
-		ParentID: req.ParentID,
+func (l *DeptLogic) CreateDept(req *types.CreateDeptRequest) (*model.SysDept, error) {
+	dept := &model.SysDept{
+		ParentID: model.Int64Ptr(int64(req.ParentID)),
 		Name:     req.Name,
-		Code:     req.Code,
-		Leader:   req.Leader,
-		Phone:    req.Phone,
-		Email:    req.Email,
-		Sort:     req.Sort,
-		Status:   req.Status,
-		Remark:   req.Remark,
+		Code:     model.StringPtr(req.Code),
+		Leader:   model.StringPtr(req.Leader),
+		Phone:    model.StringPtr(req.Phone),
+		Email:    model.StringPtr(req.Email),
+		Sort:     model.Int64Ptr(int64(req.Sort)),
+		Status:   model.Int32Ptr(int32(req.Status)),
+		Remark:   model.StringPtr(req.Remark),
+		IsDelete: model.BoolPtr(false),
 	}
 
 	if err := l.db.Create(dept).Error; err != nil {
@@ -59,30 +60,30 @@ func (l *DeptLogic) UpdateDept(req *types.UpdateDeptRequest) error {
 		"remark":    req.Remark,
 	}
 
-	return l.db.Model(&model.Dept{}).Where("id = ?", req.ID).Updates(updates).Error
+	return l.db.Model(&model.SysDept{}).Where("id = ?", req.ID).Updates(updates).Error
 }
 
 // DeleteDept 删除部门（软删除）
-func (l *DeptLogic) DeleteDept(id uint) error {
+func (l *DeptLogic) DeleteDept(id int64) error {
 	// 检查是否有子部门
 	var count int64
-	l.db.Model(&model.Dept{}).Where("parent_id = ? AND is_delete = ?", id, false).Count(&count)
+	l.db.Model(&model.SysDept{}).Where("parent_id = ? AND is_delete = ?", id, false).Count(&count)
 	if count > 0 {
 		return errors.New("该部门下有子部门，无法删除")
 	}
 
 	// 检查是否有用户
-	l.db.Model(&model.User{}).Where("dept_id = ? AND is_delete = ?", id, false).Count(&count)
+	l.db.Model(&model.SysUser{}).Where("dept_id = ? AND is_delete = ?", id, false).Count(&count)
 	if count > 0 {
 		return errors.New("该部门下有用户，无法删除")
 	}
 
-	return l.db.Model(&model.Dept{}).Where("id = ?", id).Update("is_delete", true).Error
+	return l.db.Model(&model.SysDept{}).Where("id = ?", id).Update("is_delete", true).Error
 }
 
 // GetDept 获取部门详情
-func (l *DeptLogic) GetDept(id uint) (*model.Dept, error) {
-	var dept model.Dept
+func (l *DeptLogic) GetDept(id int64) (*model.SysDept, error) {
+	var dept model.SysDept
 	if err := l.db.Where("is_delete = ?", false).First(&dept, id).Error; err != nil {
 		return nil, err
 	}
@@ -90,8 +91,8 @@ func (l *DeptLogic) GetDept(id uint) (*model.Dept, error) {
 }
 
 // GetDeptTree 获取部门树
-func (l *DeptLogic) GetDeptTree() ([]model.Dept, error) {
-	var depts []model.Dept
+func (l *DeptLogic) GetDeptTree() ([]model.DeptWithChildren, error) {
+	var depts []model.SysDept
 	if err := l.db.Where("is_delete = ?", false).Order("sort ASC").Find(&depts).Error; err != nil {
 		return nil, err
 	}
@@ -100,8 +101,8 @@ func (l *DeptLogic) GetDeptTree() ([]model.Dept, error) {
 }
 
 // GetAllDepts 获取所有部门(平铺)
-func (l *DeptLogic) GetAllDepts() ([]model.Dept, error) {
-	var depts []model.Dept
+func (l *DeptLogic) GetAllDepts() ([]model.SysDept, error) {
+	var depts []model.SysDept
 	if err := l.db.Where("is_delete = ?", false).Order("sort ASC").Find(&depts).Error; err != nil {
 		return nil, err
 	}
@@ -109,15 +110,19 @@ func (l *DeptLogic) GetAllDepts() ([]model.Dept, error) {
 }
 
 // buildDeptTree 构建部门树
-func buildDeptTree(depts []model.Dept, parentID uint) []model.Dept {
-	var tree []model.Dept
+func buildDeptTree(depts []model.SysDept, parentID int64) []model.DeptWithChildren {
+	var tree []model.DeptWithChildren
 	for _, dept := range depts {
-		if dept.ParentID == parentID {
+		deptParentID := model.GetInt64(dept.ParentID)
+		if deptParentID == parentID {
+			node := model.DeptWithChildren{
+				SysDept: dept,
+			}
 			children := buildDeptTree(depts, dept.ID)
 			if len(children) > 0 {
-				dept.Children = children
+				node.Children = children
 			}
-			tree = append(tree, dept)
+			tree = append(tree, node)
 		}
 	}
 	return tree

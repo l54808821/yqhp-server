@@ -44,12 +44,12 @@ func (h *ConfigHandler) List(c *fiber.Ctx) error {
 
 // Get 获取配置详情
 func (h *ConfigHandler) Get(c *fiber.Ctx) error {
-	id, err := strconv.ParseUint(c.Params("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "参数错误")
 	}
 
-	config, err := h.configLogic.GetConfig(uint(id))
+	config, err := h.configLogic.GetConfig(id)
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}
@@ -111,12 +111,12 @@ func (h *ConfigHandler) Update(c *fiber.Ctx) error {
 
 // Delete 删除配置
 func (h *ConfigHandler) Delete(c *fiber.Ctx) error {
-	id, err := strconv.ParseUint(c.Params("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "参数错误")
 	}
 
-	if err := h.configLogic.DeleteConfig(uint(id)); err != nil {
+	if err := h.configLogic.DeleteConfig(id); err != nil {
 		return response.Error(c, err.Error())
 	}
 

@@ -121,29 +121,29 @@ func getToken(c *fiber.Ctx) string {
 }
 
 // parseUserID 解析用户ID
-func parseUserID(userIdAny any) (uint, error) {
+func parseUserID(userIdAny any) (int64, error) {
 	switch v := userIdAny.(type) {
 	case uint:
-		return v, nil
+		return int64(v), nil
 	case int:
-		return uint(v), nil
+		return int64(v), nil
 	case int64:
-		return uint(v), nil
+		return v, nil
 	case float64:
-		return uint(v), nil
+		return int64(v), nil
 	case string:
-		id, err := strconv.ParseUint(v, 10, 64)
+		id, err := strconv.ParseInt(v, 10, 64)
 		if err != nil {
 			return 0, err
 		}
-		return uint(id), nil
+		return id, nil
 	default:
 		return 0, nil
 	}
 }
 
 // GetCurrentUserID 获取当前用户ID
-func GetCurrentUserID(c *fiber.Ctx) uint {
+func GetCurrentUserID(c *fiber.Ctx) int64 {
 	userIdAny := c.Locals("userId")
 	if userIdAny == nil {
 		return 0
@@ -151,4 +151,3 @@ func GetCurrentUserID(c *fiber.Ctx) uint {
 	userID, _ := parseUserID(userIdAny)
 	return userID
 }
-

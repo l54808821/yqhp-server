@@ -1,8 +1,6 @@
 package logic
 
 import (
-	"time"
-
 	"yqhp/admin/internal/auth"
 	"yqhp/admin/internal/model"
 	"yqhp/admin/internal/types"
@@ -21,11 +19,11 @@ func NewTokenLogic(db *gorm.DB) *TokenLogic {
 }
 
 // ListTokens 获取令牌列表
-func (l *TokenLogic) ListTokens(req *types.ListTokensRequest) ([]model.UserToken, int64, error) {
-	var tokens []model.UserToken
+func (l *TokenLogic) ListTokens(req *types.ListTokensRequest) ([]model.SysUserToken, int64, error) {
+	var tokens []model.SysUserToken
 	var total int64
 
-	query := l.db.Model(&model.UserToken{})
+	query := l.db.Model(&model.SysUserToken{})
 
 	if req.UserID > 0 {
 		query = query.Where("user_id = ?", req.UserID)
@@ -45,83 +43,85 @@ func (l *TokenLogic) ListTokens(req *types.ListTokensRequest) ([]model.UserToken
 	return tokens, total, nil
 }
 
-// KickOut 根据用户ID踢人下线（踢掉该用户的所有会话）
-func (l *TokenLogic) KickOut(userID uint) error {
+// KickOutByUserID 踢人下线（按用户ID）
+func (l *TokenLogic) KickOutByUserID(userID int64) error {
 	// 先查询该用户的所有Token
-	var tokens []model.UserToken
+	var tokens []model.SysUserToken
 	l.db.Where("user_id = ?", userID).Find(&tokens)
 
 	// 逐个使token失效
-	for _, t := range tokens {
-		_ = auth.LogoutByToken(t.Token)
+	for _, token := range tokens {
+		if token.Token != nil {
+			auth.LogoutByToken(*token.Token)
+		}
 	}
 
-	// 从数据库删除该用户的所有Token记录
-	l.db.Where("user_id = ?", userID).Delete(&model.UserToken{})
+	// 从数据库删除该用户的所有Token记录（硬删除）
+	l.db.Where("user_id = ?", userID).Delete(&model.SysUserToken{})
 
 	// 调用sa-token踢人下线
 	return auth.KickOut(userID)
 }
 
-// KickOutByTokenID 根据Token记录ID踢人下线
-func (l *TokenLogic) KickOutByTokenID(tokenID uint) error {
-	// 先查询Token记录
-	var userToken model.UserToken
+// KickOutByTokenID 踢人下线（按Token ID）
+func (l *TokenLogic) KickOutByTokenID(tokenID int64) error {
+	var userToken model.SysUserToken
 	if err := l.db.First(&userToken, tokenID).Error; err != nil {
 		return err
 	}
 
-	// 调用sa-token使token失效
-	if err := auth.LogoutByToken(userToken.Token); err != nil {
-		// 即使失败也继续删除数据库记录
-		_ = err
+	// 调用sa-token登出
+	if userToken.Token != nil {
+		auth.LogoutByToken(*userToken.Token)
 	}
 
-	// 从数据库删除Token记录
+	// 从数据库删除Token记录（硬删除）
 	return l.db.Delete(&userToken).Error
 }
 
-// KickOutByToken 根据Token踢人下线
+// KickOutByToken 踢人下线（按Token字符串）
 func (l *TokenLogic) KickOutByToken(token string) error {
-	// 从数据库删除Token记录
-	l.db.Where("token = ?", token).Delete(&model.UserToken{})
+	// 从数据库删除Token记录（硬删除）
+	l.db.Where("token = ?", token).Delete(&model.SysUserToken{})
 	// 调用sa-token登出
 	return auth.LogoutByToken(token)
 }
 
 // DisableUser 禁用用户
-func (l *TokenLogic) DisableUser(userID uint, disableTime int64) error {
-	return auth.Disable(userID, time.Duration(disableTime)*time.Second)
+func (l *TokenLogic) DisableUser(userID int64, duration int64) error {
+	// 先踢人下线
+	l.KickOutByUserID(userID)
+	// 禁用用户
+	return auth.Disable(userID, duration)
 }
 
 // EnableUser 解禁用户
-func (l *TokenLogic) EnableUser(userID uint) error {
+func (l *TokenLogic) EnableUser(userID int64) error {
 	return auth.Untie(userID)
 }
 
-// IsUserDisabled 判断用户是否被禁用
-func (l *TokenLogic) IsUserDisabled(userID uint) bool {
+// IsDisabled 检查用户是否被禁用
+func (l *TokenLogic) IsDisabled(userID int64) bool {
 	return auth.IsDisable(userID)
 }
 
-// GetLoginLogs 获取登录日志
-func (l *TokenLogic) GetLoginLogs(req *types.ListLoginLogsRequest) ([]model.LoginLog, int64, error) {
-	var logs []model.LoginLog
+// GetDisableTime 获取用户禁用剩余时间
+func (l *TokenLogic) GetDisableTime(userID int64) int64 {
+	return auth.GetDisableTime(userID)
+}
+
+// ListLoginLogs 获取登录日志列表
+func (l *TokenLogic) ListLoginLogs(req *types.ListLoginLogsRequest) ([]model.SysLoginLog, int64, error) {
+	var logs []model.SysLoginLog
 	var total int64
 
-	query := l.db.Model(&model.LoginLog{})
+	query := l.db.Model(&model.SysLoginLog{})
 
 	if req.Username != "" {
 		query = query.Where("username LIKE ?", "%"+req.Username+"%")
 	}
 	if req.Status != nil {
 		query = query.Where("status = ?", *req.Status)
-	}
-	if req.StartTime != "" {
-		query = query.Where("created_at >= ?", req.StartTime)
-	}
-	if req.EndTime != "" {
-		query = query.Where("created_at <= ?", req.EndTime)
 	}
 
 	query.Count(&total)
@@ -138,12 +138,12 @@ func (l *TokenLogic) GetLoginLogs(req *types.ListLoginLogsRequest) ([]model.Logi
 	return logs, total, nil
 }
 
-// GetOperationLogs 获取操作日志
-func (l *TokenLogic) GetOperationLogs(req *types.ListOperationLogsRequest) ([]model.OperationLog, int64, error) {
-	var logs []model.OperationLog
+// ListOperationLogs 获取操作日志列表
+func (l *TokenLogic) ListOperationLogs(req *types.ListOperationLogsRequest) ([]model.SysOperationLog, int64, error) {
+	var logs []model.SysOperationLog
 	var total int64
 
-	query := l.db.Model(&model.OperationLog{})
+	query := l.db.Model(&model.SysOperationLog{})
 
 	if req.Username != "" {
 		query = query.Where("username LIKE ?", "%"+req.Username+"%")
@@ -154,12 +154,6 @@ func (l *TokenLogic) GetOperationLogs(req *types.ListOperationLogsRequest) ([]mo
 	if req.Status != nil {
 		query = query.Where("status = ?", *req.Status)
 	}
-	if req.StartTime != "" {
-		query = query.Where("created_at >= ?", req.StartTime)
-	}
-	if req.EndTime != "" {
-		query = query.Where("created_at <= ?", req.EndTime)
-	}
 
 	query.Count(&total)
 
@@ -175,17 +169,12 @@ func (l *TokenLogic) GetOperationLogs(req *types.ListOperationLogsRequest) ([]mo
 	return logs, total, nil
 }
 
-// CreateLoginLog 创建登录日志
-func (l *TokenLogic) CreateLoginLog(log *model.LoginLog) error {
-	return l.db.Create(log).Error
-}
-
-// ClearLoginLogs 清空登录日志
+// ClearLoginLogs 清空登录日志（硬删除）
 func (l *TokenLogic) ClearLoginLogs() error {
-	return l.db.Exec("TRUNCATE TABLE sys_login_log").Error
+	return l.db.Where("1 = 1").Delete(&model.SysLoginLog{}).Error
 }
 
-// ClearOperationLogs 清空操作日志
+// ClearOperationLogs 清空操作日志（硬删除）
 func (l *TokenLogic) ClearOperationLogs() error {
-	return l.db.Exec("TRUNCATE TABLE sys_operation_log").Error
+	return l.db.Where("1 = 1").Delete(&model.SysOperationLog{}).Error
 }

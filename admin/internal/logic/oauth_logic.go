@@ -35,20 +35,20 @@ func (l *OAuthLogic) GetAuthURL(providerCode, state string) (string, error) {
 		return "", err
 	}
 
-	if provider.Status != 1 {
+	if model.GetInt32(provider.Status) != 1 {
 		return "", errors.New("该登录方式已禁用")
 	}
 
 	params := url.Values{}
-	params.Set("client_id", provider.ClientID)
-	params.Set("redirect_uri", provider.RedirectURI)
+	params.Set("client_id", model.GetString(provider.ClientID))
+	params.Set("redirect_uri", model.GetString(provider.RedirectURI))
 	params.Set("response_type", "code")
 	params.Set("state", state)
-	if provider.Scope != "" {
-		params.Set("scope", provider.Scope)
+	if scope := model.GetString(provider.Scope); scope != "" {
+		params.Set("scope", scope)
 	}
 
-	return fmt.Sprintf("%s?%s", provider.AuthURL, params.Encode()), nil
+	return fmt.Sprintf("%s?%s", model.GetString(provider.AuthURL), params.Encode()), nil
 }
 
 // HandleCallback 处理OAuth回调
@@ -75,21 +75,20 @@ func (l *OAuthLogic) HandleCallback(providerCode, code, ip string) (*types.OAuth
 }
 
 // getAccessToken 获取access_token
-func (l *OAuthLogic) getAccessToken(provider *model.OAuthProvider, code string) (map[string]any, error) {
+func (l *OAuthLogic) getAccessToken(provider *model.SysOauthProvider, code string) (map[string]any, error) {
 	params := url.Values{}
-	params.Set("client_id", provider.ClientID)
-	params.Set("client_secret", provider.ClientSecret)
+	params.Set("client_id", model.GetString(provider.ClientID))
+	params.Set("client_secret", model.GetString(provider.ClientSecret))
 	params.Set("code", code)
-	params.Set("redirect_uri", provider.RedirectURI)
+	params.Set("redirect_uri", model.GetString(provider.RedirectURI))
 	params.Set("grant_type", "authorization_code")
 
 	// 创建请求
-	req, err := http.NewRequest("POST", provider.TokenURL, strings.NewReader(params.Encode()))
+	req, err := http.NewRequest("POST", model.GetString(provider.TokenURL), strings.NewReader(params.Encode()))
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	// GitHub 需要 Accept: application/json 才会返回 JSON 格式
 	req.Header.Set("Accept", "application/json")
 
 	client := &http.Client{}
@@ -105,9 +104,7 @@ func (l *OAuthLogic) getAccessToken(provider *model.OAuthProvider, code string) 
 	}
 
 	var result map[string]any
-	// 先尝试解析为 JSON
 	if err := json.Unmarshal(body, &result); err != nil {
-		// 如果不是 JSON，尝试解析为 URL 编码格式（如：access_token=xxx&token_type=bearer）
 		values, parseErr := url.ParseQuery(string(body))
 		if parseErr != nil {
 			return nil, fmt.Errorf("解析响应失败: %v, 原始响应: %s", err, string(body))
@@ -132,13 +129,13 @@ func (l *OAuthLogic) getAccessToken(provider *model.OAuthProvider, code string) 
 }
 
 // getUserInfo 获取用户信息
-func (l *OAuthLogic) getUserInfo(provider *model.OAuthProvider, tokenData map[string]any) (map[string]any, error) {
+func (l *OAuthLogic) getUserInfo(provider *model.SysOauthProvider, tokenData map[string]any) (map[string]any, error) {
 	accessToken, ok := tokenData["access_token"].(string)
 	if !ok {
 		return nil, errors.New("access_token无效")
 	}
 
-	req, err := http.NewRequest("GET", provider.UserInfoURL, nil)
+	req, err := http.NewRequest("GET", model.GetString(provider.UserInfoURL), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -165,7 +162,7 @@ func (l *OAuthLogic) getUserInfo(provider *model.OAuthProvider, tokenData map[st
 }
 
 // findOrCreateUser 查找或创建用户
-func (l *OAuthLogic) findOrCreateUser(provider *model.OAuthProvider, userInfo, tokenData map[string]any, ip string) (*types.OAuthLoginResponse, error) {
+func (l *OAuthLogic) findOrCreateUser(provider *model.SysOauthProvider, userInfo, tokenData map[string]any, ip string) (*types.OAuthLoginResponse, error) {
 	// 解析用户信息
 	openID := getStringValue(userInfo, "id", "openid", "open_id")
 	unionID := getStringValue(userInfo, "unionid", "union_id")
@@ -177,19 +174,20 @@ func (l *OAuthLogic) findOrCreateUser(provider *model.OAuthProvider, userInfo, t
 	}
 
 	// 查找OAuth绑定记录
-	var oauthUser model.OAuthUser
+	var oauthUser model.SysOauthUser
 	err := l.db.Where("provider_code = ? AND open_id = ? AND is_delete = ?", provider.Code, openID, false).First(&oauthUser).Error
 	isNew := false
 
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		// 新用户，创建账号
 		isNew = true
-		user := &model.User{
+		user := &model.SysUser{
 			Username: fmt.Sprintf("%s_%s", provider.Code, openID[:8]),
 			Password: utils.MD5(utils.GenerateRandomString(16)),
-			Nickname: nickname,
-			Avatar:   avatar,
-			Status:   1,
+			Nickname: model.StringPtr(nickname),
+			Avatar:   model.StringPtr(avatar),
+			Status:   model.Int32Ptr(1),
+			IsDelete: model.BoolPtr(false),
 		}
 		if err := l.db.Create(user).Error; err != nil {
 			return nil, err
@@ -201,17 +199,18 @@ func (l *OAuthLogic) findOrCreateUser(provider *model.OAuthProvider, userInfo, t
 		refreshToken, _ := tokenData["refresh_token"].(string)
 		expiresIn, _ := tokenData["expires_in"].(float64)
 
-		oauthUser = model.OAuthUser{
-			UserID:       user.ID,
-			ProviderCode: provider.Code,
-			OpenID:       openID,
-			UnionID:      unionID,
-			Nickname:     nickname,
-			Avatar:       avatar,
-			AccessToken:  accessToken,
-			RefreshToken: refreshToken,
-			ExpiresAt:    time.Now().Unix() + int64(expiresIn),
-			RawData:      string(rawData),
+		oauthUser = model.SysOauthUser{
+			UserID:       model.Int64Ptr(user.ID),
+			ProviderCode: model.StringPtr(provider.Code),
+			OpenID:       model.StringPtr(openID),
+			UnionID:      model.StringPtr(unionID),
+			Nickname:     model.StringPtr(nickname),
+			Avatar:       model.StringPtr(avatar),
+			AccessToken:  model.StringPtr(accessToken),
+			RefreshToken: model.StringPtr(refreshToken),
+			ExpiresAt:    model.Int64Ptr(time.Now().Unix() + int64(expiresIn)),
+			RawData:      model.StringPtr(string(rawData)),
+			IsDelete:     model.BoolPtr(false),
 		}
 		if err := l.db.Create(&oauthUser).Error; err != nil {
 			return nil, err
@@ -221,13 +220,13 @@ func (l *OAuthLogic) findOrCreateUser(provider *model.OAuthProvider, userInfo, t
 	}
 
 	// 获取用户信息
-	var user model.User
-	if err := l.db.Preload("Roles", "is_delete = ?", false).Where("is_delete = ?", false).First(&user, oauthUser.UserID).Error; err != nil {
+	var user model.SysUser
+	if err := l.db.Where("is_delete = ?", false).First(&user, model.GetInt64(oauthUser.UserID)).Error; err != nil {
 		return nil, err
 	}
 
 	// 检查用户状态
-	if user.Status != 1 {
+	if model.GetInt32(user.Status) != 1 {
 		return nil, errors.New("用户已被禁用")
 	}
 
@@ -252,8 +251,8 @@ func (l *OAuthLogic) findOrCreateUser(provider *model.OAuthProvider, userInfo, t
 }
 
 // GetProvider 获取OAuth提供商
-func (l *OAuthLogic) GetProvider(code string) (*model.OAuthProvider, error) {
-	var provider model.OAuthProvider
+func (l *OAuthLogic) GetProvider(code string) (*model.SysOauthProvider, error) {
+	var provider model.SysOauthProvider
 	if err := l.db.Where("code = ? AND is_delete = ?", code, false).First(&provider).Error; err != nil {
 		return nil, err
 	}
@@ -261,11 +260,11 @@ func (l *OAuthLogic) GetProvider(code string) (*model.OAuthProvider, error) {
 }
 
 // ListProviders 获取OAuth提供商列表（分页）
-func (l *OAuthLogic) ListProviders(req *types.ListProvidersRequest) ([]model.OAuthProvider, int64, error) {
-	var providers []model.OAuthProvider
+func (l *OAuthLogic) ListProviders(req *types.ListProvidersRequest) ([]model.SysOauthProvider, int64, error) {
+	var providers []model.SysOauthProvider
 	var total int64
 
-	query := l.db.Model(&model.OAuthProvider{}).Where("is_delete = ?", false)
+	query := l.db.Model(&model.SysOauthProvider{}).Where("is_delete = ?", false)
 
 	if req.Name != "" {
 		query = query.Where("name LIKE ?", "%"+req.Name+"%")
@@ -289,8 +288,8 @@ func (l *OAuthLogic) ListProviders(req *types.ListProvidersRequest) ([]model.OAu
 }
 
 // ListAllProviders 获取所有启用的OAuth提供商（公开接口用）
-func (l *OAuthLogic) ListAllProviders() ([]model.OAuthProvider, error) {
-	var providers []model.OAuthProvider
+func (l *OAuthLogic) ListAllProviders() ([]model.SysOauthProvider, error) {
+	var providers []model.SysOauthProvider
 	if err := l.db.Where("status = 1 AND is_delete = ?", false).Order("sort ASC").Find(&providers).Error; err != nil {
 		return nil, err
 	}
@@ -298,21 +297,22 @@ func (l *OAuthLogic) ListAllProviders() ([]model.OAuthProvider, error) {
 }
 
 // CreateProvider 创建OAuth提供商
-func (l *OAuthLogic) CreateProvider(req *types.CreateProviderRequest) (*model.OAuthProvider, error) {
-	provider := &model.OAuthProvider{
+func (l *OAuthLogic) CreateProvider(req *types.CreateProviderRequest) (*model.SysOauthProvider, error) {
+	provider := &model.SysOauthProvider{
 		Name:         req.Name,
 		Code:         req.Code,
-		ClientID:     req.ClientID,
-		ClientSecret: req.ClientSecret,
-		RedirectURI:  req.RedirectURI,
-		AuthURL:      req.AuthURL,
-		TokenURL:     req.TokenURL,
-		UserInfoURL:  req.UserInfoURL,
-		Scope:        req.Scope,
-		Status:       req.Status,
-		Sort:         req.Sort,
-		Icon:         req.Icon,
-		Remark:       req.Remark,
+		ClientID:     model.StringPtr(req.ClientID),
+		ClientSecret: model.StringPtr(req.ClientSecret),
+		RedirectURI:  model.StringPtr(req.RedirectURI),
+		AuthURL:      model.StringPtr(req.AuthURL),
+		TokenURL:     model.StringPtr(req.TokenURL),
+		UserInfoURL:  model.StringPtr(req.UserInfoURL),
+		Scope:        model.StringPtr(req.Scope),
+		Status:       model.Int32Ptr(int32(req.Status)),
+		Sort:         model.Int64Ptr(int64(req.Sort)),
+		Icon:         model.StringPtr(req.Icon),
+		Remark:       model.StringPtr(req.Remark),
+		IsDelete:     model.BoolPtr(false),
 	}
 
 	if err := l.db.Create(provider).Error; err != nil {
@@ -339,16 +339,16 @@ func (l *OAuthLogic) UpdateProvider(req *types.UpdateProviderRequest) error {
 		"remark":        req.Remark,
 	}
 
-	return l.db.Model(&model.OAuthProvider{}).Where("id = ?", req.ID).Updates(updates).Error
+	return l.db.Model(&model.SysOauthProvider{}).Where("id = ?", req.ID).Updates(updates).Error
 }
 
 // DeleteProvider 删除OAuth提供商（软删除）
-func (l *OAuthLogic) DeleteProvider(id uint) error {
-	return l.db.Model(&model.OAuthProvider{}).Where("id = ?", id).Update("is_delete", true).Error
+func (l *OAuthLogic) DeleteProvider(id int64) error {
+	return l.db.Model(&model.SysOauthProvider{}).Where("id = ?", id).Update("is_delete", true).Error
 }
 
 // BindOAuth 绑定第三方账号
-func (l *OAuthLogic) BindOAuth(userID uint, providerCode, code string) error {
+func (l *OAuthLogic) BindOAuth(userID int64, providerCode, code string) error {
 	provider, err := l.GetProvider(providerCode)
 	if err != nil {
 		return err
@@ -371,7 +371,7 @@ func (l *OAuthLogic) BindOAuth(userID uint, providerCode, code string) error {
 
 	// 检查是否已绑定
 	var count int64
-	l.db.Model(&model.OAuthUser{}).Where("provider_code = ? AND open_id = ? AND is_delete = ?", providerCode, openID, false).Count(&count)
+	l.db.Model(&model.SysOauthUser{}).Where("provider_code = ? AND open_id = ? AND is_delete = ?", providerCode, openID, false).Count(&count)
 	if count > 0 {
 		return errors.New("该账号已被其他用户绑定")
 	}
@@ -381,30 +381,31 @@ func (l *OAuthLogic) BindOAuth(userID uint, providerCode, code string) error {
 	refreshToken, _ := tokenData["refresh_token"].(string)
 	expiresIn, _ := tokenData["expires_in"].(float64)
 
-	oauthUser := &model.OAuthUser{
-		UserID:       userID,
-		ProviderCode: providerCode,
-		OpenID:       openID,
-		UnionID:      unionID,
-		Nickname:     nickname,
-		Avatar:       avatar,
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
-		ExpiresAt:    time.Now().Unix() + int64(expiresIn),
-		RawData:      string(rawData),
+	oauthUser := &model.SysOauthUser{
+		UserID:       model.Int64Ptr(userID),
+		ProviderCode: model.StringPtr(providerCode),
+		OpenID:       model.StringPtr(openID),
+		UnionID:      model.StringPtr(unionID),
+		Nickname:     model.StringPtr(nickname),
+		Avatar:       model.StringPtr(avatar),
+		AccessToken:  model.StringPtr(accessToken),
+		RefreshToken: model.StringPtr(refreshToken),
+		ExpiresAt:    model.Int64Ptr(time.Now().Unix() + int64(expiresIn)),
+		RawData:      model.StringPtr(string(rawData)),
+		IsDelete:     model.BoolPtr(false),
 	}
 
 	return l.db.Create(oauthUser).Error
 }
 
 // UnbindOAuth 解绑第三方账号（软删除）
-func (l *OAuthLogic) UnbindOAuth(userID uint, providerCode string) error {
-	return l.db.Model(&model.OAuthUser{}).Where("user_id = ? AND provider_code = ? AND is_delete = ?", userID, providerCode, false).Update("is_delete", true).Error
+func (l *OAuthLogic) UnbindOAuth(userID int64, providerCode string) error {
+	return l.db.Model(&model.SysOauthUser{}).Where("user_id = ? AND provider_code = ? AND is_delete = ?", userID, providerCode, false).Update("is_delete", true).Error
 }
 
 // GetUserBindings 获取用户绑定的第三方账号
-func (l *OAuthLogic) GetUserBindings(userID uint) ([]model.OAuthUser, error) {
-	var bindings []model.OAuthUser
+func (l *OAuthLogic) GetUserBindings(userID int64) ([]model.SysOauthUser, error) {
+	var bindings []model.SysOauthUser
 	if err := l.db.Where("user_id = ? AND is_delete = ?", userID, false).Find(&bindings).Error; err != nil {
 		return nil, err
 	}
@@ -419,7 +420,6 @@ func getStringValue(m map[string]any, keys ...string) string {
 			case string:
 				return val
 			case float64:
-				// JSON 数字默认解析为 float64
 				return fmt.Sprintf("%.0f", val)
 			case int:
 				return fmt.Sprintf("%d", val)

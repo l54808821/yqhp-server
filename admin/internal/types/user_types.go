@@ -20,8 +20,8 @@ type RegisterRequest struct {
 
 // LoginResponse 登录响应
 type LoginResponse struct {
-	Token    string      `json:"token"`
-	UserInfo *model.User `json:"userInfo"`
+	Token    string         `json:"token"`
+	UserInfo *model.SysUser `json:"userInfo"`
 }
 
 // CreateUserRequest 创建用户请求

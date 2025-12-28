@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 
+	"yqhp/admin/internal/config"
+
 	"gorm.io/driver/mysql"
 	"gorm.io/gen"
 	"gorm.io/gorm"
@@ -12,8 +14,22 @@ import (
 // 使用方法: go run cmd/gen/main.go
 
 func main() {
-	// 数据库连接配置
-	dsn := "root:root@tcp(127.0.0.1:3306)/yqhp_admin?charset=utf8mb4&parseTime=True&loc=Local"
+	// 加载配置文件
+	cfg, err := config.LoadConfig("config/config.yml")
+	if err != nil {
+		panic(fmt.Errorf("加载配置文件失败: %w", err))
+	}
+
+	// 构建数据库连接字符串
+	dbCfg := cfg.Database
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=%s&parseTime=True&loc=Local",
+		dbCfg.Username,
+		dbCfg.Password,
+		dbCfg.Host,
+		dbCfg.Port,
+		dbCfg.Database,
+		dbCfg.Charset,
+	)
 
 	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
 	if err != nil {
@@ -22,8 +38,8 @@ func main() {
 
 	// 创建gen配置
 	g := gen.NewGenerator(gen.Config{
-		OutPath:           "./internal/query",   // 输出路径
-		ModelPkgPath:      "./internal/model",   // 模型包路径
+		OutPath:           "./internal/query",
+		ModelPkgPath:      "./internal/model",
 		Mode:              gen.WithDefaultQuery | gen.WithQueryInterface,
 		FieldNullable:     true,
 		FieldCoverable:    false,
@@ -35,27 +51,25 @@ func main() {
 	// 使用数据库连接
 	g.UseDB(db)
 
-	// 生成所有表的模型
-	// 可以指定表名生成特定表
-	// g.GenerateModel("sys_user")
-	// g.GenerateModel("sys_role")
-	// g.GenerateModel("sys_resource")
-	// g.GenerateModel("sys_dept")
-	// g.GenerateModel("sys_dict_type")
-	// g.GenerateModel("sys_dict_data")
-	// g.GenerateModel("sys_config")
-	// g.GenerateModel("sys_oauth_provider")
-	// g.GenerateModel("sys_oauth_user")
-	// g.GenerateModel("sys_user_token")
-	// g.GenerateModel("sys_login_log")
-	// g.GenerateModel("sys_operation_log")
-
-	// 生成所有表
-	g.GenerateAllTable()
+	// 生成指定表
+	g.GenerateModel("sys_application")
+	g.GenerateModel("sys_config")
+	g.GenerateModel("sys_dept")
+	g.GenerateModel("sys_dict_data")
+	g.GenerateModel("sys_dict_type")
+	g.GenerateModel("sys_login_log")
+	g.GenerateModel("sys_oauth_provider")
+	g.GenerateModel("sys_oauth_user")
+	g.GenerateModel("sys_operation_log")
+	g.GenerateModel("sys_resource")
+	g.GenerateModel("sys_role")
+	g.GenerateModel("sys_role_resource")
+	g.GenerateModel("sys_user")
+	g.GenerateModel("sys_user_role")
+	g.GenerateModel("sys_user_token")
 
 	// 执行生成
 	g.Execute()
 
 	fmt.Println("代码生成完成!")
 }
-

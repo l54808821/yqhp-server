@@ -108,7 +108,7 @@ func (h *AuthHandler) GetUserInfo(c *fiber.Ctx) error {
 		return response.Unauthorized(c, "请先登录")
 	}
 
-	user, err := h.userLogic.GetUserInfo(userID)
+	user, err := h.userLogic.GetUserInfo(int64(userID))
 	if err != nil {
 		return response.Error(c, "获取用户信息失败")
 	}
@@ -131,7 +131,7 @@ func (h *AuthHandler) ChangePassword(c *fiber.Ctx) error {
 		return response.Error(c, "参数解析失败")
 	}
 
-	if err := h.userLogic.ChangePassword(userID, req.OldPassword, req.NewPassword); err != nil {
+	if err := h.userLogic.ChangePassword(int64(userID), req.OldPassword, req.NewPassword); err != nil {
 		return response.Error(c, err.Error())
 	}
 
@@ -184,7 +184,7 @@ func (h *AuthHandler) GetUserBindings(c *fiber.Ctx) error {
 		return response.Unauthorized(c, "请先登录")
 	}
 
-	bindings, err := h.oauthLogic.GetUserBindings(userID)
+	bindings, err := h.oauthLogic.GetUserBindings(int64(userID))
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}
@@ -202,7 +202,7 @@ func (h *AuthHandler) BindOAuth(c *fiber.Ctx) error {
 	providerCode := c.Params("provider")
 	code := c.Query("code")
 
-	if err := h.oauthLogic.BindOAuth(userID, providerCode, code); err != nil {
+	if err := h.oauthLogic.BindOAuth(int64(userID), providerCode, code); err != nil {
 		return response.Error(c, err.Error())
 	}
 
@@ -218,7 +218,7 @@ func (h *AuthHandler) UnbindOAuth(c *fiber.Ctx) error {
 
 	providerCode := c.Params("provider")
 
-	if err := h.oauthLogic.UnbindOAuth(userID, providerCode); err != nil {
+	if err := h.oauthLogic.UnbindOAuth(int64(userID), providerCode); err != nil {
 		return response.Error(c, err.Error())
 	}
 

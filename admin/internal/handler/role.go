@@ -52,12 +52,12 @@ func (h *RoleHandler) All(c *fiber.Ctx) error {
 
 // Get 获取角色详情
 func (h *RoleHandler) Get(c *fiber.Ctx) error {
-	id, err := strconv.ParseUint(c.Params("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "参数错误")
 	}
 
-	role, err := h.roleLogic.GetRole(uint(id))
+	role, err := h.roleLogic.GetRole(id)
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}
@@ -104,12 +104,12 @@ func (h *RoleHandler) Update(c *fiber.Ctx) error {
 
 // Delete 删除角色
 func (h *RoleHandler) Delete(c *fiber.Ctx) error {
-	id, err := strconv.ParseUint(c.Params("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "参数错误")
 	}
 
-	if err := h.roleLogic.DeleteRole(uint(id)); err != nil {
+	if err := h.roleLogic.DeleteRole(id); err != nil {
 		return response.Error(c, err.Error())
 	}
 
@@ -118,12 +118,12 @@ func (h *RoleHandler) Delete(c *fiber.Ctx) error {
 
 // GetResourceIDs 获取角色的资源ID列表
 func (h *RoleHandler) GetResourceIDs(c *fiber.Ctx) error {
-	id, err := strconv.ParseUint(c.Params("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "参数错误")
 	}
 
-	resourceIDs, err := h.roleLogic.GetRoleResourceIDs(uint(id))
+	resourceIDs, err := h.roleLogic.GetRoleResourceIDs(id)
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}

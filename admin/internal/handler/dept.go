@@ -40,12 +40,12 @@ func (h *DeptHandler) All(c *fiber.Ctx) error {
 
 // Get 获取部门详情
 func (h *DeptHandler) Get(c *fiber.Ctx) error {
-	id, err := strconv.ParseUint(c.Params("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "参数错误")
 	}
 
-	dept, err := h.deptLogic.GetDept(uint(id))
+	dept, err := h.deptLogic.GetDept(id)
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}
@@ -92,12 +92,12 @@ func (h *DeptHandler) Update(c *fiber.Ctx) error {
 
 // Delete 删除部门
 func (h *DeptHandler) Delete(c *fiber.Ctx) error {
-	id, err := strconv.ParseUint(c.Params("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "参数错误")
 	}
 
-	if err := h.deptLogic.DeleteDept(uint(id)); err != nil {
+	if err := h.deptLogic.DeleteDept(id); err != nil {
 		return response.Error(c, err.Error())
 	}
 

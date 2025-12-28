@@ -29,12 +29,13 @@ func (l *ConfigLogic) CreateConfig(req *types.CreateConfigRequest) (*model.SysCo
 	}
 
 	config := &model.SysConfig{
-		Name:    req.Name,
-		Key:     req.Key,
-		Value:   req.Value,
-		Type:    req.Type,
-		IsBuilt: req.IsBuilt,
-		Remark:  req.Remark,
+		Name:     req.Name,
+		Key:      req.Key,
+		Value:    model.StringPtr(req.Value),
+		Type:     model.StringPtr(req.Type),
+		IsBuilt:  model.BoolPtr(req.IsBuilt),
+		Remark:   model.StringPtr(req.Remark),
+		IsDelete: model.BoolPtr(false),
 	}
 
 	if err := l.db.Create(config).Error; err != nil {
@@ -63,14 +64,14 @@ func (l *ConfigLogic) UpdateConfig(req *types.UpdateConfigRequest) error {
 }
 
 // DeleteConfig 删除配置（软删除）
-func (l *ConfigLogic) DeleteConfig(id uint) error {
+func (l *ConfigLogic) DeleteConfig(id int64) error {
 	// 检查是否为内置配置
 	var config model.SysConfig
 	if err := l.db.Where("is_delete = ?", false).First(&config, id).Error; err != nil {
 		return err
 	}
 
-	if config.IsBuilt {
+	if model.GetBool(config.IsBuilt) {
 		return errors.New("内置配置不允许删除")
 	}
 
@@ -78,7 +79,7 @@ func (l *ConfigLogic) DeleteConfig(id uint) error {
 }
 
 // GetConfig 获取配置详情
-func (l *ConfigLogic) GetConfig(id uint) (*model.SysConfig, error) {
+func (l *ConfigLogic) GetConfig(id int64) (*model.SysConfig, error) {
 	var config model.SysConfig
 	if err := l.db.Where("is_delete = ?", false).First(&config, id).Error; err != nil {
 		return nil, err
@@ -101,7 +102,7 @@ func (l *ConfigLogic) GetConfigValue(key string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return config.Value, nil
+	return model.GetString(config.Value), nil
 }
 
 // ListConfigs 获取配置列表

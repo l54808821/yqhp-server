@@ -134,8 +134,14 @@ func KickOut(loginId any, device ...string) error {
 }
 
 // Disable 禁用账号
-func Disable(loginId any, duration time.Duration) error {
-	return stputil.Disable(loginId, duration)
+func Disable(loginId any, duration int64) error {
+	return stputil.Disable(loginId, time.Duration(duration)*time.Second)
+}
+
+// GetDisableTime 获取禁用剩余时间
+func GetDisableTime(loginId any) int64 {
+	result, _ := stputil.GetDisableTime(loginId)
+	return result
 }
 
 // IsDisable 判断是否被禁用

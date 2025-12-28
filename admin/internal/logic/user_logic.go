@@ -7,7 +7,6 @@ import (
 	"yqhp/admin/internal/auth"
 	"yqhp/admin/internal/model"
 	"yqhp/admin/internal/types"
-	commontypes "yqhp/common/types"
 	"yqhp/common/utils"
 
 	"gorm.io/gorm"
@@ -42,14 +41,14 @@ func (l *UserLogic) Register(req *types.RegisterRequest, ip string) (*types.Logi
 
 	// 检查用户名是否存在
 	var count int64
-	l.db.Model(&model.User{}).Where("username = ? AND is_delete = ?", req.Username, false).Count(&count)
+	l.db.Model(&model.SysUser{}).Where("username = ? AND is_delete = ?", req.Username, false).Count(&count)
 	if count > 0 {
 		return nil, errors.New("用户名已存在")
 	}
 
 	// 检查邮箱是否存在
 	if req.Email != "" {
-		l.db.Model(&model.User{}).Where("email = ? AND is_delete = ?", req.Email, false).Count(&count)
+		l.db.Model(&model.SysUser{}).Where("email = ? AND is_delete = ?", req.Email, false).Count(&count)
 		if count > 0 {
 			return nil, errors.New("邮箱已被使用")
 		}
@@ -57,7 +56,7 @@ func (l *UserLogic) Register(req *types.RegisterRequest, ip string) (*types.Logi
 
 	// 检查手机号是否存在
 	if req.Phone != "" {
-		l.db.Model(&model.User{}).Where("phone = ? AND is_delete = ?", req.Phone, false).Count(&count)
+		l.db.Model(&model.SysUser{}).Where("phone = ? AND is_delete = ?", req.Phone, false).Count(&count)
 		if count > 0 {
 			return nil, errors.New("手机号已被使用")
 		}
@@ -70,13 +69,14 @@ func (l *UserLogic) Register(req *types.RegisterRequest, ip string) (*types.Logi
 	}
 
 	// 创建用户
-	user := &model.User{
+	user := &model.SysUser{
 		Username: req.Username,
 		Password: utils.MD5(req.Password),
-		Nickname: nickname,
-		Email:    req.Email,
-		Phone:    req.Phone,
-		Status:   1,
+		Nickname: model.StringPtr(nickname),
+		Email:    model.StringPtr(req.Email),
+		Phone:    model.StringPtr(req.Phone),
+		Status:   model.Int32Ptr(1),
+		IsDelete: model.BoolPtr(false),
 	}
 
 	if err := l.db.Create(user).Error; err != nil {
@@ -111,7 +111,7 @@ func (l *UserLogic) Register(req *types.RegisterRequest, ip string) (*types.Logi
 // Login 用户登录
 func (l *UserLogic) Login(req *types.LoginRequest, ip string) (*types.LoginResponse, error) {
 	// 查询用户
-	var user model.User
+	var user model.SysUser
 	if err := l.db.Where("username = ? AND is_delete = ?", req.Username, false).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			// 记录失败的登录日志
@@ -129,7 +129,7 @@ func (l *UserLogic) Login(req *types.LoginRequest, ip string) (*types.LoginRespo
 	}
 
 	// 检查用户状态
-	if user.Status != 1 {
+	if model.GetInt32(user.Status) != 1 {
 		l.recordLoginLog(user.ID, req.Username, ip, 0, "用户已被禁用", "password")
 		return nil, errors.New("用户已被禁用")
 	}
@@ -160,9 +160,6 @@ func (l *UserLogic) Login(req *types.LoginRequest, ip string) (*types.LoginRespo
 	// 记录成功的登录日志
 	l.recordLoginLog(user.ID, req.Username, ip, 1, "登录成功", "password")
 
-	// 预加载角色
-	l.db.Preload("Roles", "is_delete = ?", false).First(&user, user.ID)
-
 	return &types.LoginResponse{
 		Token:    token,
 		UserInfo: &user,
@@ -170,74 +167,77 @@ func (l *UserLogic) Login(req *types.LoginRequest, ip string) (*types.LoginRespo
 }
 
 // saveUserToken 保存用户Token到数据库
-func (l *UserLogic) saveUserToken(userID uint, token string, ip string, now time.Time) {
+func (l *UserLogic) saveUserToken(userID int64, token string, ip string, now time.Time) {
 	// 获取Token有效期配置（默认24小时）
 	expireAt := now.Add(24 * time.Hour)
 
-	userToken := &model.UserToken{
-		UserID:       userID,
-		Token:        token,
-		Device:       "pc",
-		Platform:     "web",
-		IP:           ip,
-		ExpireAt:     commontypes.NewDateTime(expireAt),
-		LastActiveAt: commontypes.NewDateTime(now),
+	userToken := &model.SysUserToken{
+		UserID:       model.Int64Ptr(userID),
+		Token:        model.StringPtr(token),
+		Device:       model.StringPtr("pc"),
+		Platform:     model.StringPtr("web"),
+		IP:           model.StringPtr(ip),
+		ExpireAt:     &expireAt,
+		LastActiveAt: &now,
+		IsDelete:     model.BoolPtr(false),
 	}
 
 	l.db.Create(userToken)
 }
 
 // recordLoginLog 记录登录日志
-func (l *UserLogic) recordLoginLog(userID uint, username string, ip string, status int8, message string, loginType string) {
-	log := &model.LoginLog{
-		UserID:    userID,
-		Username:  username,
-		IP:        ip,
-		Status:    status,
-		Message:   message,
-		LoginType: loginType,
+func (l *UserLogic) recordLoginLog(userID int64, username string, ip string, status int8, message string, loginType string) {
+	log := &model.SysLoginLog{
+		UserID:    model.Int64Ptr(userID),
+		Username:  model.StringPtr(username),
+		IP:        model.StringPtr(ip),
+		Status:    model.Int32Ptr(int32(status)),
+		Message:   model.StringPtr(message),
+		LoginType: model.StringPtr(loginType),
+		IsDelete:  model.BoolPtr(false),
 	}
 	l.db.Create(log)
 }
 
 // Logout 用户登出
 func (l *UserLogic) Logout(token string) error {
-	// 从数据库删除Token记录
-	l.db.Where("token = ?", token).Delete(&model.UserToken{})
+	// 从数据库删除Token记录（硬删除）
+	l.db.Where("token = ?", token).Delete(&model.SysUserToken{})
 
 	// 调用sa-token登出
 	return auth.LogoutByToken(token)
 }
 
 // GetUserInfo 获取用户信息
-func (l *UserLogic) GetUserInfo(userID uint) (*model.User, error) {
-	var user model.User
-	if err := l.db.Preload("Roles", "is_delete = ?", false).Where("is_delete = ?", false).First(&user, userID).Error; err != nil {
+func (l *UserLogic) GetUserInfo(userID int64) (*model.SysUser, error) {
+	var user model.SysUser
+	if err := l.db.Where("is_delete = ?", false).First(&user, userID).Error; err != nil {
 		return nil, err
 	}
 	return &user, nil
 }
 
 // CreateUser 创建用户
-func (l *UserLogic) CreateUser(req *types.CreateUserRequest) (*model.User, error) {
+func (l *UserLogic) CreateUser(req *types.CreateUserRequest) (*model.SysUser, error) {
 	// 检查用户名是否存在
 	var count int64
-	l.db.Model(&model.User{}).Where("username = ? AND is_delete = ?", req.Username, false).Count(&count)
+	l.db.Model(&model.SysUser{}).Where("username = ? AND is_delete = ?", req.Username, false).Count(&count)
 	if count > 0 {
 		return nil, errors.New("用户名已存在")
 	}
 
 	// 创建用户
-	user := &model.User{
+	user := &model.SysUser{
 		Username: req.Username,
 		Password: utils.MD5(req.Password),
-		Nickname: req.Nickname,
-		Email:    req.Email,
-		Phone:    req.Phone,
-		Gender:   req.Gender,
-		DeptID:   req.DeptID,
-		Status:   1,
-		Remark:   req.Remark,
+		Nickname: model.StringPtr(req.Nickname),
+		Email:    model.StringPtr(req.Email),
+		Phone:    model.StringPtr(req.Phone),
+		Gender:   model.Int32Ptr(int32(req.Gender)),
+		DeptID:   model.Int64Ptr(int64(req.DeptID)),
+		Status:   model.Int32Ptr(1),
+		Remark:   model.StringPtr(req.Remark),
+		IsDelete: model.BoolPtr(false),
 	}
 
 	if err := l.db.Create(user).Error; err != nil {
@@ -247,9 +247,10 @@ func (l *UserLogic) CreateUser(req *types.CreateUserRequest) (*model.User, error
 	// 关联角色
 	if len(req.RoleIDs) > 0 {
 		for _, roleID := range req.RoleIDs {
-			l.db.Create(&model.UserRole{
-				UserID: user.ID,
-				RoleID: roleID,
+			l.db.Create(&model.SysUserRole{
+				UserID:   user.ID,
+				RoleID:   int64(roleID),
+				IsDelete: model.BoolPtr(false),
 			})
 		}
 	}
@@ -271,17 +272,18 @@ func (l *UserLogic) UpdateUser(req *types.UpdateUserRequest) error {
 		"remark":   req.Remark,
 	}
 
-	if err := l.db.Model(&model.User{}).Where("id = ?", req.ID).Updates(updates).Error; err != nil {
+	if err := l.db.Model(&model.SysUser{}).Where("id = ?", req.ID).Updates(updates).Error; err != nil {
 		return err
 	}
 
 	// 更新角色关联（软删除旧的，创建新的）
-	l.db.Model(&model.UserRole{}).Where("user_id = ? AND is_delete = ?", req.ID, false).Update("is_delete", true)
+	l.db.Model(&model.SysUserRole{}).Where("user_id = ? AND is_delete = ?", req.ID, false).Update("is_delete", true)
 	if len(req.RoleIDs) > 0 {
 		for _, roleID := range req.RoleIDs {
-			l.db.Create(&model.UserRole{
-				UserID: req.ID,
-				RoleID: roleID,
+			l.db.Create(&model.SysUserRole{
+				UserID:   int64(req.ID),
+				RoleID:   int64(roleID),
+				IsDelete: model.BoolPtr(false),
 			})
 		}
 	}
@@ -290,21 +292,21 @@ func (l *UserLogic) UpdateUser(req *types.UpdateUserRequest) error {
 }
 
 // DeleteUser 删除用户（软删除）
-func (l *UserLogic) DeleteUser(id uint) error {
+func (l *UserLogic) DeleteUser(id int64) error {
 	// 软删除用户角色关联
-	l.db.Model(&model.UserRole{}).Where("user_id = ? AND is_delete = ?", id, false).Update("is_delete", true)
+	l.db.Model(&model.SysUserRole{}).Where("user_id = ? AND is_delete = ?", id, false).Update("is_delete", true)
 	// 软删除用户
-	return l.db.Model(&model.User{}).Where("id = ?", id).Update("is_delete", true).Error
+	return l.db.Model(&model.SysUser{}).Where("id = ?", id).Update("is_delete", true).Error
 }
 
 // ResetPassword 重置密码
-func (l *UserLogic) ResetPassword(id uint, newPassword string) error {
-	return l.db.Model(&model.User{}).Where("id = ?", id).Update("password", utils.MD5(newPassword)).Error
+func (l *UserLogic) ResetPassword(id int64, newPassword string) error {
+	return l.db.Model(&model.SysUser{}).Where("id = ?", id).Update("password", utils.MD5(newPassword)).Error
 }
 
 // ChangePassword 修改密码
-func (l *UserLogic) ChangePassword(id uint, oldPassword, newPassword string) error {
-	var user model.User
+func (l *UserLogic) ChangePassword(id int64, oldPassword, newPassword string) error {
+	var user model.SysUser
 	if err := l.db.First(&user, id).Error; err != nil {
 		return err
 	}
@@ -317,11 +319,11 @@ func (l *UserLogic) ChangePassword(id uint, oldPassword, newPassword string) err
 }
 
 // ListUsers 获取用户列表
-func (l *UserLogic) ListUsers(req *types.ListUsersRequest) ([]model.User, int64, error) {
-	var users []model.User
+func (l *UserLogic) ListUsers(req *types.ListUsersRequest) ([]model.SysUser, int64, error) {
+	var users []model.SysUser
 	var total int64
 
-	query := l.db.Model(&model.User{}).Where("is_delete = ?", false)
+	query := l.db.Model(&model.SysUser{}).Where("is_delete = ?", false)
 
 	if req.Username != "" {
 		query = query.Where("username LIKE ?", "%"+req.Username+"%")
@@ -346,9 +348,18 @@ func (l *UserLogic) ListUsers(req *types.ListUsersRequest) ([]model.User, int64,
 		query = query.Offset(offset).Limit(req.PageSize)
 	}
 
-	if err := query.Preload("Roles", "is_delete = ?", false).Find(&users).Error; err != nil {
+	if err := query.Find(&users).Error; err != nil {
 		return nil, 0, err
 	}
 
 	return users, total, nil
+}
+
+// GetUserRoleIDs 获取用户的角色ID列表
+func (l *UserLogic) GetUserRoleIDs(userID int64) ([]int64, error) {
+	var roleIDs []int64
+	err := l.db.Model(&model.SysUserRole{}).
+		Where("user_id = ? AND is_delete = ?", userID, false).
+		Pluck("role_id", &roleIDs).Error
+	return roleIDs, err
 }

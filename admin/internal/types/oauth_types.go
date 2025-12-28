@@ -4,9 +4,9 @@ import "yqhp/admin/internal/model"
 
 // OAuthLoginResponse OAuth登录响应
 type OAuthLoginResponse struct {
-	Token    string      `json:"token"`
-	UserInfo *model.User `json:"userInfo"`
-	IsNew    bool        `json:"isNew"` // 是否新用户
+	Token    string         `json:"token"`
+	UserInfo *model.SysUser `json:"userInfo"`
+	IsNew    bool           `json:"isNew"` // 是否新用户
 }
 
 // CreateProviderRequest 创建OAuth提供商请求

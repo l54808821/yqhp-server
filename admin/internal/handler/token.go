@@ -44,12 +44,12 @@ func (h *TokenHandler) List(c *fiber.Ctx) error {
 
 // KickOut 踢人下线（根据Token记录ID）
 func (h *TokenHandler) KickOut(c *fiber.Ctx) error {
-	id, err := strconv.ParseUint(c.Params("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "参数错误")
 	}
 
-	if err := h.tokenLogic.KickOutByTokenID(uint(id)); err != nil {
+	if err := h.tokenLogic.KickOutByTokenID(id); err != nil {
 		return response.Error(c, err.Error())
 	}
 
@@ -58,12 +58,12 @@ func (h *TokenHandler) KickOut(c *fiber.Ctx) error {
 
 // KickOutByUserID 根据用户ID踢人下线（踢掉该用户的所有会话）
 func (h *TokenHandler) KickOutByUserID(c *fiber.Ctx) error {
-	id, err := strconv.ParseUint(c.Params("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "参数错误")
 	}
 
-	if err := h.tokenLogic.KickOut(uint(id)); err != nil {
+	if err := h.tokenLogic.KickOutByUserID(id); err != nil {
 		return response.Error(c, err.Error())
 	}
 
@@ -88,7 +88,7 @@ func (h *TokenHandler) KickOutByToken(c *fiber.Ctx) error {
 
 // DisableUser 禁用用户
 func (h *TokenHandler) DisableUser(c *fiber.Ctx) error {
-	id, err := strconv.ParseUint(c.Params("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "参数错误")
 	}
@@ -100,7 +100,7 @@ func (h *TokenHandler) DisableUser(c *fiber.Ctx) error {
 		return response.Error(c, "参数解析失败")
 	}
 
-	if err := h.tokenLogic.DisableUser(uint(id), req.DisableTime); err != nil {
+	if err := h.tokenLogic.DisableUser(id, req.DisableTime); err != nil {
 		return response.Error(c, err.Error())
 	}
 
@@ -109,12 +109,12 @@ func (h *TokenHandler) DisableUser(c *fiber.Ctx) error {
 
 // EnableUser 解禁用户
 func (h *TokenHandler) EnableUser(c *fiber.Ctx) error {
-	id, err := strconv.ParseUint(c.Params("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "参数错误")
 	}
 
-	if err := h.tokenLogic.EnableUser(uint(id)); err != nil {
+	if err := h.tokenLogic.EnableUser(id); err != nil {
 		return response.Error(c, err.Error())
 	}
 
@@ -135,7 +135,7 @@ func (h *TokenHandler) GetLoginLogs(c *fiber.Ctx) error {
 		req.PageSize = 10
 	}
 
-	logs, total, err := h.tokenLogic.GetLoginLogs(&req)
+	logs, total, err := h.tokenLogic.ListLoginLogs(&req)
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}
@@ -157,7 +157,7 @@ func (h *TokenHandler) GetOperationLogs(c *fiber.Ctx) error {
 		req.PageSize = 10
 	}
 
-	logs, total, err := h.tokenLogic.GetOperationLogs(&req)
+	logs, total, err := h.tokenLogic.ListOperationLogs(&req)
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}

@@ -44,12 +44,12 @@ func (h *DictHandler) ListTypes(c *fiber.Ctx) error {
 
 // GetType 获取字典类型详情
 func (h *DictHandler) GetType(c *fiber.Ctx) error {
-	id, err := strconv.ParseUint(c.Params("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "参数错误")
 	}
 
-	dictType, err := h.dictLogic.GetDictType(uint(id))
+	dictType, err := h.dictLogic.GetDictType(id)
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}
@@ -96,12 +96,12 @@ func (h *DictHandler) UpdateType(c *fiber.Ctx) error {
 
 // DeleteType 删除字典类型
 func (h *DictHandler) DeleteType(c *fiber.Ctx) error {
-	id, err := strconv.ParseUint(c.Params("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "参数错误")
 	}
 
-	if err := h.dictLogic.DeleteDictType(uint(id)); err != nil {
+	if err := h.dictLogic.DeleteDictType(id); err != nil {
 		return response.Error(c, err.Error())
 	}
 
@@ -184,12 +184,12 @@ func (h *DictHandler) UpdateData(c *fiber.Ctx) error {
 
 // DeleteData 删除字典数据
 func (h *DictHandler) DeleteData(c *fiber.Ctx) error {
-	id, err := strconv.ParseUint(c.Params("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "参数错误")
 	}
 
-	if err := h.dictLogic.DeleteDictData(uint(id)); err != nil {
+	if err := h.dictLogic.DeleteDictData(id); err != nil {
 		return response.Error(c, err.Error())
 	}
 

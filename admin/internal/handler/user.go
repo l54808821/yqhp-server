@@ -44,12 +44,12 @@ func (h *UserHandler) List(c *fiber.Ctx) error {
 
 // Get 获取用户详情
 func (h *UserHandler) Get(c *fiber.Ctx) error {
-	id, err := strconv.ParseUint(c.Params("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "参数错误")
 	}
 
-	user, err := h.userLogic.GetUserInfo(uint(id))
+	user, err := h.userLogic.GetUserInfo(id)
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}
@@ -96,12 +96,12 @@ func (h *UserHandler) Update(c *fiber.Ctx) error {
 
 // Delete 删除用户
 func (h *UserHandler) Delete(c *fiber.Ctx) error {
-	id, err := strconv.ParseUint(c.Params("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "参数错误")
 	}
 
-	if err := h.userLogic.DeleteUser(uint(id)); err != nil {
+	if err := h.userLogic.DeleteUser(id); err != nil {
 		return response.Error(c, err.Error())
 	}
 
@@ -110,7 +110,7 @@ func (h *UserHandler) Delete(c *fiber.Ctx) error {
 
 // ResetPassword 重置密码
 func (h *UserHandler) ResetPassword(c *fiber.Ctx) error {
-	id, err := strconv.ParseUint(c.Params("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "参数错误")
 	}
@@ -126,7 +126,7 @@ func (h *UserHandler) ResetPassword(c *fiber.Ctx) error {
 		req.Password = "123456" // 默认密码
 	}
 
-	if err := h.userLogic.ResetPassword(uint(id), req.Password); err != nil {
+	if err := h.userLogic.ResetPassword(id, req.Password); err != nil {
 		return response.Error(c, err.Error())
 	}
 

@@ -25,11 +25,11 @@ func NewResourceHandler(resourceLogic *logic.ResourceLogic) *ResourceHandler {
 func (h *ResourceHandler) Tree(c *fiber.Ctx) error {
 	appIDStr := c.Query("appId")
 	if appIDStr != "" {
-		appID, err := strconv.ParseUint(appIDStr, 10, 64)
+		appID, err := strconv.ParseInt(appIDStr, 10, 64)
 		if err != nil {
 			return response.Error(c, "参数错误")
 		}
-		tree, err := h.resourceLogic.GetResourceTreeByAppID(uint(appID))
+		tree, err := h.resourceLogic.GetResourceTreeByAppID(appID)
 		if err != nil {
 			return response.Error(c, "获取失败")
 		}
@@ -47,11 +47,11 @@ func (h *ResourceHandler) Tree(c *fiber.Ctx) error {
 func (h *ResourceHandler) All(c *fiber.Ctx) error {
 	appIDStr := c.Query("appId")
 	if appIDStr != "" {
-		appID, err := strconv.ParseUint(appIDStr, 10, 64)
+		appID, err := strconv.ParseInt(appIDStr, 10, 64)
 		if err != nil {
 			return response.Error(c, "参数错误")
 		}
-		resources, err := h.resourceLogic.GetAllResourcesByAppID(uint(appID))
+		resources, err := h.resourceLogic.GetAllResourcesByAppID(appID)
 		if err != nil {
 			return response.Error(c, "获取失败")
 		}
@@ -97,12 +97,12 @@ func (h *ResourceHandler) GetUserPermissionCodes(c *fiber.Ctx) error {
 
 // Get 获取资源详情
 func (h *ResourceHandler) Get(c *fiber.Ctx) error {
-	id, err := strconv.ParseUint(c.Params("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "参数错误")
 	}
 
-	resource, err := h.resourceLogic.GetResource(uint(id))
+	resource, err := h.resourceLogic.GetResource(id)
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}
@@ -149,12 +149,12 @@ func (h *ResourceHandler) Update(c *fiber.Ctx) error {
 
 // Delete 删除资源
 func (h *ResourceHandler) Delete(c *fiber.Ctx) error {
-	id, err := strconv.ParseUint(c.Params("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "参数错误")
 	}
 
-	if err := h.resourceLogic.DeleteResource(uint(id)); err != nil {
+	if err := h.resourceLogic.DeleteResource(id); err != nil {
 		return response.Error(c, err.Error())
 	}
 

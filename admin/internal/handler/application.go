@@ -52,12 +52,12 @@ func (h *ApplicationHandler) All(c *fiber.Ctx) error {
 
 // Get 获取应用详情
 func (h *ApplicationHandler) Get(c *fiber.Ctx) error {
-	id, err := strconv.ParseUint(c.Params("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "参数错误")
 	}
 
-	app, err := h.appLogic.GetApplication(uint(id))
+	app, err := h.appLogic.GetApplication(id)
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}
@@ -104,12 +104,12 @@ func (h *ApplicationHandler) Update(c *fiber.Ctx) error {
 
 // Delete 删除应用
 func (h *ApplicationHandler) Delete(c *fiber.Ctx) error {
-	id, err := strconv.ParseUint(c.Params("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "参数错误")
 	}
 
-	if err := h.appLogic.DeleteApplication(uint(id)); err != nil {
+	if err := h.appLogic.DeleteApplication(id); err != nil {
 		return response.Error(c, err.Error())
 	}
 

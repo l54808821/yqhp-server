@@ -96,12 +96,12 @@ func (h *OAuthProviderHandler) Update(c *fiber.Ctx) error {
 
 // Delete 删除OAuth提供商
 func (h *OAuthProviderHandler) Delete(c *fiber.Ctx) error {
-	id, err := strconv.ParseUint(c.Params("id"), 10, 64)
+	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "参数错误")
 	}
 
-	if err := h.oauthLogic.DeleteProvider(uint(id)); err != nil {
+	if err := h.oauthLogic.DeleteProvider(id); err != nil {
 		return response.Error(c, err.Error())
 	}
 

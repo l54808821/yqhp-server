@@ -17,31 +17,27 @@ func NewPermissionService(db *gorm.DB) *PermissionService {
 }
 
 // GetUserRoles 获取用户角色列表
-func (s *PermissionService) GetUserRoles(userID uint) ([]string, error) {
-	var roles []model.Role
-	err := s.db.Model(&model.User{}).
-		Where("id = ?", userID).
-		Association("Roles").
-		Find(&roles)
+func (s *PermissionService) GetUserRoles(userID int64) ([]string, error) {
+	var roleCodes []string
+	err := s.db.Model(&model.SysUserRole{}).
+		Select("sys_role.code").
+		Joins("JOIN sys_role ON sys_role.id = sys_user_role.role_id").
+		Where("sys_user_role.user_id = ? AND sys_user_role.is_delete = ? AND sys_role.is_delete = ? AND sys_role.status = 1", userID, false, false).
+		Pluck("code", &roleCodes).Error
 	if err != nil {
 		return nil, err
 	}
-
-	codes := make([]string, len(roles))
-	for i, role := range roles {
-		codes[i] = role.Code
-	}
-	return codes, nil
+	return roleCodes, nil
 }
 
 // GetUserPermissions 获取用户权限列表
-func (s *PermissionService) GetUserPermissions(userID uint) ([]string, error) {
+func (s *PermissionService) GetUserPermissions(userID int64) ([]string, error) {
 	var permissions []string
 
 	// 获取用户的所有角色
-	var roleIDs []uint
-	err := s.db.Model(&model.UserRole{}).
-		Where("user_id = ?", userID).
+	var roleIDs []int64
+	err := s.db.Model(&model.SysUserRole{}).
+		Where("user_id = ? AND is_delete = ?", userID, false).
 		Pluck("role_id", &roleIDs).Error
 	if err != nil {
 		return nil, err
@@ -52,9 +48,9 @@ func (s *PermissionService) GetUserPermissions(userID uint) ([]string, error) {
 	}
 
 	// 获取角色关联的资源权限
-	var resourceIDs []uint
-	err = s.db.Model(&model.RoleResource{}).
-		Where("role_id IN ?", roleIDs).
+	var resourceIDs []int64
+	err = s.db.Model(&model.SysRoleResource{}).
+		Where("role_id IN ? AND is_delete = ?", roleIDs, false).
 		Pluck("resource_id", &resourceIDs).Error
 	if err != nil {
 		return nil, err
@@ -65,8 +61,8 @@ func (s *PermissionService) GetUserPermissions(userID uint) ([]string, error) {
 	}
 
 	// 获取资源的权限标识
-	err = s.db.Model(&model.Resource{}).
-		Where("id IN ? AND code != '' AND status = 1", resourceIDs).
+	err = s.db.Model(&model.SysResource{}).
+		Where("id IN ? AND code != '' AND code IS NOT NULL AND status = 1 AND is_delete = ?", resourceIDs, false).
 		Pluck("code", &permissions).Error
 	if err != nil {
 		return nil, err
@@ -76,7 +72,7 @@ func (s *PermissionService) GetUserPermissions(userID uint) ([]string, error) {
 }
 
 // HasRole 判断用户是否拥有角色
-func (s *PermissionService) HasRole(userID uint, roleCode string) (bool, error) {
+func (s *PermissionService) HasRole(userID int64, roleCode string) (bool, error) {
 	roles, err := s.GetUserRoles(userID)
 	if err != nil {
 		return false, err
@@ -91,7 +87,7 @@ func (s *PermissionService) HasRole(userID uint, roleCode string) (bool, error) 
 }
 
 // HasPermission 判断用户是否拥有权限
-func (s *PermissionService) HasPermission(userID uint, permissionCode string) (bool, error) {
+func (s *PermissionService) HasPermission(userID int64, permissionCode string) (bool, error) {
 	permissions, err := s.GetUserPermissions(userID)
 	if err != nil {
 		return false, err
@@ -106,7 +102,7 @@ func (s *PermissionService) HasPermission(userID uint, permissionCode string) (b
 }
 
 // HasAnyRole 判断用户是否拥有任一角色
-func (s *PermissionService) HasAnyRole(userID uint, roleCodes ...string) (bool, error) {
+func (s *PermissionService) HasAnyRole(userID int64, roleCodes ...string) (bool, error) {
 	roles, err := s.GetUserRoles(userID)
 	if err != nil {
 		return false, err
@@ -126,7 +122,7 @@ func (s *PermissionService) HasAnyRole(userID uint, roleCodes ...string) (bool, 
 }
 
 // HasAnyPermission 判断用户是否拥有任一权限
-func (s *PermissionService) HasAnyPermission(userID uint, permissionCodes ...string) (bool, error) {
+func (s *PermissionService) HasAnyPermission(userID int64, permissionCodes ...string) (bool, error) {
 	permissions, err := s.GetUserPermissions(userID)
 	if err != nil {
 		return false, err
@@ -178,4 +174,3 @@ func matchWildcard(pattern, target string) bool {
 
 	return pIdx == pLen
 }
-

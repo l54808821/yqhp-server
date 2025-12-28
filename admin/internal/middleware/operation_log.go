@@ -29,32 +29,39 @@ func OperationLogMiddleware(db *gorm.DB, module, action string) fiber.Handler {
 		// 获取用户信息
 		userID := GetCurrentUserID(c)
 		username := ""
-		if user, ok := c.Locals("user").(*model.User); ok {
+		if user, ok := c.Locals("user").(*model.SysUser); ok {
 			username = user.Username
 		}
 
 		// 获取响应状态
-		status := int8(1)
+		status := int32(1)
 		errorMsg := ""
 		if err != nil {
 			status = 0
 			errorMsg = err.Error()
 		}
 
+		method := c.Method()
+		path := c.Path()
+		ip := c.IP()
+		userAgent := c.Get("User-Agent")
+		params := string(bodyBytes)
+
 		// 创建操作日志
-		log := &model.OperationLog{
-			UserID:    userID,
-			Username:  username,
-			Module:    module,
-			Action:    action,
-			Method:    c.Method(),
-			Path:      c.Path(),
-			IP:        c.IP(),
-			UserAgent: c.Get("User-Agent"),
-			Params:    string(bodyBytes),
-			Status:    status,
-			Duration:  duration,
-			ErrorMsg:  errorMsg,
+		log := &model.SysOperationLog{
+			UserID:    model.Int64Ptr(int64(userID)),
+			Username:  model.StringPtr(username),
+			Module:    model.StringPtr(module),
+			Action:    model.StringPtr(action),
+			Method:    model.StringPtr(method),
+			Path:      model.StringPtr(path),
+			IP:        model.StringPtr(ip),
+			UserAgent: model.StringPtr(userAgent),
+			Params:    model.StringPtr(params),
+			Status:    model.Int32Ptr(status),
+			Duration:  model.Int64Ptr(duration),
+			ErrorMsg:  model.StringPtr(errorMsg),
+			IsDelete:  model.BoolPtr(false),
 		}
 
 		// 异步保存日志
@@ -70,11 +77,11 @@ func OperationLogMiddleware(db *gorm.DB, module, action string) fiber.Handler {
 func LogOperation(db *gorm.DB, c *fiber.Ctx, module, action string, params any, result any, err error) {
 	userID := GetCurrentUserID(c)
 	username := ""
-	if user, ok := c.Locals("user").(*model.User); ok {
+	if user, ok := c.Locals("user").(*model.SysUser); ok {
 		username = user.Username
 	}
 
-	status := int8(1)
+	status := int32(1)
 	errorMsg := ""
 	if err != nil {
 		status = 0
@@ -95,23 +102,28 @@ func LogOperation(db *gorm.DB, c *fiber.Ctx, module, action string, params any, 
 		}
 	}
 
-	log := &model.OperationLog{
-		UserID:    userID,
-		Username:  username,
-		Module:    module,
-		Action:    action,
-		Method:    c.Method(),
-		Path:      c.Path(),
-		IP:        c.IP(),
-		UserAgent: c.Get("User-Agent"),
-		Params:    paramsStr,
-		Result:    resultStr,
-		Status:    status,
-		ErrorMsg:  errorMsg,
+	method := c.Method()
+	path := c.Path()
+	ip := c.IP()
+	userAgent := c.Get("User-Agent")
+
+	log := &model.SysOperationLog{
+		UserID:    model.Int64Ptr(int64(userID)),
+		Username:  model.StringPtr(username),
+		Module:    model.StringPtr(module),
+		Action:    model.StringPtr(action),
+		Method:    model.StringPtr(method),
+		Path:      model.StringPtr(path),
+		IP:        model.StringPtr(ip),
+		UserAgent: model.StringPtr(userAgent),
+		Params:    model.StringPtr(paramsStr),
+		Result:    model.StringPtr(resultStr),
+		Status:    model.Int32Ptr(status),
+		ErrorMsg:  model.StringPtr(errorMsg),
+		IsDelete:  model.BoolPtr(false),
 	}
 
 	go func() {
 		db.Create(log)
 	}()
 }
-

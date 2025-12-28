@@ -27,7 +27,7 @@ func (l *DictLogic) db() *query.Query {
 }
 
 // CreateDictType 创建字典类型
-func (l *DictLogic) CreateDictType(req *types.CreateDictTypeRequest) (*model.SysDictType, error) {
+func (l *DictLogic) CreateDictType(req *types.CreateDictTypeRequest) (*types.DictTypeInfo, error) {
 	dt := l.db().SysDictType
 	count, _ := dt.WithContext(l.ctx).Where(dt.Code.Eq(req.Code), dt.IsDelete.Is(false)).Count()
 	if count > 0 {
@@ -46,7 +46,7 @@ func (l *DictLogic) CreateDictType(req *types.CreateDictTypeRequest) (*model.Sys
 		return nil, err
 	}
 
-	return dictType, nil
+	return types.ToDictTypeInfo(dictType), nil
 }
 
 // UpdateDictType 更新字典类型
@@ -76,13 +76,17 @@ func (l *DictLogic) DeleteDictType(id int64) error {
 }
 
 // GetDictType 获取字典类型详情
-func (l *DictLogic) GetDictType(id int64) (*model.SysDictType, error) {
+func (l *DictLogic) GetDictType(id int64) (*types.DictTypeInfo, error) {
 	dt := l.db().SysDictType
-	return dt.WithContext(l.ctx).Where(dt.ID.Eq(id), dt.IsDelete.Is(false)).First()
+	dictType, err := dt.WithContext(l.ctx).Where(dt.ID.Eq(id), dt.IsDelete.Is(false)).First()
+	if err != nil {
+		return nil, err
+	}
+	return types.ToDictTypeInfo(dictType), nil
 }
 
 // ListDictTypes 获取字典类型列表
-func (l *DictLogic) ListDictTypes(req *types.ListDictTypesRequest) ([]*model.SysDictType, int64, error) {
+func (l *DictLogic) ListDictTypes(req *types.ListDictTypesRequest) ([]*types.DictTypeInfo, int64, error) {
 	dt := l.db().SysDictType
 	q := dt.WithContext(l.ctx).Where(dt.IsDelete.Is(false))
 
@@ -103,11 +107,14 @@ func (l *DictLogic) ListDictTypes(req *types.ListDictTypesRequest) ([]*model.Sys
 	}
 
 	dictTypes, err := q.Find()
-	return dictTypes, total, err
+	if err != nil {
+		return nil, 0, err
+	}
+	return types.ToDictTypeInfoList(dictTypes), total, nil
 }
 
 // CreateDictData 创建字典数据
-func (l *DictLogic) CreateDictData(req *types.CreateDictDataRequest) (*model.SysDictDatum, error) {
+func (l *DictLogic) CreateDictData(req *types.CreateDictDataRequest) (*types.DictDataInfo, error) {
 	dictData := &model.SysDictDatum{
 		TypeCode:  req.TypeCode,
 		Label:     req.Label,
@@ -125,7 +132,7 @@ func (l *DictLogic) CreateDictData(req *types.CreateDictDataRequest) (*model.Sys
 		return nil, err
 	}
 
-	return dictData, nil
+	return types.ToDictDataInfo(dictData), nil
 }
 
 // UpdateDictData 更新字典数据
@@ -152,13 +159,17 @@ func (l *DictLogic) DeleteDictData(id int64) error {
 }
 
 // GetDictDataByTypeCode 根据类型编码获取字典数据
-func (l *DictLogic) GetDictDataByTypeCode(typeCode string) ([]*model.SysDictDatum, error) {
+func (l *DictLogic) GetDictDataByTypeCode(typeCode string) ([]*types.DictDataInfo, error) {
 	dd := l.db().SysDictDatum
-	return dd.WithContext(l.ctx).Where(dd.TypeCode.Eq(typeCode), dd.Status.Eq(1), dd.IsDelete.Is(false)).Order(dd.Sort).Find()
+	data, err := dd.WithContext(l.ctx).Where(dd.TypeCode.Eq(typeCode), dd.Status.Eq(1), dd.IsDelete.Is(false)).Order(dd.Sort).Find()
+	if err != nil {
+		return nil, err
+	}
+	return types.ToDictDataInfoList(data), nil
 }
 
 // ListDictData 获取字典数据列表
-func (l *DictLogic) ListDictData(req *types.ListDictDataRequest) ([]*model.SysDictDatum, int64, error) {
+func (l *DictLogic) ListDictData(req *types.ListDictDataRequest) ([]*types.DictDataInfo, int64, error) {
 	dd := l.db().SysDictDatum
 	q := dd.WithContext(l.ctx).Where(dd.IsDelete.Is(false))
 
@@ -179,5 +190,8 @@ func (l *DictLogic) ListDictData(req *types.ListDictDataRequest) ([]*model.SysDi
 	}
 
 	data, err := q.Order(dd.Sort).Find()
-	return data, total, err
+	if err != nil {
+		return nil, 0, err
+	}
+	return types.ToDictDataInfoList(data), total, nil
 }

@@ -27,7 +27,7 @@ func (l *ResourceLogic) db() *query.Query {
 }
 
 // CreateResource 创建资源
-func (l *ResourceLogic) CreateResource(req *types.CreateResourceRequest) (*model.SysResource, error) {
+func (l *ResourceLogic) CreateResource(req *types.CreateResourceRequest) (*types.ResourceInfo, error) {
 	r := l.db().SysResource
 	if req.Code != "" {
 		count, _ := r.WithContext(l.ctx).Where(r.AppID.Eq(int64(req.AppID)), r.Code.Eq(req.Code), r.IsDelete.Is(false)).Count()
@@ -59,7 +59,7 @@ func (l *ResourceLogic) CreateResource(req *types.CreateResourceRequest) (*model
 		return nil, err
 	}
 
-	return resource, nil
+	return types.ToResourceInfo(resource), nil
 }
 
 // UpdateResource 更新资源
@@ -112,51 +112,63 @@ func (l *ResourceLogic) DeleteResource(id int64) error {
 }
 
 // GetResource 获取资源详情
-func (l *ResourceLogic) GetResource(id int64) (*model.SysResource, error) {
+func (l *ResourceLogic) GetResource(id int64) (*types.ResourceInfo, error) {
 	r := l.db().SysResource
-	return r.WithContext(l.ctx).Where(r.ID.Eq(id), r.IsDelete.Is(false)).First()
+	resource, err := r.WithContext(l.ctx).Where(r.ID.Eq(id), r.IsDelete.Is(false)).First()
+	if err != nil {
+		return nil, err
+	}
+	return types.ToResourceInfo(resource), nil
 }
 
 // GetResourceTree 获取资源树
-func (l *ResourceLogic) GetResourceTree() ([]model.ResourceWithChildren, error) {
+func (l *ResourceLogic) GetResourceTree() ([]types.ResourceTreeInfo, error) {
 	r := l.db().SysResource
 	resources, err := r.WithContext(l.ctx).Where(r.Status.Eq(1), r.IsDelete.Is(false)).Order(r.Sort).Find()
 	if err != nil {
 		return nil, err
 	}
 
-	return buildResourceTree(resources, 0), nil
+	return types.BuildResourceTree(resources, 0), nil
 }
 
 // GetResourceTreeByAppID 获取指定应用的资源树
-func (l *ResourceLogic) GetResourceTreeByAppID(appID int64) ([]model.ResourceWithChildren, error) {
+func (l *ResourceLogic) GetResourceTreeByAppID(appID int64) ([]types.ResourceTreeInfo, error) {
 	r := l.db().SysResource
 	resources, err := r.WithContext(l.ctx).Where(r.AppID.Eq(appID), r.Status.Eq(1), r.IsDelete.Is(false)).Order(r.Sort).Find()
 	if err != nil {
 		return nil, err
 	}
 
-	return buildResourceTree(resources, 0), nil
+	return types.BuildResourceTree(resources, 0), nil
 }
 
 // GetAllResources 获取所有资源
-func (l *ResourceLogic) GetAllResources() ([]*model.SysResource, error) {
+func (l *ResourceLogic) GetAllResources() ([]*types.ResourceInfo, error) {
 	r := l.db().SysResource
-	return r.WithContext(l.ctx).Where(r.IsDelete.Is(false)).Order(r.Sort).Find()
+	resources, err := r.WithContext(l.ctx).Where(r.IsDelete.Is(false)).Order(r.Sort).Find()
+	if err != nil {
+		return nil, err
+	}
+	return types.ToResourceInfoList(resources), nil
 }
 
 // GetAllResourcesByAppID 获取指定应用的所有资源
-func (l *ResourceLogic) GetAllResourcesByAppID(appID int64) ([]*model.SysResource, error) {
+func (l *ResourceLogic) GetAllResourcesByAppID(appID int64) ([]*types.ResourceInfo, error) {
 	r := l.db().SysResource
-	return r.WithContext(l.ctx).Where(r.AppID.Eq(appID), r.IsDelete.Is(false)).Order(r.Sort).Find()
+	resources, err := r.WithContext(l.ctx).Where(r.AppID.Eq(appID), r.IsDelete.Is(false)).Order(r.Sort).Find()
+	if err != nil {
+		return nil, err
+	}
+	return types.ToResourceInfoList(resources), nil
 }
 
 // GetUserMenus 获取用户菜单
-func (l *ResourceLogic) GetUserMenus(userID int64) ([]model.ResourceWithChildren, error) {
+func (l *ResourceLogic) GetUserMenus(userID int64) ([]types.ResourceTreeInfo, error) {
 	ur := l.db().SysUserRole
 	userRoles, err := ur.WithContext(l.ctx).Where(ur.UserID.Eq(userID), ur.IsDelete.Is(false)).Find()
 	if err != nil || len(userRoles) == 0 {
-		return []model.ResourceWithChildren{}, nil
+		return []types.ResourceTreeInfo{}, nil
 	}
 
 	roleIDs := make([]int64, len(userRoles))
@@ -167,7 +179,7 @@ func (l *ResourceLogic) GetUserMenus(userID int64) ([]model.ResourceWithChildren
 	rr := l.db().SysRoleResource
 	roleResources, err := rr.WithContext(l.ctx).Where(rr.RoleID.In(roleIDs...), rr.IsDelete.Is(false)).Find()
 	if err != nil || len(roleResources) == 0 {
-		return []model.ResourceWithChildren{}, nil
+		return []types.ResourceTreeInfo{}, nil
 	}
 
 	resourceIDs := make([]int64, len(roleResources))
@@ -182,7 +194,7 @@ func (l *ResourceLogic) GetUserMenus(userID int64) ([]model.ResourceWithChildren
 	}
 
 	resources = l.completeParentMenus(resources)
-	return buildResourceTree(resources, 0), nil
+	return types.BuildResourceTree(resources, 0), nil
 }
 
 // completeParentMenus 补全父级菜单

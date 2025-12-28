@@ -28,3 +28,16 @@ type ListApplicationsRequest struct {
 	Code     string `json:"code"`
 	Status   *int8  `json:"status"`
 }
+
+// AppInfo 应用响应
+type AppInfo struct {
+	ID          int64     `json:"id"`
+	Name        string    `json:"name"`
+	Code        string    `json:"code"`
+	Description string    `json:"description"`
+	Icon        string    `json:"icon"`
+	Sort        int64     `json:"sort"`
+	Status      int32     `json:"status"`
+	CreatedAt   *DateTime `json:"createdAt"`
+	UpdatedAt   *DateTime `json:"updatedAt"`
+}

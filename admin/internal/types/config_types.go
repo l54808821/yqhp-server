@@ -26,3 +26,16 @@ type ListConfigsRequest struct {
 	Name     string `json:"name"`
 	Key      string `json:"key"`
 }
+
+// ConfigInfo 配置响应
+type ConfigInfo struct {
+	ID        int64     `json:"id"`
+	Name      string    `json:"name"`
+	Key       string    `json:"key"`
+	Value     string    `json:"value"`
+	Type      string    `json:"type"`
+	IsBuilt   bool      `json:"isBuilt"`
+	Remark    string    `json:"remark"`
+	CreatedAt *DateTime `json:"createdAt"`
+	UpdatedAt *DateTime `json:"updatedAt"`
+}

@@ -27,7 +27,7 @@ func (l *ApplicationLogic) db() *query.Query {
 }
 
 // CreateApplication 创建应用
-func (l *ApplicationLogic) CreateApplication(req *types.CreateApplicationRequest) (*model.SysApplication, error) {
+func (l *ApplicationLogic) CreateApplication(req *types.CreateApplicationRequest) (*types.AppInfo, error) {
 	app := l.db().SysApplication
 	count, _ := app.WithContext(l.ctx).Where(app.Code.Eq(req.Code), app.IsDelete.Is(false)).Count()
 	if count > 0 {
@@ -48,7 +48,7 @@ func (l *ApplicationLogic) CreateApplication(req *types.CreateApplicationRequest
 		return nil, err
 	}
 
-	return application, nil
+	return types.ToAppInfo(application), nil
 }
 
 // UpdateApplication 更新应用
@@ -84,13 +84,17 @@ func (l *ApplicationLogic) DeleteApplication(id int64) error {
 }
 
 // GetApplication 获取应用详情
-func (l *ApplicationLogic) GetApplication(id int64) (*model.SysApplication, error) {
+func (l *ApplicationLogic) GetApplication(id int64) (*types.AppInfo, error) {
 	app := l.db().SysApplication
-	return app.WithContext(l.ctx).Where(app.ID.Eq(id), app.IsDelete.Is(false)).First()
+	application, err := app.WithContext(l.ctx).Where(app.ID.Eq(id), app.IsDelete.Is(false)).First()
+	if err != nil {
+		return nil, err
+	}
+	return types.ToAppInfo(application), nil
 }
 
 // ListApplications 获取应用列表
-func (l *ApplicationLogic) ListApplications(req *types.ListApplicationsRequest) ([]*model.SysApplication, int64, error) {
+func (l *ApplicationLogic) ListApplications(req *types.ListApplicationsRequest) ([]*types.AppInfo, int64, error) {
 	app := l.db().SysApplication
 	q := app.WithContext(l.ctx).Where(app.IsDelete.Is(false))
 
@@ -111,11 +115,18 @@ func (l *ApplicationLogic) ListApplications(req *types.ListApplicationsRequest) 
 	}
 
 	apps, err := q.Order(app.Sort).Find()
-	return apps, total, err
+	if err != nil {
+		return nil, 0, err
+	}
+	return types.ToAppInfoList(apps), total, nil
 }
 
 // GetAllApplications 获取所有应用
-func (l *ApplicationLogic) GetAllApplications() ([]*model.SysApplication, error) {
+func (l *ApplicationLogic) GetAllApplications() ([]*types.AppInfo, error) {
 	app := l.db().SysApplication
-	return app.WithContext(l.ctx).Where(app.Status.Eq(1), app.IsDelete.Is(false)).Order(app.Sort).Find()
+	apps, err := app.WithContext(l.ctx).Where(app.Status.Eq(1), app.IsDelete.Is(false)).Order(app.Sort).Find()
+	if err != nil {
+		return nil, err
+	}
+	return types.ToAppInfoList(apps), nil
 }

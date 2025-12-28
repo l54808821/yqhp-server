@@ -27,7 +27,7 @@ func (l *DeptLogic) db() *query.Query {
 }
 
 // CreateDept 创建部门
-func (l *DeptLogic) CreateDept(req *types.CreateDeptRequest) (*model.SysDept, error) {
+func (l *DeptLogic) CreateDept(req *types.CreateDeptRequest) (*types.DeptInfo, error) {
 	dept := &model.SysDept{
 		ParentID: model.Int64Ptr(int64(req.ParentID)),
 		Name:     req.Name,
@@ -45,7 +45,7 @@ func (l *DeptLogic) CreateDept(req *types.CreateDeptRequest) (*model.SysDept, er
 		return nil, err
 	}
 
-	return dept, nil
+	return types.ToDeptInfo(dept), nil
 }
 
 // UpdateDept 更新部门
@@ -88,26 +88,34 @@ func (l *DeptLogic) DeleteDept(id int64) error {
 }
 
 // GetDept 获取部门详情
-func (l *DeptLogic) GetDept(id int64) (*model.SysDept, error) {
+func (l *DeptLogic) GetDept(id int64) (*types.DeptInfo, error) {
 	d := l.db().SysDept
-	return d.WithContext(l.ctx).Where(d.ID.Eq(id), d.IsDelete.Is(false)).First()
+	dept, err := d.WithContext(l.ctx).Where(d.ID.Eq(id), d.IsDelete.Is(false)).First()
+	if err != nil {
+		return nil, err
+	}
+	return types.ToDeptInfo(dept), nil
 }
 
 // GetDeptTree 获取部门树
-func (l *DeptLogic) GetDeptTree() ([]model.DeptWithChildren, error) {
+func (l *DeptLogic) GetDeptTree() ([]types.DeptTreeInfo, error) {
 	d := l.db().SysDept
 	depts, err := d.WithContext(l.ctx).Where(d.IsDelete.Is(false)).Order(d.Sort).Find()
 	if err != nil {
 		return nil, err
 	}
 
-	return buildDeptTree(depts, 0), nil
+	return types.BuildDeptTree(depts, 0), nil
 }
 
 // GetAllDepts 获取所有部门
-func (l *DeptLogic) GetAllDepts() ([]*model.SysDept, error) {
+func (l *DeptLogic) GetAllDepts() ([]*types.DeptInfo, error) {
 	d := l.db().SysDept
-	return d.WithContext(l.ctx).Where(d.IsDelete.Is(false)).Order(d.Sort).Find()
+	depts, err := d.WithContext(l.ctx).Where(d.IsDelete.Is(false)).Order(d.Sort).Find()
+	if err != nil {
+		return nil, err
+	}
+	return types.ToDeptInfoList(depts), nil
 }
 
 // buildDeptTree 构建部门树

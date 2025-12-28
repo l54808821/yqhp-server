@@ -27,7 +27,7 @@ func (l *ConfigLogic) db() *query.Query {
 }
 
 // CreateConfig 创建配置
-func (l *ConfigLogic) CreateConfig(req *types.CreateConfigRequest) (*model.SysConfig, error) {
+func (l *ConfigLogic) CreateConfig(req *types.CreateConfigRequest) (*types.ConfigInfo, error) {
 	cfg := l.db().SysConfig
 	count, _ := cfg.WithContext(l.ctx).Where(cfg.Key.Eq(req.Key), cfg.IsDelete.Is(false)).Count()
 	if count > 0 {
@@ -48,7 +48,7 @@ func (l *ConfigLogic) CreateConfig(req *types.CreateConfigRequest) (*model.SysCo
 		return nil, err
 	}
 
-	return config, nil
+	return types.ToConfigInfo(config), nil
 }
 
 // UpdateConfig 更新配置
@@ -80,19 +80,27 @@ func (l *ConfigLogic) DeleteConfig(id int64) error {
 }
 
 // GetConfig 获取配置详情
-func (l *ConfigLogic) GetConfig(id int64) (*model.SysConfig, error) {
+func (l *ConfigLogic) GetConfig(id int64) (*types.ConfigInfo, error) {
 	cfg := l.db().SysConfig
-	return cfg.WithContext(l.ctx).Where(cfg.ID.Eq(id), cfg.IsDelete.Is(false)).First()
+	config, err := cfg.WithContext(l.ctx).Where(cfg.ID.Eq(id), cfg.IsDelete.Is(false)).First()
+	if err != nil {
+		return nil, err
+	}
+	return types.ToConfigInfo(config), nil
 }
 
 // GetConfigByKey 根据Key获取配置
-func (l *ConfigLogic) GetConfigByKey(key string) (*model.SysConfig, error) {
+func (l *ConfigLogic) GetConfigByKey(key string) (*types.ConfigInfo, error) {
 	cfg := l.db().SysConfig
-	return cfg.WithContext(l.ctx).Where(cfg.Key.Eq(key), cfg.IsDelete.Is(false)).First()
+	config, err := cfg.WithContext(l.ctx).Where(cfg.Key.Eq(key), cfg.IsDelete.Is(false)).First()
+	if err != nil {
+		return nil, err
+	}
+	return types.ToConfigInfo(config), nil
 }
 
 // ListConfigs 获取配置列表
-func (l *ConfigLogic) ListConfigs(req *types.ListConfigsRequest) ([]*model.SysConfig, int64, error) {
+func (l *ConfigLogic) ListConfigs(req *types.ListConfigsRequest) ([]*types.ConfigInfo, int64, error) {
 	cfg := l.db().SysConfig
 	q := cfg.WithContext(l.ctx).Where(cfg.IsDelete.Is(false))
 
@@ -110,7 +118,10 @@ func (l *ConfigLogic) ListConfigs(req *types.ListConfigsRequest) ([]*model.SysCo
 	}
 
 	configs, err := q.Find()
-	return configs, total, err
+	if err != nil {
+		return nil, 0, err
+	}
+	return types.ToConfigInfoList(configs), total, nil
 }
 
 // RefreshConfig 刷新配置缓存

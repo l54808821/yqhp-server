@@ -96,7 +96,8 @@ func (l *UserLogic) Register(req *types.RegisterRequest, ip string) (*types.Logi
 	l.saveUserToken(user.ID, token, ip, now)
 	l.recordLoginLog(user.ID, req.Username, ip, 1, "注册并登录成功", "register")
 
-	return &types.LoginResponse{Token: token, UserInfo: user}, nil
+	// 新注册用户没有角色
+	return &types.LoginResponse{Token: token, UserInfo: types.ToUserInfoWithRoles(user, nil)}, nil
 }
 
 // Login 用户登录
@@ -138,7 +139,9 @@ func (l *UserLogic) Login(req *types.LoginRequest, ip string) (*types.LoginRespo
 	l.saveUserToken(user.ID, token, ip, now)
 	l.recordLoginLog(user.ID, req.Username, ip, 1, "登录成功", "password")
 
-	return &types.LoginResponse{Token: token, UserInfo: user}, nil
+	// 查询用户角色
+	roles, _ := l.getUserRoles(user.ID)
+	return &types.LoginResponse{Token: token, UserInfo: types.ToUserInfoWithRoles(user, roles)}, nil
 }
 
 func (l *UserLogic) saveUserToken(userID int64, token string, ip string, now time.Time) {
@@ -176,14 +179,38 @@ func (l *UserLogic) Logout(token string) error {
 	return auth.LogoutByToken(token)
 }
 
-// GetUserInfo 获取用户信息
-func (l *UserLogic) GetUserInfo(userID int64) (*model.SysUser, error) {
+// GetUserInfo 获取用户信息（含角色）
+func (l *UserLogic) GetUserInfo(userID int64) (*types.UserInfo, error) {
 	u := l.db().SysUser
-	return u.WithContext(l.ctx).Where(u.ID.Eq(userID), u.IsDelete.Is(false)).First()
+	user, err := u.WithContext(l.ctx).Where(u.ID.Eq(userID), u.IsDelete.Is(false)).First()
+	if err != nil {
+		return nil, err
+	}
+
+	// 查询用户角色
+	roles, _ := l.getUserRoles(userID)
+	return types.ToUserInfoWithRoles(user, roles), nil
+}
+
+// getUserRoles 获取用户的角色列表
+func (l *UserLogic) getUserRoles(userID int64) ([]*model.SysRole, error) {
+	ur := l.db().SysUserRole
+	userRoles, err := ur.WithContext(l.ctx).Where(ur.UserID.Eq(userID), ur.IsDelete.Is(false)).Find()
+	if err != nil || len(userRoles) == 0 {
+		return nil, err
+	}
+
+	roleIDs := make([]int64, len(userRoles))
+	for i, r := range userRoles {
+		roleIDs[i] = r.RoleID
+	}
+
+	r := l.db().SysRole
+	return r.WithContext(l.ctx).Where(r.ID.In(roleIDs...), r.IsDelete.Is(false)).Find()
 }
 
 // CreateUser 创建用户
-func (l *UserLogic) CreateUser(req *types.CreateUserRequest) (*model.SysUser, error) {
+func (l *UserLogic) CreateUser(req *types.CreateUserRequest) (*types.UserInfo, error) {
 	u := l.db().SysUser
 	count, _ := u.WithContext(l.ctx).Where(u.Username.Eq(req.Username), u.IsDelete.Is(false)).Count()
 	if count > 0 {
@@ -219,7 +246,7 @@ func (l *UserLogic) CreateUser(req *types.CreateUserRequest) (*model.SysUser, er
 		}
 	}
 
-	return user, nil
+	return types.ToUserInfo(user), nil
 }
 
 // UpdateUser 更新用户
@@ -288,8 +315,8 @@ func (l *UserLogic) ChangePassword(id int64, oldPassword, newPassword string) er
 	return err
 }
 
-// ListUsers 获取用户列表
-func (l *UserLogic) ListUsers(req *types.ListUsersRequest) ([]*model.SysUser, int64, error) {
+// ListUsers 获取用户列表（含角色）
+func (l *UserLogic) ListUsers(req *types.ListUsersRequest) ([]*types.UserInfo, int64, error) {
 	u := l.db().SysUser
 	q := u.WithContext(l.ctx).Where(u.IsDelete.Is(false))
 
@@ -316,7 +343,18 @@ func (l *UserLogic) ListUsers(req *types.ListUsersRequest) ([]*model.SysUser, in
 	}
 
 	users, err := q.Find()
-	return users, total, err
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// 批量查询用户角色
+	list := make([]*types.UserInfo, len(users))
+	for i, user := range users {
+		roles, _ := l.getUserRoles(user.ID)
+		list[i] = types.ToUserInfoWithRoles(user, roles)
+	}
+
+	return list, total, nil
 }
 
 // GetUserRoleIDs 获取用户的角色ID列表

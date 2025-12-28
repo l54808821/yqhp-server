@@ -1,7 +1,5 @@
 package types
 
-import "yqhp/admin/internal/model"
-
 // LoginRequest 登录请求
 type LoginRequest struct {
 	Username string `json:"username" validate:"required"`
@@ -20,8 +18,35 @@ type RegisterRequest struct {
 
 // LoginResponse 登录响应
 type LoginResponse struct {
-	Token    string         `json:"token"`
-	UserInfo *model.SysUser `json:"userInfo"`
+	Token    string    `json:"token"`
+	UserInfo *UserInfo `json:"userInfo"`
+}
+
+// UserInfo 用户信息响应
+type UserInfo struct {
+	ID          int64     `json:"id"`
+	Username    string    `json:"username"`
+	Nickname    string    `json:"nickname"`
+	Avatar      string    `json:"avatar"`
+	Email       string    `json:"email"`
+	Phone       string    `json:"phone"`
+	Gender      int32     `json:"gender"`
+	Status      int32     `json:"status"`
+	DeptID      int64     `json:"deptId"`
+	Remark      string    `json:"remark"`
+	LastLoginAt *DateTime `json:"lastLoginAt"`
+	LastLoginIP string    `json:"lastLoginIp"`
+	CreatedAt   *DateTime `json:"createdAt"`
+	UpdatedAt   *DateTime `json:"updatedAt"`
+	Roles       []RoleRef `json:"roles"`
+}
+
+// RoleRef 角色引用（简化版）
+type RoleRef struct {
+	ID     int64  `json:"id"`
+	Name   string `json:"name"`
+	Code   string `json:"code"`
+	Status int32  `json:"status"`
 }
 
 // CreateUserRequest 创建用户请求

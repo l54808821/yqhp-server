@@ -240,7 +240,7 @@ func (l *OAuthLogic) findOrCreateUser(provider *model.SysOauthProvider, userInfo
 
 	return &types.OAuthLoginResponse{
 		Token:    token,
-		UserInfo: user,
+		UserInfo: types.ToUserInfo(user),
 		IsNew:    isNew,
 	}, nil
 }
@@ -252,7 +252,7 @@ func (l *OAuthLogic) GetProvider(code string) (*model.SysOauthProvider, error) {
 }
 
 // ListProviders 获取OAuth提供商列表
-func (l *OAuthLogic) ListProviders(req *types.ListProvidersRequest) ([]*model.SysOauthProvider, int64, error) {
+func (l *OAuthLogic) ListProviders(req *types.ListProvidersRequest) ([]*types.OAuthProviderInfo, int64, error) {
 	p := l.db().SysOauthProvider
 	q := p.WithContext(l.ctx).Where(p.IsDelete.Is(false))
 
@@ -270,17 +270,24 @@ func (l *OAuthLogic) ListProviders(req *types.ListProvidersRequest) ([]*model.Sy
 	}
 
 	providers, err := q.Order(p.Sort).Find()
-	return providers, total, err
+	if err != nil {
+		return nil, 0, err
+	}
+	return types.ToOAuthProviderInfoList(providers), total, nil
 }
 
 // ListAllProviders 获取所有启用的OAuth提供商
-func (l *OAuthLogic) ListAllProviders() ([]*model.SysOauthProvider, error) {
+func (l *OAuthLogic) ListAllProviders() ([]*types.OAuthProviderInfo, error) {
 	p := l.db().SysOauthProvider
-	return p.WithContext(l.ctx).Where(p.Status.Eq(1), p.IsDelete.Is(false)).Order(p.Sort).Find()
+	providers, err := p.WithContext(l.ctx).Where(p.Status.Eq(1), p.IsDelete.Is(false)).Order(p.Sort).Find()
+	if err != nil {
+		return nil, err
+	}
+	return types.ToOAuthProviderInfoList(providers), nil
 }
 
 // CreateProvider 创建OAuth提供商
-func (l *OAuthLogic) CreateProvider(req *types.CreateProviderRequest) (*model.SysOauthProvider, error) {
+func (l *OAuthLogic) CreateProvider(req *types.CreateProviderRequest) (*types.OAuthProviderInfo, error) {
 	provider := &model.SysOauthProvider{
 		Name:         req.Name,
 		Code:         req.Code,
@@ -302,7 +309,7 @@ func (l *OAuthLogic) CreateProvider(req *types.CreateProviderRequest) (*model.Sy
 		return nil, err
 	}
 
-	return provider, nil
+	return types.ToOAuthProviderInfo(provider), nil
 }
 
 // UpdateProvider 更新OAuth提供商
@@ -390,9 +397,13 @@ func (l *OAuthLogic) UnbindOAuth(userID int64, providerCode string) error {
 }
 
 // GetUserBindings 获取用户绑定的第三方账号
-func (l *OAuthLogic) GetUserBindings(userID int64) ([]*model.SysOauthUser, error) {
+func (l *OAuthLogic) GetUserBindings(userID int64) ([]*types.OAuthBindingInfo, error) {
 	ou := l.db().SysOauthUser
-	return ou.WithContext(l.ctx).Where(ou.UserID.Eq(userID), ou.IsDelete.Is(false)).Find()
+	bindings, err := ou.WithContext(l.ctx).Where(ou.UserID.Eq(userID), ou.IsDelete.Is(false)).Find()
+	if err != nil {
+		return nil, err
+	}
+	return types.ToOAuthBindingInfoList(bindings), nil
 }
 
 // getStringValue 从map中获取字符串值

@@ -59,3 +59,30 @@ type ListDictDataRequest struct {
 	Label    string `json:"label"`
 	Status   *int8  `json:"status"`
 }
+
+// DictTypeInfo 字典类型响应
+type DictTypeInfo struct {
+	ID        int64     `json:"id"`
+	Name      string    `json:"name"`
+	Code      string    `json:"code"`
+	Status    int32     `json:"status"`
+	Remark    string    `json:"remark"`
+	CreatedAt *DateTime `json:"createdAt"`
+	UpdatedAt *DateTime `json:"updatedAt"`
+}
+
+// DictDataInfo 字典数据响应
+type DictDataInfo struct {
+	ID        int64     `json:"id"`
+	TypeCode  string    `json:"typeCode"`
+	Label     string    `json:"label"`
+	Value     string    `json:"value"`
+	Sort      int64     `json:"sort"`
+	Status    int32     `json:"status"`
+	IsDefault bool      `json:"isDefault"`
+	CssClass  string    `json:"cssClass"`
+	ListClass string    `json:"listClass"`
+	Remark    string    `json:"remark"`
+	CreatedAt *DateTime `json:"createdAt"`
+	UpdatedAt *DateTime `json:"updatedAt"`
+}

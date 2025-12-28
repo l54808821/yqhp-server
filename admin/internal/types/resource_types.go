@@ -42,3 +42,31 @@ type UpdateResourceRequest struct {
 type ListResourcesRequest struct {
 	AppID uint `json:"appId"`
 }
+
+// ResourceInfo 资源信息响应
+type ResourceInfo struct {
+	ID        int64     `json:"id"`
+	AppID     int64     `json:"appId"`
+	ParentID  int64     `json:"parentId"`
+	Name      string    `json:"name"`
+	Code      string    `json:"code"`
+	Type      int32     `json:"type"`
+	Path      string    `json:"path"`
+	Component string    `json:"component"`
+	Redirect  string    `json:"redirect"`
+	Icon      string    `json:"icon"`
+	Sort      int64     `json:"sort"`
+	IsHidden  bool      `json:"isHidden"`
+	IsCache   bool      `json:"isCache"`
+	IsFrame   bool      `json:"isFrame"`
+	Status    int32     `json:"status"`
+	Remark    string    `json:"remark"`
+	CreatedAt *DateTime `json:"createdAt"`
+	UpdatedAt *DateTime `json:"updatedAt"`
+}
+
+// ResourceTreeInfo 资源树响应
+type ResourceTreeInfo struct {
+	ResourceInfo
+	Children []ResourceTreeInfo `json:"children,omitempty"`
+}

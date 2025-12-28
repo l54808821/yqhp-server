@@ -30,3 +30,16 @@ type ListRolesRequest struct {
 	Code     string `json:"code"`
 	Status   *int8  `json:"status"`
 }
+
+// RoleInfo 角色信息响应
+type RoleInfo struct {
+	ID        int64     `json:"id"`
+	AppID     int64     `json:"appId"`
+	Name      string    `json:"name"`
+	Code      string    `json:"code"`
+	Sort      int64     `json:"sort"`
+	Status    int32     `json:"status"`
+	Remark    string    `json:"remark"`
+	CreatedAt *DateTime `json:"createdAt"`
+	UpdatedAt *DateTime `json:"updatedAt"`
+}

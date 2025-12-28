@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"yqhp/admin/internal/auth"
-	"yqhp/admin/internal/model"
 	"yqhp/admin/internal/query"
 	"yqhp/admin/internal/svc"
 	"yqhp/admin/internal/types"
@@ -27,7 +26,7 @@ func (l *TokenLogic) db() *query.Query {
 }
 
 // ListTokens 获取令牌列表
-func (l *TokenLogic) ListTokens(req *types.ListTokensRequest) ([]*model.SysUserToken, int64, error) {
+func (l *TokenLogic) ListTokens(req *types.ListTokensRequest) ([]*types.TokenInfo, int64, error) {
 	t := l.db().SysUserToken
 	q := t.WithContext(l.ctx)
 
@@ -42,7 +41,10 @@ func (l *TokenLogic) ListTokens(req *types.ListTokensRequest) ([]*model.SysUserT
 	}
 
 	tokens, err := q.Order(t.CreatedAt.Desc()).Find()
-	return tokens, total, err
+	if err != nil {
+		return nil, 0, err
+	}
+	return types.ToTokenInfoList(tokens), total, nil
 }
 
 // KickOutByUserID 踢人下线（按用户ID）
@@ -95,7 +97,7 @@ func (l *TokenLogic) EnableUser(userID int64) error {
 }
 
 // ListLoginLogs 获取登录日志列表
-func (l *TokenLogic) ListLoginLogs(req *types.ListLoginLogsRequest) ([]*model.SysLoginLog, int64, error) {
+func (l *TokenLogic) ListLoginLogs(req *types.ListLoginLogsRequest) ([]*types.LoginLogInfo, int64, error) {
 	log := l.db().SysLoginLog
 	q := log.WithContext(l.ctx)
 
@@ -113,11 +115,14 @@ func (l *TokenLogic) ListLoginLogs(req *types.ListLoginLogsRequest) ([]*model.Sy
 	}
 
 	logs, err := q.Order(log.CreatedAt.Desc()).Find()
-	return logs, total, err
+	if err != nil {
+		return nil, 0, err
+	}
+	return types.ToLoginLogInfoList(logs), total, nil
 }
 
 // ListOperationLogs 获取操作日志列表
-func (l *TokenLogic) ListOperationLogs(req *types.ListOperationLogsRequest) ([]*model.SysOperationLog, int64, error) {
+func (l *TokenLogic) ListOperationLogs(req *types.ListOperationLogsRequest) ([]*types.OperationLogInfo, int64, error) {
 	log := l.db().SysOperationLog
 	q := log.WithContext(l.ctx)
 
@@ -138,7 +143,10 @@ func (l *TokenLogic) ListOperationLogs(req *types.ListOperationLogsRequest) ([]*
 	}
 
 	logs, err := q.Order(log.CreatedAt.Desc()).Find()
-	return logs, total, err
+	if err != nil {
+		return nil, 0, err
+	}
+	return types.ToOperationLogInfoList(logs), total, nil
 }
 
 // ClearLoginLogs 清空登录日志

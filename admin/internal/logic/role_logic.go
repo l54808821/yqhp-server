@@ -27,7 +27,7 @@ func (l *RoleLogic) db() *query.Query {
 }
 
 // CreateRole 创建角色
-func (l *RoleLogic) CreateRole(req *types.CreateRoleRequest) (*model.SysRole, error) {
+func (l *RoleLogic) CreateRole(req *types.CreateRoleRequest) (*types.RoleInfo, error) {
 	r := l.db().SysRole
 	count, _ := r.WithContext(l.ctx).Where(r.AppID.Eq(int64(req.AppID)), r.Code.Eq(req.Code), r.IsDelete.Is(false)).Count()
 	if count > 0 {
@@ -60,7 +60,7 @@ func (l *RoleLogic) CreateRole(req *types.CreateRoleRequest) (*model.SysRole, er
 		}
 	}
 
-	return role, nil
+	return types.ToRoleInfo(role), nil
 }
 
 // UpdateRole 更新角色
@@ -109,13 +109,17 @@ func (l *RoleLogic) DeleteRole(id int64) error {
 }
 
 // GetRole 获取角色详情
-func (l *RoleLogic) GetRole(id int64) (*model.SysRole, error) {
+func (l *RoleLogic) GetRole(id int64) (*types.RoleInfo, error) {
 	r := l.db().SysRole
-	return r.WithContext(l.ctx).Where(r.ID.Eq(id), r.IsDelete.Is(false)).First()
+	role, err := r.WithContext(l.ctx).Where(r.ID.Eq(id), r.IsDelete.Is(false)).First()
+	if err != nil {
+		return nil, err
+	}
+	return types.ToRoleInfo(role), nil
 }
 
 // ListRoles 获取角色列表
-func (l *RoleLogic) ListRoles(req *types.ListRolesRequest) ([]*model.SysRole, int64, error) {
+func (l *RoleLogic) ListRoles(req *types.ListRolesRequest) ([]*types.RoleInfo, int64, error) {
 	r := l.db().SysRole
 	q := r.WithContext(l.ctx).Where(r.IsDelete.Is(false))
 
@@ -139,13 +143,20 @@ func (l *RoleLogic) ListRoles(req *types.ListRolesRequest) ([]*model.SysRole, in
 	}
 
 	roles, err := q.Order(r.Sort).Find()
-	return roles, total, err
+	if err != nil {
+		return nil, 0, err
+	}
+	return types.ToRoleInfoList(roles), total, nil
 }
 
 // GetAllRoles 获取所有角色
-func (l *RoleLogic) GetAllRoles() ([]*model.SysRole, error) {
+func (l *RoleLogic) GetAllRoles() ([]*types.RoleInfo, error) {
 	r := l.db().SysRole
-	return r.WithContext(l.ctx).Where(r.Status.Eq(1), r.IsDelete.Is(false)).Order(r.Sort).Find()
+	roles, err := r.WithContext(l.ctx).Where(r.Status.Eq(1), r.IsDelete.Is(false)).Order(r.Sort).Find()
+	if err != nil {
+		return nil, err
+	}
+	return types.ToRoleInfoList(roles), nil
 }
 
 // GetRoleResourceIDs 获取角色的资源ID列表

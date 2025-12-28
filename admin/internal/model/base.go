@@ -10,10 +10,10 @@ import (
 
 // BaseModel 基础模型
 type BaseModel struct {
-	ID        uint            `gorm:"primarykey" json:"id"`
-	CreatedAt types.DateTime  `json:"createdAt"`
-	UpdatedAt types.DateTime  `json:"updatedAt"`
-	DeletedAt gorm.DeletedAt  `gorm:"index" json:"-"`
+	ID        uint           `gorm:"primarykey" json:"id"`
+	CreatedAt types.DateTime `json:"createdAt"`
+	UpdatedAt types.DateTime `json:"updatedAt"`
+	IsDelete  bool           `gorm:"default:false;index" json:"isDelete"`
 }
 
 // BeforeCreate GORM创建前钩子
@@ -39,4 +39,9 @@ type BaseModelWithUser struct {
 	BaseModel
 	CreatedBy uint `json:"createdBy"`
 	UpdatedBy uint `json:"updatedBy"`
+}
+
+// NotDeleted 返回未删除的查询条件
+func NotDeleted(db *gorm.DB) *gorm.DB {
+	return db.Where("is_delete = ?", false)
 }

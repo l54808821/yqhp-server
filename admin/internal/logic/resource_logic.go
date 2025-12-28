@@ -24,7 +24,7 @@ func (l *ResourceLogic) CreateResource(req *types.CreateResourceRequest) (*model
 	// 检查同一应用下权限标识是否存在
 	if req.Code != "" {
 		var count int64
-		l.db.Model(&model.Resource{}).Where("app_id = ? AND code = ?", req.AppID, req.Code).Count(&count)
+		l.db.Model(&model.Resource{}).Where("app_id = ? AND code = ? AND is_delete = ?", req.AppID, req.Code, false).Count(&count)
 		if count > 0 {
 			return nil, errors.New("权限标识已存在")
 		}
@@ -66,7 +66,7 @@ func (l *ResourceLogic) UpdateResource(req *types.UpdateResourceRequest) error {
 	// 检查同一应用下权限标识是否存在
 	if req.Code != "" {
 		var count int64
-		l.db.Model(&model.Resource{}).Where("app_id = ? AND code = ? AND id != ?", original.AppID, req.Code, req.ID).Count(&count)
+		l.db.Model(&model.Resource{}).Where("app_id = ? AND code = ? AND id != ? AND is_delete = ?", original.AppID, req.Code, req.ID, false).Count(&count)
 		if count > 0 {
 			return errors.New("权限标识已存在")
 		}
@@ -92,25 +92,25 @@ func (l *ResourceLogic) UpdateResource(req *types.UpdateResourceRequest) error {
 	return l.db.Model(&model.Resource{}).Where("id = ?", req.ID).Updates(updates).Error
 }
 
-// DeleteResource 删除资源
+// DeleteResource 删除资源（软删除）
 func (l *ResourceLogic) DeleteResource(id uint) error {
 	// 检查是否有子资源
 	var count int64
-	l.db.Model(&model.Resource{}).Where("parent_id = ?", id).Count(&count)
+	l.db.Model(&model.Resource{}).Where("parent_id = ? AND is_delete = ?", id, false).Count(&count)
 	if count > 0 {
 		return errors.New("该资源下有子资源，无法删除")
 	}
 
-	// 删除角色资源关联
-	l.db.Where("resource_id = ?", id).Delete(&model.RoleResource{})
-	// 删除资源
-	return l.db.Delete(&model.Resource{}, id).Error
+	// 软删除角色资源关联
+	l.db.Model(&model.RoleResource{}).Where("resource_id = ? AND is_delete = ?", id, false).Update("is_delete", true)
+	// 软删除资源
+	return l.db.Model(&model.Resource{}).Where("id = ?", id).Update("is_delete", true).Error
 }
 
 // GetResource 获取资源详情
 func (l *ResourceLogic) GetResource(id uint) (*model.Resource, error) {
 	var resource model.Resource
-	if err := l.db.First(&resource, id).Error; err != nil {
+	if err := l.db.Where("is_delete = ?", false).First(&resource, id).Error; err != nil {
 		return nil, err
 	}
 	return &resource, nil
@@ -119,7 +119,7 @@ func (l *ResourceLogic) GetResource(id uint) (*model.Resource, error) {
 // GetResourceTree 获取资源树
 func (l *ResourceLogic) GetResourceTree() ([]model.Resource, error) {
 	var resources []model.Resource
-	if err := l.db.Where("status = 1").Order("sort ASC").Find(&resources).Error; err != nil {
+	if err := l.db.Where("status = 1 AND is_delete = ?", false).Order("sort ASC").Find(&resources).Error; err != nil {
 		return nil, err
 	}
 
@@ -129,7 +129,7 @@ func (l *ResourceLogic) GetResourceTree() ([]model.Resource, error) {
 // GetResourceTreeByAppID 获取指定应用的资源树
 func (l *ResourceLogic) GetResourceTreeByAppID(appID uint) ([]model.Resource, error) {
 	var resources []model.Resource
-	if err := l.db.Where("app_id = ? AND status = 1", appID).Order("sort ASC").Find(&resources).Error; err != nil {
+	if err := l.db.Where("app_id = ? AND status = 1 AND is_delete = ?", appID, false).Order("sort ASC").Find(&resources).Error; err != nil {
 		return nil, err
 	}
 
@@ -139,7 +139,7 @@ func (l *ResourceLogic) GetResourceTreeByAppID(appID uint) ([]model.Resource, er
 // GetAllResources 获取所有资源(平铺)
 func (l *ResourceLogic) GetAllResources() ([]model.Resource, error) {
 	var resources []model.Resource
-	if err := l.db.Order("sort ASC").Find(&resources).Error; err != nil {
+	if err := l.db.Where("is_delete = ?", false).Order("sort ASC").Find(&resources).Error; err != nil {
 		return nil, err
 	}
 	return resources, nil
@@ -148,7 +148,7 @@ func (l *ResourceLogic) GetAllResources() ([]model.Resource, error) {
 // GetAllResourcesByAppID 获取指定应用的所有资源(平铺)
 func (l *ResourceLogic) GetAllResourcesByAppID(appID uint) ([]model.Resource, error) {
 	var resources []model.Resource
-	if err := l.db.Where("app_id = ?", appID).Order("sort ASC").Find(&resources).Error; err != nil {
+	if err := l.db.Where("app_id = ? AND is_delete = ?", appID, false).Order("sort ASC").Find(&resources).Error; err != nil {
 		return nil, err
 	}
 	return resources, nil
@@ -159,7 +159,7 @@ func (l *ResourceLogic) GetUserMenus(userID uint) ([]model.Resource, error) {
 	// 获取用户的所有角色
 	var roleIDs []uint
 	err := l.db.Model(&model.UserRole{}).
-		Where("user_id = ?", userID).
+		Where("user_id = ? AND is_delete = ?", userID, false).
 		Pluck("role_id", &roleIDs).Error
 	if err != nil {
 		return nil, err
@@ -172,7 +172,7 @@ func (l *ResourceLogic) GetUserMenus(userID uint) ([]model.Resource, error) {
 	// 获取角色关联的资源
 	var resourceIDs []uint
 	err = l.db.Model(&model.RoleResource{}).
-		Where("role_id IN ?", roleIDs).
+		Where("role_id IN ? AND is_delete = ?", roleIDs, false).
 		Pluck("resource_id", &resourceIDs).Error
 	if err != nil {
 		return nil, err
@@ -184,7 +184,7 @@ func (l *ResourceLogic) GetUserMenus(userID uint) ([]model.Resource, error) {
 
 	// 获取菜单类型的资源(1:目录 2:菜单)
 	var resources []model.Resource
-	err = l.db.Where("id IN ? AND type IN (1, 2) AND status = 1", resourceIDs).
+	err = l.db.Where("id IN ? AND type IN (1, 2) AND status = 1 AND is_delete = ?", resourceIDs, false).
 		Order("sort ASC").
 		Find(&resources).Error
 	if err != nil {
@@ -221,7 +221,7 @@ func (l *ResourceLogic) completeParentMenus(resources []model.Resource) []model.
 		}
 
 		var parents []model.Resource
-		l.db.Where("id IN ? AND status = 1", parentIDs).Find(&parents)
+		l.db.Where("id IN ? AND status = 1 AND is_delete = ?", parentIDs, false).Find(&parents)
 
 		// 清空待查找列表
 		needParentIDs = make(map[uint]bool)
@@ -261,7 +261,7 @@ func (l *ResourceLogic) GetUserPermissionCodes(userID uint) ([]string, error) {
 	// 获取用户的所有角色
 	var roleIDs []uint
 	err := l.db.Model(&model.UserRole{}).
-		Where("user_id = ?", userID).
+		Where("user_id = ? AND is_delete = ?", userID, false).
 		Pluck("role_id", &roleIDs).Error
 	if err != nil {
 		return nil, err
@@ -274,7 +274,7 @@ func (l *ResourceLogic) GetUserPermissionCodes(userID uint) ([]string, error) {
 	// 获取角色关联的资源
 	var resourceIDs []uint
 	err = l.db.Model(&model.RoleResource{}).
-		Where("role_id IN ?", roleIDs).
+		Where("role_id IN ? AND is_delete = ?", roleIDs, false).
 		Pluck("resource_id", &resourceIDs).Error
 	if err != nil {
 		return nil, err
@@ -287,7 +287,7 @@ func (l *ResourceLogic) GetUserPermissionCodes(userID uint) ([]string, error) {
 	// 获取所有资源的权限码
 	var codes []string
 	err = l.db.Model(&model.Resource{}).
-		Where("id IN ? AND code != '' AND status = 1", resourceIDs).
+		Where("id IN ? AND code != '' AND status = 1 AND is_delete = ?", resourceIDs, false).
 		Pluck("code", &codes).Error
 	if err != nil {
 		return nil, err

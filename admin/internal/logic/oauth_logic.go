@@ -178,7 +178,7 @@ func (l *OAuthLogic) findOrCreateUser(provider *model.OAuthProvider, userInfo, t
 
 	// 查找OAuth绑定记录
 	var oauthUser model.OAuthUser
-	err := l.db.Where("provider_code = ? AND open_id = ?", provider.Code, openID).First(&oauthUser).Error
+	err := l.db.Where("provider_code = ? AND open_id = ? AND is_delete = ?", provider.Code, openID, false).First(&oauthUser).Error
 	isNew := false
 
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -222,7 +222,7 @@ func (l *OAuthLogic) findOrCreateUser(provider *model.OAuthProvider, userInfo, t
 
 	// 获取用户信息
 	var user model.User
-	if err := l.db.Preload("Roles").First(&user, oauthUser.UserID).Error; err != nil {
+	if err := l.db.Preload("Roles", "is_delete = ?", false).Where("is_delete = ?", false).First(&user, oauthUser.UserID).Error; err != nil {
 		return nil, err
 	}
 
@@ -254,7 +254,7 @@ func (l *OAuthLogic) findOrCreateUser(provider *model.OAuthProvider, userInfo, t
 // GetProvider 获取OAuth提供商
 func (l *OAuthLogic) GetProvider(code string) (*model.OAuthProvider, error) {
 	var provider model.OAuthProvider
-	if err := l.db.Where("code = ?", code).First(&provider).Error; err != nil {
+	if err := l.db.Where("code = ? AND is_delete = ?", code, false).First(&provider).Error; err != nil {
 		return nil, err
 	}
 	return &provider, nil
@@ -265,7 +265,7 @@ func (l *OAuthLogic) ListProviders(req *types.ListProvidersRequest) ([]model.OAu
 	var providers []model.OAuthProvider
 	var total int64
 
-	query := l.db.Model(&model.OAuthProvider{})
+	query := l.db.Model(&model.OAuthProvider{}).Where("is_delete = ?", false)
 
 	if req.Name != "" {
 		query = query.Where("name LIKE ?", "%"+req.Name+"%")
@@ -291,7 +291,7 @@ func (l *OAuthLogic) ListProviders(req *types.ListProvidersRequest) ([]model.OAu
 // ListAllProviders 获取所有启用的OAuth提供商（公开接口用）
 func (l *OAuthLogic) ListAllProviders() ([]model.OAuthProvider, error) {
 	var providers []model.OAuthProvider
-	if err := l.db.Where("status = 1").Order("sort ASC").Find(&providers).Error; err != nil {
+	if err := l.db.Where("status = 1 AND is_delete = ?", false).Order("sort ASC").Find(&providers).Error; err != nil {
 		return nil, err
 	}
 	return providers, nil
@@ -342,9 +342,9 @@ func (l *OAuthLogic) UpdateProvider(req *types.UpdateProviderRequest) error {
 	return l.db.Model(&model.OAuthProvider{}).Where("id = ?", req.ID).Updates(updates).Error
 }
 
-// DeleteProvider 删除OAuth提供商
+// DeleteProvider 删除OAuth提供商（软删除）
 func (l *OAuthLogic) DeleteProvider(id uint) error {
-	return l.db.Delete(&model.OAuthProvider{}, id).Error
+	return l.db.Model(&model.OAuthProvider{}).Where("id = ?", id).Update("is_delete", true).Error
 }
 
 // BindOAuth 绑定第三方账号
@@ -371,7 +371,7 @@ func (l *OAuthLogic) BindOAuth(userID uint, providerCode, code string) error {
 
 	// 检查是否已绑定
 	var count int64
-	l.db.Model(&model.OAuthUser{}).Where("provider_code = ? AND open_id = ?", providerCode, openID).Count(&count)
+	l.db.Model(&model.OAuthUser{}).Where("provider_code = ? AND open_id = ? AND is_delete = ?", providerCode, openID, false).Count(&count)
 	if count > 0 {
 		return errors.New("该账号已被其他用户绑定")
 	}
@@ -397,15 +397,15 @@ func (l *OAuthLogic) BindOAuth(userID uint, providerCode, code string) error {
 	return l.db.Create(oauthUser).Error
 }
 
-// UnbindOAuth 解绑第三方账号
+// UnbindOAuth 解绑第三方账号（软删除）
 func (l *OAuthLogic) UnbindOAuth(userID uint, providerCode string) error {
-	return l.db.Where("user_id = ? AND provider_code = ?", userID, providerCode).Delete(&model.OAuthUser{}).Error
+	return l.db.Model(&model.OAuthUser{}).Where("user_id = ? AND provider_code = ? AND is_delete = ?", userID, providerCode, false).Update("is_delete", true).Error
 }
 
 // GetUserBindings 获取用户绑定的第三方账号
 func (l *OAuthLogic) GetUserBindings(userID uint) ([]model.OAuthUser, error) {
 	var bindings []model.OAuthUser
-	if err := l.db.Where("user_id = ?", userID).Find(&bindings).Error; err != nil {
+	if err := l.db.Where("user_id = ? AND is_delete = ?", userID, false).Find(&bindings).Error; err != nil {
 		return nil, err
 	}
 	return bindings, nil

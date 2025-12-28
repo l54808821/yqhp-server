@@ -23,7 +23,7 @@ func NewRoleLogic(db *gorm.DB) *RoleLogic {
 func (l *RoleLogic) CreateRole(req *types.CreateRoleRequest) (*model.Role, error) {
 	// 检查同一应用下角色编码是否存在
 	var count int64
-	l.db.Model(&model.Role{}).Where("app_id = ? AND code = ?", req.AppID, req.Code).Count(&count)
+	l.db.Model(&model.Role{}).Where("app_id = ? AND code = ? AND is_delete = ?", req.AppID, req.Code, false).Count(&count)
 	if count > 0 {
 		return nil, errors.New("角色编码已存在")
 	}
@@ -67,8 +67,8 @@ func (l *RoleLogic) UpdateRole(req *types.UpdateRoleRequest) error {
 		return err
 	}
 
-	// 更新资源关联
-	l.db.Where("role_id = ?", req.ID).Delete(&model.RoleResource{})
+	// 更新资源关联（软删除旧的，创建新的）
+	l.db.Model(&model.RoleResource{}).Where("role_id = ? AND is_delete = ?", req.ID, false).Update("is_delete", true)
 	if len(req.ResourceIDs) > 0 {
 		for _, resourceID := range req.ResourceIDs {
 			l.db.Create(&model.RoleResource{
@@ -81,25 +81,25 @@ func (l *RoleLogic) UpdateRole(req *types.UpdateRoleRequest) error {
 	return nil
 }
 
-// DeleteRole 删除角色
+// DeleteRole 删除角色（软删除）
 func (l *RoleLogic) DeleteRole(id uint) error {
 	// 检查是否有用户使用该角色
 	var count int64
-	l.db.Model(&model.UserRole{}).Where("role_id = ?", id).Count(&count)
+	l.db.Model(&model.UserRole{}).Where("role_id = ? AND is_delete = ?", id, false).Count(&count)
 	if count > 0 {
 		return errors.New("该角色下有用户，无法删除")
 	}
 
-	// 删除角色资源关联
-	l.db.Where("role_id = ?", id).Delete(&model.RoleResource{})
-	// 删除角色
-	return l.db.Delete(&model.Role{}, id).Error
+	// 软删除角色资源关联
+	l.db.Model(&model.RoleResource{}).Where("role_id = ? AND is_delete = ?", id, false).Update("is_delete", true)
+	// 软删除角色
+	return l.db.Model(&model.Role{}).Where("id = ?", id).Update("is_delete", true).Error
 }
 
 // GetRole 获取角色详情
 func (l *RoleLogic) GetRole(id uint) (*model.Role, error) {
 	var role model.Role
-	if err := l.db.Preload("Resources").First(&role, id).Error; err != nil {
+	if err := l.db.Preload("Resources", "is_delete = ?", false).Where("is_delete = ?", false).First(&role, id).Error; err != nil {
 		return nil, err
 	}
 	return &role, nil
@@ -110,7 +110,7 @@ func (l *RoleLogic) ListRoles(req *types.ListRolesRequest) ([]model.Role, int64,
 	var roles []model.Role
 	var total int64
 
-	query := l.db.Model(&model.Role{})
+	query := l.db.Model(&model.Role{}).Where("is_delete = ?", false)
 
 	if req.AppID > 0 {
 		query = query.Where("app_id = ?", req.AppID)
@@ -142,7 +142,7 @@ func (l *RoleLogic) ListRoles(req *types.ListRolesRequest) ([]model.Role, int64,
 // GetAllRoles 获取所有角色(用于下拉选择)
 func (l *RoleLogic) GetAllRoles() ([]model.Role, error) {
 	var roles []model.Role
-	if err := l.db.Where("status = 1").Order("sort ASC").Find(&roles).Error; err != nil {
+	if err := l.db.Where("status = 1 AND is_delete = ?", false).Order("sort ASC").Find(&roles).Error; err != nil {
 		return nil, err
 	}
 	return roles, nil
@@ -151,7 +151,7 @@ func (l *RoleLogic) GetAllRoles() ([]model.Role, error) {
 // GetRolesByAppID 获取指定应用的所有角色
 func (l *RoleLogic) GetRolesByAppID(appID uint) ([]model.Role, error) {
 	var roles []model.Role
-	if err := l.db.Where("app_id = ? AND status = 1", appID).Order("sort ASC").Find(&roles).Error; err != nil {
+	if err := l.db.Where("app_id = ? AND status = 1 AND is_delete = ?", appID, false).Order("sort ASC").Find(&roles).Error; err != nil {
 		return nil, err
 	}
 	return roles, nil
@@ -161,7 +161,7 @@ func (l *RoleLogic) GetRolesByAppID(appID uint) ([]model.Role, error) {
 func (l *RoleLogic) GetRoleResourceIDs(roleID uint) ([]uint, error) {
 	var resourceIDs []uint
 	err := l.db.Model(&model.RoleResource{}).
-		Where("role_id = ?", roleID).
+		Where("role_id = ? AND is_delete = ?", roleID, false).
 		Pluck("resource_id", &resourceIDs).Error
 	return resourceIDs, err
 }

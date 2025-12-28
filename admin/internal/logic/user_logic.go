@@ -42,14 +42,14 @@ func (l *UserLogic) Register(req *types.RegisterRequest, ip string) (*types.Logi
 
 	// 检查用户名是否存在
 	var count int64
-	l.db.Model(&model.User{}).Where("username = ?", req.Username).Count(&count)
+	l.db.Model(&model.User{}).Where("username = ? AND is_delete = ?", req.Username, false).Count(&count)
 	if count > 0 {
 		return nil, errors.New("用户名已存在")
 	}
 
 	// 检查邮箱是否存在
 	if req.Email != "" {
-		l.db.Model(&model.User{}).Where("email = ?", req.Email).Count(&count)
+		l.db.Model(&model.User{}).Where("email = ? AND is_delete = ?", req.Email, false).Count(&count)
 		if count > 0 {
 			return nil, errors.New("邮箱已被使用")
 		}
@@ -57,7 +57,7 @@ func (l *UserLogic) Register(req *types.RegisterRequest, ip string) (*types.Logi
 
 	// 检查手机号是否存在
 	if req.Phone != "" {
-		l.db.Model(&model.User{}).Where("phone = ?", req.Phone).Count(&count)
+		l.db.Model(&model.User{}).Where("phone = ? AND is_delete = ?", req.Phone, false).Count(&count)
 		if count > 0 {
 			return nil, errors.New("手机号已被使用")
 		}
@@ -112,7 +112,7 @@ func (l *UserLogic) Register(req *types.RegisterRequest, ip string) (*types.Logi
 func (l *UserLogic) Login(req *types.LoginRequest, ip string) (*types.LoginResponse, error) {
 	// 查询用户
 	var user model.User
-	if err := l.db.Where("username = ?", req.Username).First(&user).Error; err != nil {
+	if err := l.db.Where("username = ? AND is_delete = ?", req.Username, false).First(&user).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			// 记录失败的登录日志
 			l.recordLoginLog(0, req.Username, ip, 0, "用户名或密码错误", "password")
@@ -161,7 +161,7 @@ func (l *UserLogic) Login(req *types.LoginRequest, ip string) (*types.LoginRespo
 	l.recordLoginLog(user.ID, req.Username, ip, 1, "登录成功", "password")
 
 	// 预加载角色
-	l.db.Preload("Roles").First(&user, user.ID)
+	l.db.Preload("Roles", "is_delete = ?", false).First(&user, user.ID)
 
 	return &types.LoginResponse{
 		Token:    token,
@@ -212,7 +212,7 @@ func (l *UserLogic) Logout(token string) error {
 // GetUserInfo 获取用户信息
 func (l *UserLogic) GetUserInfo(userID uint) (*model.User, error) {
 	var user model.User
-	if err := l.db.Preload("Roles").First(&user, userID).Error; err != nil {
+	if err := l.db.Preload("Roles", "is_delete = ?", false).Where("is_delete = ?", false).First(&user, userID).Error; err != nil {
 		return nil, err
 	}
 	return &user, nil
@@ -222,7 +222,7 @@ func (l *UserLogic) GetUserInfo(userID uint) (*model.User, error) {
 func (l *UserLogic) CreateUser(req *types.CreateUserRequest) (*model.User, error) {
 	// 检查用户名是否存在
 	var count int64
-	l.db.Model(&model.User{}).Where("username = ?", req.Username).Count(&count)
+	l.db.Model(&model.User{}).Where("username = ? AND is_delete = ?", req.Username, false).Count(&count)
 	if count > 0 {
 		return nil, errors.New("用户名已存在")
 	}
@@ -275,8 +275,8 @@ func (l *UserLogic) UpdateUser(req *types.UpdateUserRequest) error {
 		return err
 	}
 
-	// 更新角色关联
-	l.db.Where("user_id = ?", req.ID).Delete(&model.UserRole{})
+	// 更新角色关联（软删除旧的，创建新的）
+	l.db.Model(&model.UserRole{}).Where("user_id = ? AND is_delete = ?", req.ID, false).Update("is_delete", true)
 	if len(req.RoleIDs) > 0 {
 		for _, roleID := range req.RoleIDs {
 			l.db.Create(&model.UserRole{
@@ -289,12 +289,12 @@ func (l *UserLogic) UpdateUser(req *types.UpdateUserRequest) error {
 	return nil
 }
 
-// DeleteUser 删除用户
+// DeleteUser 删除用户（软删除）
 func (l *UserLogic) DeleteUser(id uint) error {
-	// 删除用户角色关联
-	l.db.Where("user_id = ?", id).Delete(&model.UserRole{})
-	// 删除用户
-	return l.db.Delete(&model.User{}, id).Error
+	// 软删除用户角色关联
+	l.db.Model(&model.UserRole{}).Where("user_id = ? AND is_delete = ?", id, false).Update("is_delete", true)
+	// 软删除用户
+	return l.db.Model(&model.User{}).Where("id = ?", id).Update("is_delete", true).Error
 }
 
 // ResetPassword 重置密码
@@ -321,7 +321,7 @@ func (l *UserLogic) ListUsers(req *types.ListUsersRequest) ([]model.User, int64,
 	var users []model.User
 	var total int64
 
-	query := l.db.Model(&model.User{})
+	query := l.db.Model(&model.User{}).Where("is_delete = ?", false)
 
 	if req.Username != "" {
 		query = query.Where("username LIKE ?", "%"+req.Username+"%")
@@ -346,7 +346,7 @@ func (l *UserLogic) ListUsers(req *types.ListUsersRequest) ([]model.User, int64,
 		query = query.Offset(offset).Limit(req.PageSize)
 	}
 
-	if err := query.Preload("Roles").Find(&users).Error; err != nil {
+	if err := query.Preload("Roles", "is_delete = ?", false).Find(&users).Error; err != nil {
 		return nil, 0, err
 	}
 

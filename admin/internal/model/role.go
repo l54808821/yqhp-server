@@ -21,6 +21,7 @@ func (Role) TableName() string {
 type RoleResource struct {
 	RoleID     uint `gorm:"primaryKey"`
 	ResourceID uint `gorm:"primaryKey"`
+	IsDelete   bool `gorm:"default:false;index"`
 }
 
 // TableName 表名

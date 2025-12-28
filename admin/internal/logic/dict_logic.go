@@ -23,7 +23,7 @@ func NewDictLogic(db *gorm.DB) *DictLogic {
 func (l *DictLogic) CreateDictType(req *types.CreateDictTypeRequest) (*model.DictType, error) {
 	// 检查编码是否存在
 	var count int64
-	l.db.Model(&model.DictType{}).Where("code = ?", req.Code).Count(&count)
+	l.db.Model(&model.DictType{}).Where("code = ? AND is_delete = ?", req.Code, false).Count(&count)
 	if count > 0 {
 		return nil, errors.New("字典类型编码已存在")
 	}
@@ -53,25 +53,25 @@ func (l *DictLogic) UpdateDictType(req *types.UpdateDictTypeRequest) error {
 	return l.db.Model(&model.DictType{}).Where("id = ?", req.ID).Updates(updates).Error
 }
 
-// DeleteDictType 删除字典类型
+// DeleteDictType 删除字典类型（软删除）
 func (l *DictLogic) DeleteDictType(id uint) error {
 	var dictType model.DictType
-	if err := l.db.First(&dictType, id).Error; err != nil {
+	if err := l.db.Where("is_delete = ?", false).First(&dictType, id).Error; err != nil {
 		return err
 	}
 
-	// 删除字典数据
-	l.db.Where("type_code = ?", dictType.Code).Delete(&model.DictData{})
-	// 删除字典类型
-	return l.db.Delete(&dictType).Error
+	// 软删除字典数据
+	l.db.Model(&model.DictData{}).Where("type_code = ? AND is_delete = ?", dictType.Code, false).Update("is_delete", true)
+	// 软删除字典类型
+	return l.db.Model(&dictType).Update("is_delete", true).Error
 }
 
 // GetDictType 获取字典类型详情
 func (l *DictLogic) GetDictType(id uint) (*model.DictType, error) {
 	var dictType model.DictType
 	if err := l.db.Preload("Items", func(db *gorm.DB) *gorm.DB {
-		return db.Order("sort ASC")
-	}).First(&dictType, id).Error; err != nil {
+		return db.Where("is_delete = ?", false).Order("sort ASC")
+	}).Where("is_delete = ?", false).First(&dictType, id).Error; err != nil {
 		return nil, err
 	}
 	return &dictType, nil
@@ -82,7 +82,7 @@ func (l *DictLogic) ListDictTypes(req *types.ListDictTypesRequest) ([]model.Dict
 	var dictTypes []model.DictType
 	var total int64
 
-	query := l.db.Model(&model.DictType{})
+	query := l.db.Model(&model.DictType{}).Where("is_delete = ?", false)
 
 	if req.Name != "" {
 		query = query.Where("name LIKE ?", "%"+req.Name+"%")
@@ -145,15 +145,15 @@ func (l *DictLogic) UpdateDictData(req *types.UpdateDictDataRequest) error {
 	return l.db.Model(&model.DictData{}).Where("id = ?", req.ID).Updates(updates).Error
 }
 
-// DeleteDictData 删除字典数据
+// DeleteDictData 删除字典数据（软删除）
 func (l *DictLogic) DeleteDictData(id uint) error {
-	return l.db.Delete(&model.DictData{}, id).Error
+	return l.db.Model(&model.DictData{}).Where("id = ?", id).Update("is_delete", true).Error
 }
 
 // GetDictDataByTypeCode 根据类型编码获取字典数据
 func (l *DictLogic) GetDictDataByTypeCode(typeCode string) ([]model.DictData, error) {
 	var dictData []model.DictData
-	if err := l.db.Where("type_code = ? AND status = 1", typeCode).
+	if err := l.db.Where("type_code = ? AND status = 1 AND is_delete = ?", typeCode, false).
 		Order("sort ASC").
 		Find(&dictData).Error; err != nil {
 		return nil, err
@@ -166,7 +166,7 @@ func (l *DictLogic) ListDictData(req *types.ListDictDataRequest) ([]model.DictDa
 	var dictData []model.DictData
 	var total int64
 
-	query := l.db.Model(&model.DictData{})
+	query := l.db.Model(&model.DictData{}).Where("is_delete = ?", false)
 
 	if req.TypeCode != "" {
 		query = query.Where("type_code = ?", req.TypeCode)

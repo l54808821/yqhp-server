@@ -23,7 +23,7 @@ func NewConfigLogic(db *gorm.DB) *ConfigLogic {
 func (l *ConfigLogic) CreateConfig(req *types.CreateConfigRequest) (*model.SysConfig, error) {
 	// 检查Key是否存在
 	var count int64
-	l.db.Model(&model.SysConfig{}).Where("`key` = ?", req.Key).Count(&count)
+	l.db.Model(&model.SysConfig{}).Where("`key` = ? AND is_delete = ?", req.Key, false).Count(&count)
 	if count > 0 {
 		return nil, errors.New("配置键已存在")
 	}
@@ -48,7 +48,7 @@ func (l *ConfigLogic) CreateConfig(req *types.CreateConfigRequest) (*model.SysCo
 func (l *ConfigLogic) UpdateConfig(req *types.UpdateConfigRequest) error {
 	// 检查是否为内置配置
 	var config model.SysConfig
-	if err := l.db.First(&config, req.ID).Error; err != nil {
+	if err := l.db.Where("is_delete = ?", false).First(&config, req.ID).Error; err != nil {
 		return err
 	}
 
@@ -62,11 +62,11 @@ func (l *ConfigLogic) UpdateConfig(req *types.UpdateConfigRequest) error {
 	return l.db.Model(&model.SysConfig{}).Where("id = ?", req.ID).Updates(updates).Error
 }
 
-// DeleteConfig 删除配置
+// DeleteConfig 删除配置（软删除）
 func (l *ConfigLogic) DeleteConfig(id uint) error {
 	// 检查是否为内置配置
 	var config model.SysConfig
-	if err := l.db.First(&config, id).Error; err != nil {
+	if err := l.db.Where("is_delete = ?", false).First(&config, id).Error; err != nil {
 		return err
 	}
 
@@ -74,13 +74,13 @@ func (l *ConfigLogic) DeleteConfig(id uint) error {
 		return errors.New("内置配置不允许删除")
 	}
 
-	return l.db.Delete(&config).Error
+	return l.db.Model(&config).Update("is_delete", true).Error
 }
 
 // GetConfig 获取配置详情
 func (l *ConfigLogic) GetConfig(id uint) (*model.SysConfig, error) {
 	var config model.SysConfig
-	if err := l.db.First(&config, id).Error; err != nil {
+	if err := l.db.Where("is_delete = ?", false).First(&config, id).Error; err != nil {
 		return nil, err
 	}
 	return &config, nil
@@ -89,7 +89,7 @@ func (l *ConfigLogic) GetConfig(id uint) (*model.SysConfig, error) {
 // GetConfigByKey 根据Key获取配置
 func (l *ConfigLogic) GetConfigByKey(key string) (*model.SysConfig, error) {
 	var config model.SysConfig
-	if err := l.db.Where("`key` = ?", key).First(&config).Error; err != nil {
+	if err := l.db.Where("`key` = ? AND is_delete = ?", key, false).First(&config).Error; err != nil {
 		return nil, err
 	}
 	return &config, nil
@@ -109,7 +109,7 @@ func (l *ConfigLogic) ListConfigs(req *types.ListConfigsRequest) ([]model.SysCon
 	var configs []model.SysConfig
 	var total int64
 
-	query := l.db.Model(&model.SysConfig{})
+	query := l.db.Model(&model.SysConfig{}).Where("is_delete = ?", false)
 
 	if req.Name != "" {
 		query = query.Where("name LIKE ?", "%"+req.Name+"%")

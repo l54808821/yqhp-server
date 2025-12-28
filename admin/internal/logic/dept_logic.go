@@ -62,28 +62,28 @@ func (l *DeptLogic) UpdateDept(req *types.UpdateDeptRequest) error {
 	return l.db.Model(&model.Dept{}).Where("id = ?", req.ID).Updates(updates).Error
 }
 
-// DeleteDept 删除部门
+// DeleteDept 删除部门（软删除）
 func (l *DeptLogic) DeleteDept(id uint) error {
 	// 检查是否有子部门
 	var count int64
-	l.db.Model(&model.Dept{}).Where("parent_id = ?", id).Count(&count)
+	l.db.Model(&model.Dept{}).Where("parent_id = ? AND is_delete = ?", id, false).Count(&count)
 	if count > 0 {
 		return errors.New("该部门下有子部门，无法删除")
 	}
 
 	// 检查是否有用户
-	l.db.Model(&model.User{}).Where("dept_id = ?", id).Count(&count)
+	l.db.Model(&model.User{}).Where("dept_id = ? AND is_delete = ?", id, false).Count(&count)
 	if count > 0 {
 		return errors.New("该部门下有用户，无法删除")
 	}
 
-	return l.db.Delete(&model.Dept{}, id).Error
+	return l.db.Model(&model.Dept{}).Where("id = ?", id).Update("is_delete", true).Error
 }
 
 // GetDept 获取部门详情
 func (l *DeptLogic) GetDept(id uint) (*model.Dept, error) {
 	var dept model.Dept
-	if err := l.db.First(&dept, id).Error; err != nil {
+	if err := l.db.Where("is_delete = ?", false).First(&dept, id).Error; err != nil {
 		return nil, err
 	}
 	return &dept, nil
@@ -92,7 +92,7 @@ func (l *DeptLogic) GetDept(id uint) (*model.Dept, error) {
 // GetDeptTree 获取部门树
 func (l *DeptLogic) GetDeptTree() ([]model.Dept, error) {
 	var depts []model.Dept
-	if err := l.db.Order("sort ASC").Find(&depts).Error; err != nil {
+	if err := l.db.Where("is_delete = ?", false).Order("sort ASC").Find(&depts).Error; err != nil {
 		return nil, err
 	}
 
@@ -102,7 +102,7 @@ func (l *DeptLogic) GetDeptTree() ([]model.Dept, error) {
 // GetAllDepts 获取所有部门(平铺)
 func (l *DeptLogic) GetAllDepts() ([]model.Dept, error) {
 	var depts []model.Dept
-	if err := l.db.Order("sort ASC").Find(&depts).Error; err != nil {
+	if err := l.db.Where("is_delete = ?", false).Order("sort ASC").Find(&depts).Error; err != nil {
 		return nil, err
 	}
 	return depts, nil

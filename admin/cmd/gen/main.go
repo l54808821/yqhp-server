@@ -51,22 +51,25 @@ func main() {
 	// 使用数据库连接
 	g.UseDB(db)
 
-	// 生成指定表
-	g.GenerateModel("sys_application")
-	g.GenerateModel("sys_config")
-	g.GenerateModel("sys_dept")
-	g.GenerateModel("sys_dict_data")
-	g.GenerateModel("sys_dict_type")
-	g.GenerateModel("sys_login_log")
-	g.GenerateModel("sys_oauth_provider")
-	g.GenerateModel("sys_oauth_user")
-	g.GenerateModel("sys_operation_log")
-	g.GenerateModel("sys_resource")
-	g.GenerateModel("sys_role")
-	g.GenerateModel("sys_role_resource")
-	g.GenerateModel("sys_user")
-	g.GenerateModel("sys_user_role")
-	g.GenerateModel("sys_user_token")
+	// 生成指定表的模型和查询代码
+	// 使用 ApplyBasic 会同时生成 model 和 query
+	g.ApplyBasic(
+		g.GenerateModel("sys_application"),
+		g.GenerateModel("sys_config"),
+		g.GenerateModel("sys_dept"),
+		g.GenerateModel("sys_dict_data"),
+		g.GenerateModel("sys_dict_type"),
+		g.GenerateModel("sys_login_log"),
+		g.GenerateModel("sys_oauth_provider"),
+		g.GenerateModel("sys_oauth_user"),
+		g.GenerateModel("sys_operation_log"),
+		g.GenerateModel("sys_resource"),
+		g.GenerateModel("sys_role"),
+		g.GenerateModel("sys_role_resource"),
+		g.GenerateModel("sys_user"),
+		g.GenerateModel("sys_user_role"),
+		g.GenerateModel("sys_user_token"),
+	)
 
 	// 执行生成
 	g.Execute()

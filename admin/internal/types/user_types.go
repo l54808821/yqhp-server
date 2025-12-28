@@ -64,16 +64,16 @@ type CreateUserRequest struct {
 
 // UpdateUserRequest 更新用户请求
 type UpdateUserRequest struct {
-	ID       uint   `json:"id" validate:"required"`
-	Nickname string `json:"nickname"`
-	Avatar   string `json:"avatar"`
-	Email    string `json:"email"`
-	Phone    string `json:"phone"`
-	Gender   int8   `json:"gender"`
-	DeptID   uint   `json:"deptId"`
-	Status   int8   `json:"status"`
-	RoleIDs  []uint `json:"roleIds"`
-	Remark   string `json:"remark"`
+	ID       uint    `json:"id" validate:"required"`
+	Nickname string  `json:"nickname"`
+	Avatar   string  `json:"avatar"`
+	Email    string  `json:"email"`
+	Phone    string  `json:"phone"`
+	Gender   int8    `json:"gender"`
+	DeptID   uint    `json:"deptId"`
+	Status   int8    `json:"status"`
+	RoleIDs  *[]uint `json:"roleIds"` // 使用指针类型，区分"没传"和"传了空数组"
+	Remark   string  `json:"remark"`
 }
 
 // ListUsersRequest 用户列表请求

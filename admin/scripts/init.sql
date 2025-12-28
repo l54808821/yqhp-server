@@ -41,8 +41,8 @@ INSERT INTO sys_role (id, created_at, updated_at, is_delete, created_by, updated
 -- =============================================
 -- 4. 初始化用户 (密码: 123456 的 MD5)
 -- =============================================
-INSERT INTO sys_user (id, created_at, updated_at, is_delete, created_by, updated_by, username, password, nickname, avatar, email, phone, gender, status, dept_id, last_login_at, last_login_ip, remark) VALUES
-(1, NOW(), NOW(), 0, 1, 1, 'admin', 'e10adc3949ba59abbe56e057f20f883e', '管理员', NULL, NULL, NULL, 0, 1, 1, NULL, NULL, NULL);
+INSERT INTO sys_user (id, created_at, updated_at, is_delete, created_by, updated_by, username, password, nickname, avatar, email, phone, gender, status, dept_id, platform, platform_uid, platform_short_id, last_login_at, last_login_ip, remark) VALUES
+(1, NOW(), NOW(), 0, 1, 1, 'admin', 'e10adc3949ba59abbe56e057f20f883e', '管理员', NULL, NULL, NULL, 0, 1, 1, 'system', NULL, NULL, NULL, NULL, NULL);
 
 -- =============================================
 -- 5. 初始化用户角色关联

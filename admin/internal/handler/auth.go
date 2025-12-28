@@ -4,9 +4,11 @@ import (
 	"yqhp/admin/internal/logic"
 	"yqhp/admin/internal/middleware"
 	"yqhp/admin/internal/types"
+	"yqhp/common/logger"
 	"yqhp/common/response"
 
 	"github.com/gofiber/fiber/v2"
+	"go.uber.org/zap"
 )
 
 // AuthLogin 登录
@@ -125,11 +127,15 @@ func AuthGetOAuthURL(c *fiber.Ctx) error {
 	providerCode := c.Params("provider")
 	state := c.Query("state", "")
 
+	logger.Info("[OAuth] GetAuthURL called", zap.String("provider", providerCode), zap.String("state", state))
+
 	url, err := logic.NewOAuthLogic(c).GetAuthURL(providerCode, state)
 	if err != nil {
+		logger.Error("[OAuth] GetAuthURL error", zap.Error(err))
 		return response.Error(c, err.Error())
 	}
 
+	logger.Info("[OAuth] GetAuthURL success", zap.String("url", url))
 	return response.Success(c, fiber.Map{"url": url})
 }
 

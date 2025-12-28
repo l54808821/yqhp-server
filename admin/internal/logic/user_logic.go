@@ -224,20 +224,29 @@ func (l *UserLogic) CreateUser(req *types.CreateUserRequest) (*types.UserInfo, e
 		return nil, errors.New("用户名已存在")
 	}
 
+	// 默认平台为 system
+	platform := req.Platform
+	if platform == "" {
+		platform = "system"
+	}
+
 	currentUserID := ctxutil.GetUserID(l.ctx)
 	user := &model.SysUser{
-		Username:  req.Username,
-		Password:  utils.MD5(req.Password),
-		Nickname:  model.StringPtr(req.Nickname),
-		Email:     model.StringPtr(req.Email),
-		Phone:     model.StringPtr(req.Phone),
-		Gender:    model.Int32Ptr(int32(req.Gender)),
-		DeptID:    model.Int64Ptr(int64(req.DeptID)),
-		Status:    model.Int32Ptr(1),
-		Remark:    model.StringPtr(req.Remark),
-		IsDelete:  model.BoolPtr(false),
-		CreatedBy: model.Int64Ptr(currentUserID),
-		UpdatedBy: model.Int64Ptr(currentUserID),
+		Username:        req.Username,
+		Password:        utils.MD5(req.Password),
+		Nickname:        model.StringPtr(req.Nickname),
+		Email:           model.StringPtr(req.Email),
+		Phone:           model.StringPtr(req.Phone),
+		Gender:          model.Int32Ptr(int32(req.Gender)),
+		DeptID:          model.Int64Ptr(int64(req.DeptID)),
+		Platform:        model.StringPtr(platform),
+		PlatformUID:     model.StringPtr(req.PlatformUID),
+		PlatformShortID: model.StringPtr(req.PlatformShortID),
+		Status:          model.Int32Ptr(1),
+		Remark:          model.StringPtr(req.Remark),
+		IsDelete:        model.BoolPtr(false),
+		CreatedBy:       model.Int64Ptr(currentUserID),
+		UpdatedBy:       model.Int64Ptr(currentUserID),
 	}
 
 	if err := u.WithContext(l.ctx).Create(user); err != nil {
@@ -267,15 +276,18 @@ func (l *UserLogic) UpdateUser(req *types.UpdateUserRequest) error {
 	currentUserID := ctxutil.GetUserID(l.ctx)
 	u := l.db().SysUser
 	_, err := u.WithContext(l.ctx).Where(u.ID.Eq(int64(req.ID))).Updates(map[string]any{
-		"nickname":   req.Nickname,
-		"avatar":     req.Avatar,
-		"email":      req.Email,
-		"phone":      req.Phone,
-		"gender":     req.Gender,
-		"dept_id":    req.DeptID,
-		"status":     req.Status,
-		"remark":     req.Remark,
-		"updated_by": currentUserID,
+		"nickname":          req.Nickname,
+		"avatar":            req.Avatar,
+		"email":             req.Email,
+		"phone":             req.Phone,
+		"gender":            req.Gender,
+		"dept_id":           req.DeptID,
+		"status":            req.Status,
+		"platform":          req.Platform,
+		"platform_uid":      req.PlatformUID,
+		"platform_short_id": req.PlatformShortID,
+		"remark":            req.Remark,
+		"updated_by":        currentUserID,
 	})
 	if err != nil {
 		return err

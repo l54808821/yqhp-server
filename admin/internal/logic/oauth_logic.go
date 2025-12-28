@@ -17,9 +17,11 @@ import (
 	"yqhp/admin/internal/query"
 	"yqhp/admin/internal/svc"
 	"yqhp/admin/internal/types"
+	"yqhp/common/logger"
 	"yqhp/common/utils"
 
 	"github.com/gofiber/fiber/v2"
+	"go.uber.org/zap"
 )
 
 // OAuthLogic OAuth逻辑
@@ -39,10 +41,19 @@ func (l *OAuthLogic) db() *query.Query {
 
 // GetAuthURL 获取授权URL
 func (l *OAuthLogic) GetAuthURL(providerCode, state string) (string, error) {
+	logger.Info("[OAuth] GetAuthURL logic", zap.String("providerCode", providerCode))
+
 	provider, err := l.GetProvider(providerCode)
 	if err != nil {
+		logger.Error("[OAuth] GetProvider error", zap.Error(err))
 		return "", err
 	}
+
+	logger.Info("[OAuth] Provider found",
+		zap.String("name", provider.Name),
+		zap.Int32("status", model.GetInt32(provider.Status)),
+		zap.String("authUrl", model.GetString(provider.AuthURL)),
+		zap.String("clientId", model.GetString(provider.ClientID)))
 
 	if model.GetInt32(provider.Status) != 1 {
 		return "", errors.New("该登录方式已禁用")
@@ -96,7 +107,7 @@ func (l *OAuthLogic) getAccessToken(provider *model.SysOauthProvider, code strin
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 
-	client := &http.Client{}
+	client := &http.Client{Timeout: 20 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
@@ -146,7 +157,7 @@ func (l *OAuthLogic) getUserInfo(provider *model.SysOauthProvider, tokenData map
 	}
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 
-	client := &http.Client{}
+	client := &http.Client{Timeout: 20 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
@@ -177,23 +188,83 @@ func (l *OAuthLogic) findOrCreateUser(provider *model.SysOauthProvider, userInfo
 		return nil, errors.New("获取用户标识失败")
 	}
 
+	// 平台信息
+	platform := provider.Code
+	platformUID := unionID    // 长码，优先使用 unionID
+	platformShortID := openID // 短码，使用 openID
+	if platformUID == "" {
+		platformUID = openID
+	}
+
 	ou := l.db().SysOauthUser
+	u := l.db().SysUser
 	oauthUser, err := ou.WithContext(l.ctx).Where(ou.ProviderCode.Eq(provider.Code), ou.OpenID.Eq(openID), ou.IsDelete.Is(false)).First()
 	isNew := false
 
-	if err != nil {
-		// 新用户，创建账号
-		isNew = true
-		user := &model.SysUser{
-			Username: fmt.Sprintf("%s_%s", provider.Code, openID[:8]),
-			Password: utils.MD5(utils.GenerateRandomString(16)),
-			Nickname: model.StringPtr(nickname),
-			Avatar:   model.StringPtr(avatar),
-			Status:   model.Int32Ptr(1),
-			IsDelete: model.BoolPtr(false),
+	// 检查绑定的用户是否存在
+	if err == nil {
+		_, userErr := u.WithContext(l.ctx).Where(u.ID.Eq(model.GetInt64(oauthUser.UserID)), u.IsDelete.Is(false)).First()
+		if userErr != nil {
+			// 用户已被软删除，尝试恢复
+			logger.Warn("[OAuth] 绑定的用户已被删除，尝试恢复",
+				zap.Int64("oauthUserId", oauthUser.ID),
+				zap.Int64("userId", model.GetInt64(oauthUser.UserID)))
+
+			// 恢复用户
+			_, restoreErr := u.WithContext(l.ctx).Where(u.ID.Eq(model.GetInt64(oauthUser.UserID))).Updates(map[string]any{
+				"is_delete":         false,
+				"status":            1,
+				"nickname":          nickname,
+				"avatar":            avatar,
+				"platform":          platform,
+				"platform_uid":      platformUID,
+				"platform_short_id": platformShortID,
+			})
+			if restoreErr != nil {
+				logger.Error("[OAuth] 恢复用户失败", zap.Error(restoreErr))
+				return nil, errors.New("恢复用户失败")
+			}
+			logger.Info("[OAuth] 用户恢复成功", zap.Int64("userId", model.GetInt64(oauthUser.UserID)))
 		}
-		if err := l.db().SysUser.WithContext(l.ctx).Create(user); err != nil {
-			return nil, err
+	}
+
+	if err != nil {
+		// 新用户，先检查是否有同名的软删除用户
+		isNew = true
+		username := fmt.Sprintf("%s_%s", provider.Code, openID[:8])
+
+		existingUser, findErr := u.WithContext(l.ctx).Where(u.Username.Eq(username)).First()
+		var user *model.SysUser
+
+		if findErr == nil {
+			// 存在同名用户（软删除的），恢复它
+			logger.Info("[OAuth] 发现同名软删除用户，恢复", zap.String("username", username))
+			u.WithContext(l.ctx).Where(u.ID.Eq(existingUser.ID)).Updates(map[string]any{
+				"is_delete":         false,
+				"status":            1,
+				"nickname":          nickname,
+				"avatar":            avatar,
+				"platform":          platform,
+				"platform_uid":      platformUID,
+				"platform_short_id": platformShortID,
+			})
+			user = existingUser
+		} else {
+			// 创建新用户
+			user = &model.SysUser{
+				Username:        username,
+				Password:        utils.MD5(utils.GenerateRandomString(16)),
+				Nickname:        model.StringPtr(nickname),
+				Avatar:          model.StringPtr(avatar),
+				Status:          model.Int32Ptr(1),
+				IsDelete:        model.BoolPtr(false),
+				Platform:        model.StringPtr(platform),
+				PlatformUID:     model.StringPtr(platformUID),
+				PlatformShortID: model.StringPtr(platformShortID),
+			}
+			if err := u.WithContext(l.ctx).Create(user); err != nil {
+				return nil, err
+			}
 		}
 
 		rawData, _ := json.Marshal(userInfo)
@@ -219,7 +290,6 @@ func (l *OAuthLogic) findOrCreateUser(provider *model.SysOauthProvider, userInfo
 		}
 	}
 
-	u := l.db().SysUser
 	user, err := u.WithContext(l.ctx).Where(u.ID.Eq(model.GetInt64(oauthUser.UserID)), u.IsDelete.Is(false)).First()
 	if err != nil {
 		return nil, err

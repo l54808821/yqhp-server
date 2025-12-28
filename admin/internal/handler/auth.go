@@ -1,8 +1,9 @@
 package handler
 
 import (
+	"yqhp/admin/internal/logic"
 	"yqhp/admin/internal/middleware"
-	"yqhp/admin/internal/service"
+	"yqhp/admin/internal/types"
 	"yqhp/common/response"
 
 	"github.com/gofiber/fiber/v2"
@@ -10,21 +11,21 @@ import (
 
 // AuthHandler 认证处理器
 type AuthHandler struct {
-	userService  *service.UserService
-	oauthService *service.OAuthService
+	userLogic  *logic.UserLogic
+	oauthLogic *logic.OAuthLogic
 }
 
 // NewAuthHandler 创建认证处理器
-func NewAuthHandler(userService *service.UserService, oauthService *service.OAuthService) *AuthHandler {
+func NewAuthHandler(userLogic *logic.UserLogic, oauthLogic *logic.OAuthLogic) *AuthHandler {
 	return &AuthHandler{
-		userService:  userService,
-		oauthService: oauthService,
+		userLogic:  userLogic,
+		oauthLogic: oauthLogic,
 	}
 }
 
 // Login 登录
 func (h *AuthHandler) Login(c *fiber.Ctx) error {
-	var req service.LoginRequest
+	var req types.LoginRequest
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
 	}
@@ -33,7 +34,7 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 		return response.Error(c, "用户名和密码不能为空")
 	}
 
-	result, err := h.userService.Login(&req, c.IP())
+	result, err := h.userLogic.Login(&req, c.IP())
 	if err != nil {
 		return response.Error(c, err.Error())
 	}
@@ -43,7 +44,7 @@ func (h *AuthHandler) Login(c *fiber.Ctx) error {
 
 // Register 注册
 func (h *AuthHandler) Register(c *fiber.Ctx) error {
-	var req service.RegisterRequest
+	var req types.RegisterRequest
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
 	}
@@ -52,7 +53,7 @@ func (h *AuthHandler) Register(c *fiber.Ctx) error {
 		return response.Error(c, "用户名和密码不能为空")
 	}
 
-	result, err := h.userService.Register(&req, c.IP())
+	result, err := h.userLogic.Register(&req, c.IP())
 	if err != nil {
 		return response.Error(c, err.Error())
 	}
@@ -69,7 +70,7 @@ func (h *AuthHandler) Logout(c *fiber.Ctx) error {
 		return response.Success(c, nil)
 	}
 	// 尝试登出，即使失败也返回成功
-	_ = h.userService.Logout(token)
+	_ = h.userLogic.Logout(token)
 	return response.Success(c, nil)
 }
 
@@ -107,7 +108,7 @@ func (h *AuthHandler) GetUserInfo(c *fiber.Ctx) error {
 		return response.Unauthorized(c, "请先登录")
 	}
 
-	user, err := h.userService.GetUserInfo(userID)
+	user, err := h.userLogic.GetUserInfo(userID)
 	if err != nil {
 		return response.Error(c, "获取用户信息失败")
 	}
@@ -130,7 +131,7 @@ func (h *AuthHandler) ChangePassword(c *fiber.Ctx) error {
 		return response.Error(c, "参数解析失败")
 	}
 
-	if err := h.userService.ChangePassword(userID, req.OldPassword, req.NewPassword); err != nil {
+	if err := h.userLogic.ChangePassword(userID, req.OldPassword, req.NewPassword); err != nil {
 		return response.Error(c, err.Error())
 	}
 
@@ -139,7 +140,7 @@ func (h *AuthHandler) ChangePassword(c *fiber.Ctx) error {
 
 // GetOAuthProviders 获取OAuth提供商列表
 func (h *AuthHandler) GetOAuthProviders(c *fiber.Ctx) error {
-	providers, err := h.oauthService.ListProviders()
+	providers, err := h.oauthLogic.ListProviders()
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}
@@ -151,7 +152,7 @@ func (h *AuthHandler) GetOAuthURL(c *fiber.Ctx) error {
 	providerCode := c.Params("provider")
 	state := c.Query("state", "")
 
-	url, err := h.oauthService.GetAuthURL(providerCode, state)
+	url, err := h.oauthLogic.GetAuthURL(providerCode, state)
 	if err != nil {
 		return response.Error(c, err.Error())
 	}
@@ -168,7 +169,7 @@ func (h *AuthHandler) OAuthCallback(c *fiber.Ctx) error {
 		return response.Error(c, "授权码不能为空")
 	}
 
-	result, err := h.oauthService.HandleCallback(providerCode, code, c.IP())
+	result, err := h.oauthLogic.HandleCallback(providerCode, code, c.IP())
 	if err != nil {
 		return response.Error(c, err.Error())
 	}
@@ -183,7 +184,7 @@ func (h *AuthHandler) GetUserBindings(c *fiber.Ctx) error {
 		return response.Unauthorized(c, "请先登录")
 	}
 
-	bindings, err := h.oauthService.GetUserBindings(userID)
+	bindings, err := h.oauthLogic.GetUserBindings(userID)
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}
@@ -201,7 +202,7 @@ func (h *AuthHandler) BindOAuth(c *fiber.Ctx) error {
 	providerCode := c.Params("provider")
 	code := c.Query("code")
 
-	if err := h.oauthService.BindOAuth(userID, providerCode, code); err != nil {
+	if err := h.oauthLogic.BindOAuth(userID, providerCode, code); err != nil {
 		return response.Error(c, err.Error())
 	}
 
@@ -217,10 +218,9 @@ func (h *AuthHandler) UnbindOAuth(c *fiber.Ctx) error {
 
 	providerCode := c.Params("provider")
 
-	if err := h.oauthService.UnbindOAuth(userID, providerCode); err != nil {
+	if err := h.oauthLogic.UnbindOAuth(userID, providerCode); err != nil {
 		return response.Error(c, err.Error())
 	}
 
 	return response.Success(c, nil)
 }
-

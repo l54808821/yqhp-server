@@ -3,8 +3,8 @@ package router
 import (
 	"yqhp/admin/internal/auth"
 	"yqhp/admin/internal/handler"
+	"yqhp/admin/internal/logic"
 	"yqhp/admin/internal/middleware"
-	"yqhp/admin/internal/service"
 	commonMiddleware "yqhp/common/middleware"
 
 	"github.com/gofiber/fiber/v2"
@@ -13,27 +13,27 @@ import (
 
 // Setup 设置路由
 func Setup(app *fiber.App, db *gorm.DB) {
-	// 初始化服务
-	userService := service.NewUserService(db)
-	roleService := service.NewRoleService(db)
-	resourceService := service.NewResourceService(db)
-	deptService := service.NewDeptService(db)
-	dictService := service.NewDictService(db)
-	configService := service.NewConfigService(db)
-	oauthService := service.NewOAuthService(db)
-	tokenService := service.NewTokenService(db)
+	// 初始化逻辑层
+	userLogic := logic.NewUserLogic(db)
+	roleLogic := logic.NewRoleLogic(db)
+	resourceLogic := logic.NewResourceLogic(db)
+	deptLogic := logic.NewDeptLogic(db)
+	dictLogic := logic.NewDictLogic(db)
+	configLogic := logic.NewConfigLogic(db)
+	oauthLogic := logic.NewOAuthLogic(db)
+	tokenLogic := logic.NewTokenLogic(db)
 	permissionService := auth.NewPermissionService(db)
 
 	// 初始化处理器
-	authHandler := handler.NewAuthHandler(userService, oauthService)
-	userHandler := handler.NewUserHandler(userService)
-	roleHandler := handler.NewRoleHandler(roleService)
-	resourceHandler := handler.NewResourceHandler(resourceService)
-	deptHandler := handler.NewDeptHandler(deptService)
-	dictHandler := handler.NewDictHandler(dictService)
-	configHandler := handler.NewConfigHandler(configService)
-	tokenHandler := handler.NewTokenHandler(tokenService)
-	oauthProviderHandler := handler.NewOAuthProviderHandler(oauthService)
+	authHandler := handler.NewAuthHandler(userLogic, oauthLogic)
+	userHandler := handler.NewUserHandler(userLogic)
+	roleHandler := handler.NewRoleHandler(roleLogic)
+	resourceHandler := handler.NewResourceHandler(resourceLogic)
+	deptHandler := handler.NewDeptHandler(deptLogic)
+	dictHandler := handler.NewDictHandler(dictLogic)
+	configHandler := handler.NewConfigHandler(configLogic)
+	tokenHandler := handler.NewTokenHandler(tokenLogic)
+	oauthProviderHandler := handler.NewOAuthProviderHandler(oauthLogic)
 
 	// 全局中间件
 	app.Use(commonMiddleware.CORS())

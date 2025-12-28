@@ -3,7 +3,8 @@ package handler
 import (
 	"strconv"
 
-	"yqhp/admin/internal/service"
+	"yqhp/admin/internal/logic"
+	"yqhp/admin/internal/types"
 	"yqhp/common/response"
 
 	"github.com/gofiber/fiber/v2"
@@ -11,17 +12,17 @@ import (
 
 // ConfigHandler 配置处理器
 type ConfigHandler struct {
-	configService *service.ConfigService
+	configLogic *logic.ConfigLogic
 }
 
 // NewConfigHandler 创建配置处理器
-func NewConfigHandler(configService *service.ConfigService) *ConfigHandler {
-	return &ConfigHandler{configService: configService}
+func NewConfigHandler(configLogic *logic.ConfigLogic) *ConfigHandler {
+	return &ConfigHandler{configLogic: configLogic}
 }
 
 // List 获取配置列表
 func (h *ConfigHandler) List(c *fiber.Ctx) error {
-	var req service.ListConfigsRequest
+	var req types.ListConfigsRequest
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
 	}
@@ -33,7 +34,7 @@ func (h *ConfigHandler) List(c *fiber.Ctx) error {
 		req.PageSize = 10
 	}
 
-	configs, total, err := h.configService.ListConfigs(&req)
+	configs, total, err := h.configLogic.ListConfigs(&req)
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}
@@ -48,7 +49,7 @@ func (h *ConfigHandler) Get(c *fiber.Ctx) error {
 		return response.Error(c, "参数错误")
 	}
 
-	config, err := h.configService.GetConfig(uint(id))
+	config, err := h.configLogic.GetConfig(uint(id))
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}
@@ -63,7 +64,7 @@ func (h *ConfigHandler) GetByKey(c *fiber.Ctx) error {
 		return response.Error(c, "Key不能为空")
 	}
 
-	config, err := h.configService.GetConfigByKey(key)
+	config, err := h.configLogic.GetConfigByKey(key)
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}
@@ -73,7 +74,7 @@ func (h *ConfigHandler) GetByKey(c *fiber.Ctx) error {
 
 // Create 创建配置
 func (h *ConfigHandler) Create(c *fiber.Ctx) error {
-	var req service.CreateConfigRequest
+	var req types.CreateConfigRequest
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
 	}
@@ -82,7 +83,7 @@ func (h *ConfigHandler) Create(c *fiber.Ctx) error {
 		return response.Error(c, "名称和Key不能为空")
 	}
 
-	config, err := h.configService.CreateConfig(&req)
+	config, err := h.configLogic.CreateConfig(&req)
 	if err != nil {
 		return response.Error(c, err.Error())
 	}
@@ -92,7 +93,7 @@ func (h *ConfigHandler) Create(c *fiber.Ctx) error {
 
 // Update 更新配置
 func (h *ConfigHandler) Update(c *fiber.Ctx) error {
-	var req service.UpdateConfigRequest
+	var req types.UpdateConfigRequest
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
 	}
@@ -101,7 +102,7 @@ func (h *ConfigHandler) Update(c *fiber.Ctx) error {
 		return response.Error(c, "ID不能为空")
 	}
 
-	if err := h.configService.UpdateConfig(&req); err != nil {
+	if err := h.configLogic.UpdateConfig(&req); err != nil {
 		return response.Error(c, err.Error())
 	}
 
@@ -115,7 +116,7 @@ func (h *ConfigHandler) Delete(c *fiber.Ctx) error {
 		return response.Error(c, "参数错误")
 	}
 
-	if err := h.configService.DeleteConfig(uint(id)); err != nil {
+	if err := h.configLogic.DeleteConfig(uint(id)); err != nil {
 		return response.Error(c, err.Error())
 	}
 
@@ -124,10 +125,9 @@ func (h *ConfigHandler) Delete(c *fiber.Ctx) error {
 
 // Refresh 刷新配置缓存
 func (h *ConfigHandler) Refresh(c *fiber.Ctx) error {
-	if err := h.configService.RefreshConfig(); err != nil {
+	if err := h.configLogic.RefreshConfig(); err != nil {
 		return response.Error(c, err.Error())
 	}
 
 	return response.Success(c, nil)
 }
-

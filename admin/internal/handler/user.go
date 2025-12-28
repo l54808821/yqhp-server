@@ -3,7 +3,8 @@ package handler
 import (
 	"strconv"
 
-	"yqhp/admin/internal/service"
+	"yqhp/admin/internal/logic"
+	"yqhp/admin/internal/types"
 	"yqhp/common/response"
 
 	"github.com/gofiber/fiber/v2"
@@ -11,17 +12,17 @@ import (
 
 // UserHandler 用户处理器
 type UserHandler struct {
-	userService *service.UserService
+	userLogic *logic.UserLogic
 }
 
 // NewUserHandler 创建用户处理器
-func NewUserHandler(userService *service.UserService) *UserHandler {
-	return &UserHandler{userService: userService}
+func NewUserHandler(userLogic *logic.UserLogic) *UserHandler {
+	return &UserHandler{userLogic: userLogic}
 }
 
 // List 获取用户列表
 func (h *UserHandler) List(c *fiber.Ctx) error {
-	var req service.ListUsersRequest
+	var req types.ListUsersRequest
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
 	}
@@ -33,7 +34,7 @@ func (h *UserHandler) List(c *fiber.Ctx) error {
 		req.PageSize = 10
 	}
 
-	users, total, err := h.userService.ListUsers(&req)
+	users, total, err := h.userLogic.ListUsers(&req)
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}
@@ -48,7 +49,7 @@ func (h *UserHandler) Get(c *fiber.Ctx) error {
 		return response.Error(c, "参数错误")
 	}
 
-	user, err := h.userService.GetUserInfo(uint(id))
+	user, err := h.userLogic.GetUserInfo(uint(id))
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}
@@ -58,7 +59,7 @@ func (h *UserHandler) Get(c *fiber.Ctx) error {
 
 // Create 创建用户
 func (h *UserHandler) Create(c *fiber.Ctx) error {
-	var req service.CreateUserRequest
+	var req types.CreateUserRequest
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
 	}
@@ -67,7 +68,7 @@ func (h *UserHandler) Create(c *fiber.Ctx) error {
 		return response.Error(c, "用户名和密码不能为空")
 	}
 
-	user, err := h.userService.CreateUser(&req)
+	user, err := h.userLogic.CreateUser(&req)
 	if err != nil {
 		return response.Error(c, err.Error())
 	}
@@ -77,7 +78,7 @@ func (h *UserHandler) Create(c *fiber.Ctx) error {
 
 // Update 更新用户
 func (h *UserHandler) Update(c *fiber.Ctx) error {
-	var req service.UpdateUserRequest
+	var req types.UpdateUserRequest
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
 	}
@@ -86,7 +87,7 @@ func (h *UserHandler) Update(c *fiber.Ctx) error {
 		return response.Error(c, "用户ID不能为空")
 	}
 
-	if err := h.userService.UpdateUser(&req); err != nil {
+	if err := h.userLogic.UpdateUser(&req); err != nil {
 		return response.Error(c, err.Error())
 	}
 
@@ -100,7 +101,7 @@ func (h *UserHandler) Delete(c *fiber.Ctx) error {
 		return response.Error(c, "参数错误")
 	}
 
-	if err := h.userService.DeleteUser(uint(id)); err != nil {
+	if err := h.userLogic.DeleteUser(uint(id)); err != nil {
 		return response.Error(c, err.Error())
 	}
 
@@ -125,10 +126,9 @@ func (h *UserHandler) ResetPassword(c *fiber.Ctx) error {
 		req.Password = "123456" // 默认密码
 	}
 
-	if err := h.userService.ResetPassword(uint(id), req.Password); err != nil {
+	if err := h.userLogic.ResetPassword(uint(id), req.Password); err != nil {
 		return response.Error(c, err.Error())
 	}
 
 	return response.Success(c, nil)
 }
-

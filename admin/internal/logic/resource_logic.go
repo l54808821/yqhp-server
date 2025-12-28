@@ -1,47 +1,30 @@
-package service
+package logic
 
 import (
 	"errors"
 
 	"yqhp/admin/internal/model"
+	"yqhp/admin/internal/types"
 
 	"gorm.io/gorm"
 )
 
-// ResourceService 资源服务
-type ResourceService struct {
+// ResourceLogic 资源逻辑
+type ResourceLogic struct {
 	db *gorm.DB
 }
 
-// NewResourceService 创建资源服务
-func NewResourceService(db *gorm.DB) *ResourceService {
-	return &ResourceService{db: db}
-}
-
-// CreateResourceRequest 创建资源请求
-type CreateResourceRequest struct {
-	ParentID  uint   `json:"parentId"`
-	Name      string `json:"name" validate:"required"`
-	Code      string `json:"code"`
-	Type      int8   `json:"type" validate:"required"`
-	Path      string `json:"path"`
-	Component string `json:"component"`
-	Redirect  string `json:"redirect"`
-	Icon      string `json:"icon"`
-	Sort      int    `json:"sort"`
-	IsHidden  bool   `json:"isHidden"`
-	IsCache   bool   `json:"isCache"`
-	IsFrame   bool   `json:"isFrame"`
-	Status    int8   `json:"status"`
-	Remark    string `json:"remark"`
+// NewResourceLogic 创建资源逻辑
+func NewResourceLogic(db *gorm.DB) *ResourceLogic {
+	return &ResourceLogic{db: db}
 }
 
 // CreateResource 创建资源
-func (s *ResourceService) CreateResource(req *CreateResourceRequest) (*model.Resource, error) {
+func (l *ResourceLogic) CreateResource(req *types.CreateResourceRequest) (*model.Resource, error) {
 	// 检查权限标识是否存在
 	if req.Code != "" {
 		var count int64
-		s.db.Model(&model.Resource{}).Where("code = ?", req.Code).Count(&count)
+		l.db.Model(&model.Resource{}).Where("code = ?", req.Code).Count(&count)
 		if count > 0 {
 			return nil, errors.New("权限标识已存在")
 		}
@@ -64,38 +47,19 @@ func (s *ResourceService) CreateResource(req *CreateResourceRequest) (*model.Res
 		Remark:    req.Remark,
 	}
 
-	if err := s.db.Create(resource).Error; err != nil {
+	if err := l.db.Create(resource).Error; err != nil {
 		return nil, err
 	}
 
 	return resource, nil
 }
 
-// UpdateResourceRequest 更新资源请求
-type UpdateResourceRequest struct {
-	ID        uint   `json:"id" validate:"required"`
-	ParentID  uint   `json:"parentId"`
-	Name      string `json:"name"`
-	Code      string `json:"code"`
-	Type      int8   `json:"type"`
-	Path      string `json:"path"`
-	Component string `json:"component"`
-	Redirect  string `json:"redirect"`
-	Icon      string `json:"icon"`
-	Sort      int    `json:"sort"`
-	IsHidden  bool   `json:"isHidden"`
-	IsCache   bool   `json:"isCache"`
-	IsFrame   bool   `json:"isFrame"`
-	Status    int8   `json:"status"`
-	Remark    string `json:"remark"`
-}
-
 // UpdateResource 更新资源
-func (s *ResourceService) UpdateResource(req *UpdateResourceRequest) error {
+func (l *ResourceLogic) UpdateResource(req *types.UpdateResourceRequest) error {
 	// 检查权限标识是否存在
 	if req.Code != "" {
 		var count int64
-		s.db.Model(&model.Resource{}).Where("code = ? AND id != ?", req.Code, req.ID).Count(&count)
+		l.db.Model(&model.Resource{}).Where("code = ? AND id != ?", req.Code, req.ID).Count(&count)
 		if count > 0 {
 			return errors.New("权限标识已存在")
 		}
@@ -118,37 +82,37 @@ func (s *ResourceService) UpdateResource(req *UpdateResourceRequest) error {
 		"remark":    req.Remark,
 	}
 
-	return s.db.Model(&model.Resource{}).Where("id = ?", req.ID).Updates(updates).Error
+	return l.db.Model(&model.Resource{}).Where("id = ?", req.ID).Updates(updates).Error
 }
 
 // DeleteResource 删除资源
-func (s *ResourceService) DeleteResource(id uint) error {
+func (l *ResourceLogic) DeleteResource(id uint) error {
 	// 检查是否有子资源
 	var count int64
-	s.db.Model(&model.Resource{}).Where("parent_id = ?", id).Count(&count)
+	l.db.Model(&model.Resource{}).Where("parent_id = ?", id).Count(&count)
 	if count > 0 {
 		return errors.New("该资源下有子资源，无法删除")
 	}
 
 	// 删除角色资源关联
-	s.db.Where("resource_id = ?", id).Delete(&model.RoleResource{})
+	l.db.Where("resource_id = ?", id).Delete(&model.RoleResource{})
 	// 删除资源
-	return s.db.Delete(&model.Resource{}, id).Error
+	return l.db.Delete(&model.Resource{}, id).Error
 }
 
 // GetResource 获取资源详情
-func (s *ResourceService) GetResource(id uint) (*model.Resource, error) {
+func (l *ResourceLogic) GetResource(id uint) (*model.Resource, error) {
 	var resource model.Resource
-	if err := s.db.First(&resource, id).Error; err != nil {
+	if err := l.db.First(&resource, id).Error; err != nil {
 		return nil, err
 	}
 	return &resource, nil
 }
 
 // GetResourceTree 获取资源树
-func (s *ResourceService) GetResourceTree() ([]model.Resource, error) {
+func (l *ResourceLogic) GetResourceTree() ([]model.Resource, error) {
 	var resources []model.Resource
-	if err := s.db.Where("status = 1").Order("sort ASC").Find(&resources).Error; err != nil {
+	if err := l.db.Where("status = 1").Order("sort ASC").Find(&resources).Error; err != nil {
 		return nil, err
 	}
 
@@ -156,19 +120,19 @@ func (s *ResourceService) GetResourceTree() ([]model.Resource, error) {
 }
 
 // GetAllResources 获取所有资源(平铺)
-func (s *ResourceService) GetAllResources() ([]model.Resource, error) {
+func (l *ResourceLogic) GetAllResources() ([]model.Resource, error) {
 	var resources []model.Resource
-	if err := s.db.Order("sort ASC").Find(&resources).Error; err != nil {
+	if err := l.db.Order("sort ASC").Find(&resources).Error; err != nil {
 		return nil, err
 	}
 	return resources, nil
 }
 
 // GetUserMenus 获取用户菜单
-func (s *ResourceService) GetUserMenus(userID uint) ([]model.Resource, error) {
+func (l *ResourceLogic) GetUserMenus(userID uint) ([]model.Resource, error) {
 	// 获取用户的所有角色
 	var roleIDs []uint
-	err := s.db.Model(&model.UserRole{}).
+	err := l.db.Model(&model.UserRole{}).
 		Where("user_id = ?", userID).
 		Pluck("role_id", &roleIDs).Error
 	if err != nil {
@@ -181,7 +145,7 @@ func (s *ResourceService) GetUserMenus(userID uint) ([]model.Resource, error) {
 
 	// 获取角色关联的资源
 	var resourceIDs []uint
-	err = s.db.Model(&model.RoleResource{}).
+	err = l.db.Model(&model.RoleResource{}).
 		Where("role_id IN ?", roleIDs).
 		Pluck("resource_id", &resourceIDs).Error
 	if err != nil {
@@ -194,7 +158,7 @@ func (s *ResourceService) GetUserMenus(userID uint) ([]model.Resource, error) {
 
 	// 获取菜单类型的资源(1:目录 2:菜单)
 	var resources []model.Resource
-	err = s.db.Where("id IN ? AND type IN (1, 2) AND status = 1", resourceIDs).
+	err = l.db.Where("id IN ? AND type IN (1, 2) AND status = 1", resourceIDs).
 		Order("sort ASC").
 		Find(&resources).Error
 	if err != nil {
@@ -202,13 +166,13 @@ func (s *ResourceService) GetUserMenus(userID uint) ([]model.Resource, error) {
 	}
 
 	// 补全父级目录：确保所有子菜单的父目录都存在
-	resources = s.completeParentMenus(resources)
+	resources = l.completeParentMenus(resources)
 
 	return buildResourceTree(resources, 0), nil
 }
 
 // completeParentMenus 补全父级菜单
-func (s *ResourceService) completeParentMenus(resources []model.Resource) []model.Resource {
+func (l *ResourceLogic) completeParentMenus(resources []model.Resource) []model.Resource {
 	// 创建已有资源ID的映射
 	existingIDs := make(map[uint]bool)
 	for _, r := range resources {
@@ -231,7 +195,7 @@ func (s *ResourceService) completeParentMenus(resources []model.Resource) []mode
 		}
 
 		var parents []model.Resource
-		s.db.Where("id IN ? AND status = 1", parentIDs).Find(&parents)
+		l.db.Where("id IN ? AND status = 1", parentIDs).Find(&parents)
 
 		// 清空待查找列表
 		needParentIDs = make(map[uint]bool)
@@ -267,10 +231,10 @@ func buildResourceTree(resources []model.Resource, parentID uint) []model.Resour
 }
 
 // GetUserPermissionCodes 获取用户所有权限码（包括按钮权限）
-func (s *ResourceService) GetUserPermissionCodes(userID uint) ([]string, error) {
+func (l *ResourceLogic) GetUserPermissionCodes(userID uint) ([]string, error) {
 	// 获取用户的所有角色
 	var roleIDs []uint
-	err := s.db.Model(&model.UserRole{}).
+	err := l.db.Model(&model.UserRole{}).
 		Where("user_id = ?", userID).
 		Pluck("role_id", &roleIDs).Error
 	if err != nil {
@@ -283,7 +247,7 @@ func (s *ResourceService) GetUserPermissionCodes(userID uint) ([]string, error) 
 
 	// 获取角色关联的资源
 	var resourceIDs []uint
-	err = s.db.Model(&model.RoleResource{}).
+	err = l.db.Model(&model.RoleResource{}).
 		Where("role_id IN ?", roleIDs).
 		Pluck("resource_id", &resourceIDs).Error
 	if err != nil {
@@ -296,7 +260,7 @@ func (s *ResourceService) GetUserPermissionCodes(userID uint) ([]string, error) 
 
 	// 获取所有资源的权限码
 	var codes []string
-	err = s.db.Model(&model.Resource{}).
+	err = l.db.Model(&model.Resource{}).
 		Where("id IN ? AND code != '' AND status = 1", resourceIDs).
 		Pluck("code", &codes).Error
 	if err != nil {
@@ -305,4 +269,3 @@ func (s *ResourceService) GetUserPermissionCodes(userID uint) ([]string, error) 
 
 	return codes, nil
 }
-

@@ -3,7 +3,8 @@ package handler
 import (
 	"strconv"
 
-	"yqhp/admin/internal/service"
+	"yqhp/admin/internal/logic"
+	"yqhp/admin/internal/types"
 	"yqhp/common/response"
 
 	"github.com/gofiber/fiber/v2"
@@ -11,17 +12,17 @@ import (
 
 // DictHandler 字典处理器
 type DictHandler struct {
-	dictService *service.DictService
+	dictLogic *logic.DictLogic
 }
 
 // NewDictHandler 创建字典处理器
-func NewDictHandler(dictService *service.DictService) *DictHandler {
-	return &DictHandler{dictService: dictService}
+func NewDictHandler(dictLogic *logic.DictLogic) *DictHandler {
+	return &DictHandler{dictLogic: dictLogic}
 }
 
 // ListTypes 获取字典类型列表
 func (h *DictHandler) ListTypes(c *fiber.Ctx) error {
-	var req service.ListDictTypesRequest
+	var req types.ListDictTypesRequest
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
 	}
@@ -33,12 +34,12 @@ func (h *DictHandler) ListTypes(c *fiber.Ctx) error {
 		req.PageSize = 10
 	}
 
-	types, total, err := h.dictService.ListDictTypes(&req)
+	dictTypes, total, err := h.dictLogic.ListDictTypes(&req)
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}
 
-	return response.Page(c, types, total, req.Page, req.PageSize)
+	return response.Page(c, dictTypes, total, req.Page, req.PageSize)
 }
 
 // GetType 获取字典类型详情
@@ -48,7 +49,7 @@ func (h *DictHandler) GetType(c *fiber.Ctx) error {
 		return response.Error(c, "参数错误")
 	}
 
-	dictType, err := h.dictService.GetDictType(uint(id))
+	dictType, err := h.dictLogic.GetDictType(uint(id))
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}
@@ -58,7 +59,7 @@ func (h *DictHandler) GetType(c *fiber.Ctx) error {
 
 // CreateType 创建字典类型
 func (h *DictHandler) CreateType(c *fiber.Ctx) error {
-	var req service.CreateDictTypeRequest
+	var req types.CreateDictTypeRequest
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
 	}
@@ -67,7 +68,7 @@ func (h *DictHandler) CreateType(c *fiber.Ctx) error {
 		return response.Error(c, "名称和编码不能为空")
 	}
 
-	dictType, err := h.dictService.CreateDictType(&req)
+	dictType, err := h.dictLogic.CreateDictType(&req)
 	if err != nil {
 		return response.Error(c, err.Error())
 	}
@@ -77,7 +78,7 @@ func (h *DictHandler) CreateType(c *fiber.Ctx) error {
 
 // UpdateType 更新字典类型
 func (h *DictHandler) UpdateType(c *fiber.Ctx) error {
-	var req service.UpdateDictTypeRequest
+	var req types.UpdateDictTypeRequest
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
 	}
@@ -86,7 +87,7 @@ func (h *DictHandler) UpdateType(c *fiber.Ctx) error {
 		return response.Error(c, "ID不能为空")
 	}
 
-	if err := h.dictService.UpdateDictType(&req); err != nil {
+	if err := h.dictLogic.UpdateDictType(&req); err != nil {
 		return response.Error(c, err.Error())
 	}
 
@@ -100,7 +101,7 @@ func (h *DictHandler) DeleteType(c *fiber.Ctx) error {
 		return response.Error(c, "参数错误")
 	}
 
-	if err := h.dictService.DeleteDictType(uint(id)); err != nil {
+	if err := h.dictLogic.DeleteDictType(uint(id)); err != nil {
 		return response.Error(c, err.Error())
 	}
 
@@ -109,7 +110,7 @@ func (h *DictHandler) DeleteType(c *fiber.Ctx) error {
 
 // ListData 获取字典数据列表
 func (h *DictHandler) ListData(c *fiber.Ctx) error {
-	var req service.ListDictDataRequest
+	var req types.ListDictDataRequest
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
 	}
@@ -121,7 +122,7 @@ func (h *DictHandler) ListData(c *fiber.Ctx) error {
 		req.PageSize = 10
 	}
 
-	data, total, err := h.dictService.ListDictData(&req)
+	data, total, err := h.dictLogic.ListDictData(&req)
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}
@@ -136,7 +137,7 @@ func (h *DictHandler) GetDataByTypeCode(c *fiber.Ctx) error {
 		return response.Error(c, "类型编码不能为空")
 	}
 
-	data, err := h.dictService.GetDictDataByTypeCode(typeCode)
+	data, err := h.dictLogic.GetDictDataByTypeCode(typeCode)
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}
@@ -146,7 +147,7 @@ func (h *DictHandler) GetDataByTypeCode(c *fiber.Ctx) error {
 
 // CreateData 创建字典数据
 func (h *DictHandler) CreateData(c *fiber.Ctx) error {
-	var req service.CreateDictDataRequest
+	var req types.CreateDictDataRequest
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
 	}
@@ -155,7 +156,7 @@ func (h *DictHandler) CreateData(c *fiber.Ctx) error {
 		return response.Error(c, "参数不完整")
 	}
 
-	data, err := h.dictService.CreateDictData(&req)
+	data, err := h.dictLogic.CreateDictData(&req)
 	if err != nil {
 		return response.Error(c, err.Error())
 	}
@@ -165,7 +166,7 @@ func (h *DictHandler) CreateData(c *fiber.Ctx) error {
 
 // UpdateData 更新字典数据
 func (h *DictHandler) UpdateData(c *fiber.Ctx) error {
-	var req service.UpdateDictDataRequest
+	var req types.UpdateDictDataRequest
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
 	}
@@ -174,7 +175,7 @@ func (h *DictHandler) UpdateData(c *fiber.Ctx) error {
 		return response.Error(c, "ID不能为空")
 	}
 
-	if err := h.dictService.UpdateDictData(&req); err != nil {
+	if err := h.dictLogic.UpdateDictData(&req); err != nil {
 		return response.Error(c, err.Error())
 	}
 
@@ -188,10 +189,9 @@ func (h *DictHandler) DeleteData(c *fiber.Ctx) error {
 		return response.Error(c, "参数错误")
 	}
 
-	if err := h.dictService.DeleteDictData(uint(id)); err != nil {
+	if err := h.dictLogic.DeleteDictData(uint(id)); err != nil {
 		return response.Error(c, err.Error())
 	}
 
 	return response.Success(c, nil)
 }
-

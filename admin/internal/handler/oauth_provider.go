@@ -3,7 +3,8 @@ package handler
 import (
 	"strconv"
 
-	"yqhp/admin/internal/service"
+	"yqhp/admin/internal/logic"
+	"yqhp/admin/internal/types"
 	"yqhp/common/response"
 
 	"github.com/gofiber/fiber/v2"
@@ -11,17 +12,17 @@ import (
 
 // OAuthProviderHandler OAuth提供商处理器
 type OAuthProviderHandler struct {
-	oauthService *service.OAuthService
+	oauthLogic *logic.OAuthLogic
 }
 
 // NewOAuthProviderHandler 创建OAuth提供商处理器
-func NewOAuthProviderHandler(oauthService *service.OAuthService) *OAuthProviderHandler {
-	return &OAuthProviderHandler{oauthService: oauthService}
+func NewOAuthProviderHandler(oauthLogic *logic.OAuthLogic) *OAuthProviderHandler {
+	return &OAuthProviderHandler{oauthLogic: oauthLogic}
 }
 
 // List 获取OAuth提供商列表
 func (h *OAuthProviderHandler) List(c *fiber.Ctx) error {
-	providers, err := h.oauthService.ListProviders()
+	providers, err := h.oauthLogic.ListProviders()
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}
@@ -35,7 +36,7 @@ func (h *OAuthProviderHandler) Get(c *fiber.Ctx) error {
 		return response.Error(c, "参数错误")
 	}
 
-	provider, err := h.oauthService.GetProvider(code)
+	provider, err := h.oauthLogic.GetProvider(code)
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}
@@ -45,7 +46,7 @@ func (h *OAuthProviderHandler) Get(c *fiber.Ctx) error {
 
 // Create 创建OAuth提供商
 func (h *OAuthProviderHandler) Create(c *fiber.Ctx) error {
-	var req service.CreateProviderRequest
+	var req types.CreateProviderRequest
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
 	}
@@ -54,7 +55,7 @@ func (h *OAuthProviderHandler) Create(c *fiber.Ctx) error {
 		return response.Error(c, "名称和编码不能为空")
 	}
 
-	provider, err := h.oauthService.CreateProvider(&req)
+	provider, err := h.oauthLogic.CreateProvider(&req)
 	if err != nil {
 		return response.Error(c, err.Error())
 	}
@@ -64,7 +65,7 @@ func (h *OAuthProviderHandler) Create(c *fiber.Ctx) error {
 
 // Update 更新OAuth提供商
 func (h *OAuthProviderHandler) Update(c *fiber.Ctx) error {
-	var req service.UpdateProviderRequest
+	var req types.UpdateProviderRequest
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
 	}
@@ -73,7 +74,7 @@ func (h *OAuthProviderHandler) Update(c *fiber.Ctx) error {
 		return response.Error(c, "ID不能为空")
 	}
 
-	if err := h.oauthService.UpdateProvider(&req); err != nil {
+	if err := h.oauthLogic.UpdateProvider(&req); err != nil {
 		return response.Error(c, err.Error())
 	}
 
@@ -87,10 +88,9 @@ func (h *OAuthProviderHandler) Delete(c *fiber.Ctx) error {
 		return response.Error(c, "参数错误")
 	}
 
-	if err := h.oauthService.DeleteProvider(uint(id)); err != nil {
+	if err := h.oauthLogic.DeleteProvider(uint(id)); err != nil {
 		return response.Error(c, err.Error())
 	}
 
 	return response.Success(c, nil)
 }
-

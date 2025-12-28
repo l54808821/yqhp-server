@@ -3,7 +3,8 @@ package handler
 import (
 	"strconv"
 
-	"yqhp/admin/internal/service"
+	"yqhp/admin/internal/logic"
+	"yqhp/admin/internal/types"
 	"yqhp/common/response"
 
 	"github.com/gofiber/fiber/v2"
@@ -11,17 +12,17 @@ import (
 
 // TokenHandler 令牌处理器
 type TokenHandler struct {
-	tokenService *service.TokenService
+	tokenLogic *logic.TokenLogic
 }
 
 // NewTokenHandler 创建令牌处理器
-func NewTokenHandler(tokenService *service.TokenService) *TokenHandler {
-	return &TokenHandler{tokenService: tokenService}
+func NewTokenHandler(tokenLogic *logic.TokenLogic) *TokenHandler {
+	return &TokenHandler{tokenLogic: tokenLogic}
 }
 
 // List 获取令牌列表
 func (h *TokenHandler) List(c *fiber.Ctx) error {
-	var req service.ListTokensRequest
+	var req types.ListTokensRequest
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
 	}
@@ -33,7 +34,7 @@ func (h *TokenHandler) List(c *fiber.Ctx) error {
 		req.PageSize = 10
 	}
 
-	tokens, total, err := h.tokenService.ListTokens(&req)
+	tokens, total, err := h.tokenLogic.ListTokens(&req)
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}
@@ -48,7 +49,7 @@ func (h *TokenHandler) KickOut(c *fiber.Ctx) error {
 		return response.Error(c, "参数错误")
 	}
 
-	if err := h.tokenService.KickOutByTokenID(uint(id)); err != nil {
+	if err := h.tokenLogic.KickOutByTokenID(uint(id)); err != nil {
 		return response.Error(c, err.Error())
 	}
 
@@ -62,7 +63,7 @@ func (h *TokenHandler) KickOutByUserID(c *fiber.Ctx) error {
 		return response.Error(c, "参数错误")
 	}
 
-	if err := h.tokenService.KickOut(uint(id)); err != nil {
+	if err := h.tokenLogic.KickOut(uint(id)); err != nil {
 		return response.Error(c, err.Error())
 	}
 
@@ -78,7 +79,7 @@ func (h *TokenHandler) KickOutByToken(c *fiber.Ctx) error {
 		return response.Error(c, "参数解析失败")
 	}
 
-	if err := h.tokenService.KickOutByToken(req.Token); err != nil {
+	if err := h.tokenLogic.KickOutByToken(req.Token); err != nil {
 		return response.Error(c, err.Error())
 	}
 
@@ -99,7 +100,7 @@ func (h *TokenHandler) DisableUser(c *fiber.Ctx) error {
 		return response.Error(c, "参数解析失败")
 	}
 
-	if err := h.tokenService.DisableUser(uint(id), req.DisableTime); err != nil {
+	if err := h.tokenLogic.DisableUser(uint(id), req.DisableTime); err != nil {
 		return response.Error(c, err.Error())
 	}
 
@@ -113,7 +114,7 @@ func (h *TokenHandler) EnableUser(c *fiber.Ctx) error {
 		return response.Error(c, "参数错误")
 	}
 
-	if err := h.tokenService.EnableUser(uint(id)); err != nil {
+	if err := h.tokenLogic.EnableUser(uint(id)); err != nil {
 		return response.Error(c, err.Error())
 	}
 
@@ -122,7 +123,7 @@ func (h *TokenHandler) EnableUser(c *fiber.Ctx) error {
 
 // GetLoginLogs 获取登录日志
 func (h *TokenHandler) GetLoginLogs(c *fiber.Ctx) error {
-	var req service.ListLoginLogsRequest
+	var req types.ListLoginLogsRequest
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
 	}
@@ -134,7 +135,7 @@ func (h *TokenHandler) GetLoginLogs(c *fiber.Ctx) error {
 		req.PageSize = 10
 	}
 
-	logs, total, err := h.tokenService.GetLoginLogs(&req)
+	logs, total, err := h.tokenLogic.GetLoginLogs(&req)
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}
@@ -144,7 +145,7 @@ func (h *TokenHandler) GetLoginLogs(c *fiber.Ctx) error {
 
 // GetOperationLogs 获取操作日志
 func (h *TokenHandler) GetOperationLogs(c *fiber.Ctx) error {
-	var req service.ListOperationLogsRequest
+	var req types.ListOperationLogsRequest
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
 	}
@@ -156,7 +157,7 @@ func (h *TokenHandler) GetOperationLogs(c *fiber.Ctx) error {
 		req.PageSize = 10
 	}
 
-	logs, total, err := h.tokenService.GetOperationLogs(&req)
+	logs, total, err := h.tokenLogic.GetOperationLogs(&req)
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}
@@ -166,7 +167,7 @@ func (h *TokenHandler) GetOperationLogs(c *fiber.Ctx) error {
 
 // ClearLoginLogs 清空登录日志
 func (h *TokenHandler) ClearLoginLogs(c *fiber.Ctx) error {
-	if err := h.tokenService.ClearLoginLogs(); err != nil {
+	if err := h.tokenLogic.ClearLoginLogs(); err != nil {
 		return response.Error(c, err.Error())
 	}
 
@@ -175,10 +176,9 @@ func (h *TokenHandler) ClearLoginLogs(c *fiber.Ctx) error {
 
 // ClearOperationLogs 清空操作日志
 func (h *TokenHandler) ClearOperationLogs(c *fiber.Ctx) error {
-	if err := h.tokenService.ClearOperationLogs(); err != nil {
+	if err := h.tokenLogic.ClearOperationLogs(); err != nil {
 		return response.Error(c, err.Error())
 	}
 
 	return response.Success(c, nil)
 }
-

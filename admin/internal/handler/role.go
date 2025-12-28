@@ -2,8 +2,8 @@ package handler
 
 import (
 	"strconv"
-
-	"yqhp/admin/internal/service"
+	"yqhp/admin/internal/logic"
+	"yqhp/admin/internal/types"
 	"yqhp/common/response"
 
 	"github.com/gofiber/fiber/v2"
@@ -11,17 +11,17 @@ import (
 
 // RoleHandler 角色处理器
 type RoleHandler struct {
-	roleService *service.RoleService
+	roleLogic *logic.RoleLogic
 }
 
 // NewRoleHandler 创建角色处理器
-func NewRoleHandler(roleService *service.RoleService) *RoleHandler {
-	return &RoleHandler{roleService: roleService}
+func NewRoleHandler(roleLogic *logic.RoleLogic) *RoleHandler {
+	return &RoleHandler{roleLogic: roleLogic}
 }
 
 // List 获取角色列表
 func (h *RoleHandler) List(c *fiber.Ctx) error {
-	var req service.ListRolesRequest
+	var req types.ListRolesRequest
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
 	}
@@ -33,7 +33,7 @@ func (h *RoleHandler) List(c *fiber.Ctx) error {
 		req.PageSize = 10
 	}
 
-	roles, total, err := h.roleService.ListRoles(&req)
+	roles, total, err := h.roleLogic.ListRoles(&req)
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}
@@ -43,7 +43,7 @@ func (h *RoleHandler) List(c *fiber.Ctx) error {
 
 // All 获取所有角色
 func (h *RoleHandler) All(c *fiber.Ctx) error {
-	roles, err := h.roleService.GetAllRoles()
+	roles, err := h.roleLogic.GetAllRoles()
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}
@@ -57,7 +57,7 @@ func (h *RoleHandler) Get(c *fiber.Ctx) error {
 		return response.Error(c, "参数错误")
 	}
 
-	role, err := h.roleService.GetRole(uint(id))
+	role, err := h.roleLogic.GetRole(uint(id))
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}
@@ -67,7 +67,7 @@ func (h *RoleHandler) Get(c *fiber.Ctx) error {
 
 // Create 创建角色
 func (h *RoleHandler) Create(c *fiber.Ctx) error {
-	var req service.CreateRoleRequest
+	var req types.CreateRoleRequest
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
 	}
@@ -76,7 +76,7 @@ func (h *RoleHandler) Create(c *fiber.Ctx) error {
 		return response.Error(c, "角色名称和编码不能为空")
 	}
 
-	role, err := h.roleService.CreateRole(&req)
+	role, err := h.roleLogic.CreateRole(&req)
 	if err != nil {
 		return response.Error(c, err.Error())
 	}
@@ -86,7 +86,7 @@ func (h *RoleHandler) Create(c *fiber.Ctx) error {
 
 // Update 更新角色
 func (h *RoleHandler) Update(c *fiber.Ctx) error {
-	var req service.UpdateRoleRequest
+	var req types.UpdateRoleRequest
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
 	}
@@ -95,7 +95,7 @@ func (h *RoleHandler) Update(c *fiber.Ctx) error {
 		return response.Error(c, "角色ID不能为空")
 	}
 
-	if err := h.roleService.UpdateRole(&req); err != nil {
+	if err := h.roleLogic.UpdateRole(&req); err != nil {
 		return response.Error(c, err.Error())
 	}
 
@@ -109,7 +109,7 @@ func (h *RoleHandler) Delete(c *fiber.Ctx) error {
 		return response.Error(c, "参数错误")
 	}
 
-	if err := h.roleService.DeleteRole(uint(id)); err != nil {
+	if err := h.roleLogic.DeleteRole(uint(id)); err != nil {
 		return response.Error(c, err.Error())
 	}
 
@@ -123,11 +123,10 @@ func (h *RoleHandler) GetResourceIDs(c *fiber.Ctx) error {
 		return response.Error(c, "参数错误")
 	}
 
-	resourceIDs, err := h.roleService.GetRoleResourceIDs(uint(id))
+	resourceIDs, err := h.roleLogic.GetRoleResourceIDs(uint(id))
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}
 
 	return response.Success(c, resourceIDs)
 }
-

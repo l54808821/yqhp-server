@@ -3,8 +3,9 @@ package handler
 import (
 	"strconv"
 
+	"yqhp/admin/internal/logic"
 	"yqhp/admin/internal/middleware"
-	"yqhp/admin/internal/service"
+	"yqhp/admin/internal/types"
 	"yqhp/common/response"
 
 	"github.com/gofiber/fiber/v2"
@@ -12,17 +13,17 @@ import (
 
 // ResourceHandler 资源处理器
 type ResourceHandler struct {
-	resourceService *service.ResourceService
+	resourceLogic *logic.ResourceLogic
 }
 
 // NewResourceHandler 创建资源处理器
-func NewResourceHandler(resourceService *service.ResourceService) *ResourceHandler {
-	return &ResourceHandler{resourceService: resourceService}
+func NewResourceHandler(resourceLogic *logic.ResourceLogic) *ResourceHandler {
+	return &ResourceHandler{resourceLogic: resourceLogic}
 }
 
 // Tree 获取资源树
 func (h *ResourceHandler) Tree(c *fiber.Ctx) error {
-	tree, err := h.resourceService.GetResourceTree()
+	tree, err := h.resourceLogic.GetResourceTree()
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}
@@ -31,7 +32,7 @@ func (h *ResourceHandler) Tree(c *fiber.Ctx) error {
 
 // All 获取所有资源
 func (h *ResourceHandler) All(c *fiber.Ctx) error {
-	resources, err := h.resourceService.GetAllResources()
+	resources, err := h.resourceLogic.GetAllResources()
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}
@@ -45,7 +46,7 @@ func (h *ResourceHandler) GetUserMenus(c *fiber.Ctx) error {
 		return response.Unauthorized(c, "请先登录")
 	}
 
-	menus, err := h.resourceService.GetUserMenus(userID)
+	menus, err := h.resourceLogic.GetUserMenus(userID)
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}
@@ -60,7 +61,7 @@ func (h *ResourceHandler) GetUserPermissionCodes(c *fiber.Ctx) error {
 		return response.Unauthorized(c, "请先登录")
 	}
 
-	codes, err := h.resourceService.GetUserPermissionCodes(userID)
+	codes, err := h.resourceLogic.GetUserPermissionCodes(userID)
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}
@@ -75,7 +76,7 @@ func (h *ResourceHandler) Get(c *fiber.Ctx) error {
 		return response.Error(c, "参数错误")
 	}
 
-	resource, err := h.resourceService.GetResource(uint(id))
+	resource, err := h.resourceLogic.GetResource(uint(id))
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}
@@ -85,7 +86,7 @@ func (h *ResourceHandler) Get(c *fiber.Ctx) error {
 
 // Create 创建资源
 func (h *ResourceHandler) Create(c *fiber.Ctx) error {
-	var req service.CreateResourceRequest
+	var req types.CreateResourceRequest
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
 	}
@@ -94,7 +95,7 @@ func (h *ResourceHandler) Create(c *fiber.Ctx) error {
 		return response.Error(c, "资源名称不能为空")
 	}
 
-	resource, err := h.resourceService.CreateResource(&req)
+	resource, err := h.resourceLogic.CreateResource(&req)
 	if err != nil {
 		return response.Error(c, err.Error())
 	}
@@ -104,7 +105,7 @@ func (h *ResourceHandler) Create(c *fiber.Ctx) error {
 
 // Update 更新资源
 func (h *ResourceHandler) Update(c *fiber.Ctx) error {
-	var req service.UpdateResourceRequest
+	var req types.UpdateResourceRequest
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
 	}
@@ -113,7 +114,7 @@ func (h *ResourceHandler) Update(c *fiber.Ctx) error {
 		return response.Error(c, "资源ID不能为空")
 	}
 
-	if err := h.resourceService.UpdateResource(&req); err != nil {
+	if err := h.resourceLogic.UpdateResource(&req); err != nil {
 		return response.Error(c, err.Error())
 	}
 
@@ -127,10 +128,9 @@ func (h *ResourceHandler) Delete(c *fiber.Ctx) error {
 		return response.Error(c, "参数错误")
 	}
 
-	if err := h.resourceService.DeleteResource(uint(id)); err != nil {
+	if err := h.resourceLogic.DeleteResource(uint(id)); err != nil {
 		return response.Error(c, err.Error())
 	}
 
 	return response.Success(c, nil)
 }
-

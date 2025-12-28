@@ -128,9 +128,13 @@ func (l *ResourceLogic) GetResource(id int64) (*types.ResourceInfo, error) {
 }
 
 // GetResourceTree 获取资源树
-func (l *ResourceLogic) GetResourceTree() ([]types.ResourceTreeInfo, error) {
+func (l *ResourceLogic) GetResourceTree(includeDisabled bool) ([]types.ResourceTreeInfo, error) {
 	r := l.db().SysResource
-	resources, err := r.WithContext(l.ctx).Where(r.Status.Eq(1), r.IsDelete.Is(false)).Order(r.Sort).Find()
+	q := r.WithContext(l.ctx).Where(r.IsDelete.Is(false))
+	if !includeDisabled {
+		q = q.Where(r.Status.Eq(1))
+	}
+	resources, err := q.Order(r.Sort).Find()
 	if err != nil {
 		return nil, err
 	}
@@ -139,9 +143,13 @@ func (l *ResourceLogic) GetResourceTree() ([]types.ResourceTreeInfo, error) {
 }
 
 // GetResourceTreeByAppID 获取指定应用的资源树
-func (l *ResourceLogic) GetResourceTreeByAppID(appID int64) ([]types.ResourceTreeInfo, error) {
+func (l *ResourceLogic) GetResourceTreeByAppID(appID int64, includeDisabled bool) ([]types.ResourceTreeInfo, error) {
 	r := l.db().SysResource
-	resources, err := r.WithContext(l.ctx).Where(r.AppID.Eq(appID), r.Status.Eq(1), r.IsDelete.Is(false)).Order(r.Sort).Find()
+	q := r.WithContext(l.ctx).Where(r.AppID.Eq(appID), r.IsDelete.Is(false))
+	if !includeDisabled {
+		q = q.Where(r.Status.Eq(1))
+	}
+	resources, err := q.Order(r.Sort).Find()
 	if err != nil {
 		return nil, err
 	}

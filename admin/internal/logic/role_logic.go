@@ -84,14 +84,28 @@ func (l *RoleLogic) UpdateRole(req *types.UpdateRoleRequest) error {
 
 	// 更新资源关联
 	rr := l.db().SysRoleResource
-	rr.WithContext(l.ctx).Where(rr.RoleID.Eq(int64(req.ID)), rr.IsDelete.Is(false)).Update(rr.IsDelete, true)
+	roleID := int64(req.ID)
+
+	// 先将所有现有关联标记为删除
+	rr.WithContext(l.ctx).Where(rr.RoleID.Eq(roleID), rr.IsDelete.Is(false)).Update(rr.IsDelete, true)
+
+	// 对于新的资源ID，使用 upsert 逻辑（存在则更新 is_delete=false，不存在则创建）
 	if len(req.ResourceIDs) > 0 {
 		for _, resourceID := range req.ResourceIDs {
-			rr.WithContext(l.ctx).Create(&model.SysRoleResource{
-				RoleID:     int64(req.ID),
-				ResourceID: int64(resourceID),
-				IsDelete:   model.BoolPtr(false),
-			})
+			resID := int64(resourceID)
+			// 检查记录是否存在
+			existing, _ := rr.WithContext(l.ctx).Where(rr.RoleID.Eq(roleID), rr.ResourceID.Eq(resID)).First()
+			if existing != nil {
+				// 记录存在，更新 is_delete 为 false
+				rr.WithContext(l.ctx).Where(rr.RoleID.Eq(roleID), rr.ResourceID.Eq(resID)).Update(rr.IsDelete, false)
+			} else {
+				// 记录不存在，创建新记录
+				rr.WithContext(l.ctx).Create(&model.SysRoleResource{
+					RoleID:     roleID,
+					ResourceID: resID,
+					IsDelete:   model.BoolPtr(false),
+				})
+			}
 		}
 	}
 

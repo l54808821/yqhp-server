@@ -15,19 +15,21 @@ import (
 func ResourceTree(c *fiber.Ctx) error {
 	l := logic.NewResourceLogic(c)
 	appIDStr := c.Query("appId")
+	includeDisabled := c.Query("includeDisabled") == "true"
+
 	if appIDStr != "" {
 		appID, err := strconv.ParseInt(appIDStr, 10, 64)
 		if err != nil {
 			return response.Error(c, "参数错误")
 		}
-		tree, err := l.GetResourceTreeByAppID(appID)
+		tree, err := l.GetResourceTreeByAppID(appID, includeDisabled)
 		if err != nil {
 			return response.Error(c, "获取失败")
 		}
 		return response.Success(c, tree)
 	}
 
-	tree, err := l.GetResourceTree()
+	tree, err := l.GetResourceTree(includeDisabled)
 	if err != nil {
 		return response.Error(c, "获取失败")
 	}

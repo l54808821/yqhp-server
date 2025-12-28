@@ -36,6 +36,8 @@ type UserInfo struct {
 	Remark      string    `json:"remark"`
 	LastLoginAt *DateTime `json:"lastLoginAt"`
 	LastLoginIP string    `json:"lastLoginIp"`
+	CreatedBy   int64     `json:"createdBy"`
+	UpdatedBy   int64     `json:"updatedBy"`
 	CreatedAt   *DateTime `json:"createdAt"`
 	UpdatedAt   *DateTime `json:"updatedAt"`
 	Roles       []RoleRef `json:"roles"`
@@ -85,4 +87,12 @@ type ListUsersRequest struct {
 	Phone    string `json:"phone"`
 	Status   *int8  `json:"status"`
 	DeptID   uint   `json:"deptId"`
+}
+
+// UserBasicInfo 用户基本信息（用于展示组件）
+type UserBasicInfo struct {
+	ID       int64  `json:"id"`
+	Username string `json:"username"`
+	Nickname string `json:"nickname"`
+	Avatar   string `json:"avatar"`
 }

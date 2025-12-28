@@ -411,3 +411,27 @@ func (l *UserLogic) GetUserRoleIDs(userID int64) ([]int64, error) {
 	}
 	return ids, nil
 }
+
+// BatchGetUsers 批量获取用户基本信息
+func (l *UserLogic) BatchGetUsers(ids []int64) ([]types.UserBasicInfo, error) {
+	if len(ids) == 0 {
+		return []types.UserBasicInfo{}, nil
+	}
+
+	u := l.db().SysUser
+	users, err := u.WithContext(l.ctx).Where(u.ID.In(ids...), u.IsDelete.Is(false)).Find()
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]types.UserBasicInfo, len(users))
+	for i, user := range users {
+		result[i] = types.UserBasicInfo{
+			ID:       user.ID,
+			Username: user.Username,
+			Nickname: model.GetString(user.Nickname),
+			Avatar:   model.GetString(user.Avatar),
+		}
+	}
+	return result, nil
+}

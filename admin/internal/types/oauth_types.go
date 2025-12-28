@@ -65,6 +65,8 @@ type OAuthProviderInfo struct {
 	Sort         int64     `json:"sort"`
 	Icon         string    `json:"icon"`
 	Remark       string    `json:"remark"`
+	CreatedBy    int64     `json:"createdBy"`
+	UpdatedBy    int64     `json:"updatedBy"`
 	CreatedAt    *DateTime `json:"createdAt"`
 	UpdatedAt    *DateTime `json:"updatedAt"`
 }

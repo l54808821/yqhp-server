@@ -39,6 +39,8 @@ type DeptInfo struct {
 	Sort      int64     `json:"sort"`
 	Status    int32     `json:"status"`
 	Remark    string    `json:"remark"`
+	CreatedBy int64     `json:"createdBy"`
+	UpdatedBy int64     `json:"updatedBy"`
 	CreatedAt *DateTime `json:"createdAt"`
 	UpdatedAt *DateTime `json:"updatedAt"`
 }

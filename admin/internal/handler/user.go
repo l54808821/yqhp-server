@@ -122,3 +122,24 @@ func UserResetPassword(c *fiber.Ctx) error {
 
 	return response.Success(c, nil)
 }
+
+// UserBatchGet 批量获取用户基本信息
+func UserBatchGet(c *fiber.Ctx) error {
+	var req struct {
+		IDs []int64 `json:"ids"`
+	}
+	if err := c.BodyParser(&req); err != nil {
+		return response.Error(c, "参数解析失败")
+	}
+
+	if len(req.IDs) == 0 {
+		return response.Success(c, []types.UserBasicInfo{})
+	}
+
+	users, err := logic.NewUserLogic(c).BatchGetUsers(req.IDs)
+	if err != nil {
+		return response.Error(c, "获取失败")
+	}
+
+	return response.Success(c, users)
+}

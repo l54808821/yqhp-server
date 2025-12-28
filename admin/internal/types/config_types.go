@@ -36,6 +36,8 @@ type ConfigInfo struct {
 	Type      string    `json:"type"`
 	IsBuilt   bool      `json:"isBuilt"`
 	Remark    string    `json:"remark"`
+	CreatedBy int64     `json:"createdBy"`
+	UpdatedBy int64     `json:"updatedBy"`
 	CreatedAt *DateTime `json:"createdAt"`
 	UpdatedAt *DateTime `json:"updatedAt"`
 }

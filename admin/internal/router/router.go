@@ -51,6 +51,7 @@ func Setup(app *fiber.App, db *gorm.DB) {
 	// 用户管理
 	u := sys.Group("/users")
 	u.Post("/list", handler.UserList)
+	u.Post("/batch", handler.UserBatchGet)
 	u.Get("/:id", handler.UserGet)
 	u.Post("", perm("system:user:add"), handler.UserCreate)
 	u.Put("", perm("system:user:edit"), handler.UserUpdate)

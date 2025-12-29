@@ -151,3 +151,59 @@ INSERT INTO sys_oauth_provider (id, created_at, updated_at, is_delete, created_b
 (4, NOW(), NOW(), 0, 1, 1, '钉钉', 'dingtalk', 'your_dingtalk_appkey', 'your_dingtalk_appsecret', 'http://localhost:5555/api/auth/oauth/dingtalk/callback', 'https://login.dingtalk.com/oauth2/auth', 'https://api.dingtalk.com/v1.0/oauth2/userAccessToken', 'https://api.dingtalk.com/v1.0/contact/users/me', 'openid', 1, 4, 'dingtalk', '钉钉第三方登录'),
 (5, NOW(), NOW(), 0, 1, 1, 'QQ', 'qq', 'your_qq_appid', 'your_qq_appkey', 'http://localhost:5555/api/auth/oauth/qq/callback', 'https://graph.qq.com/oauth2.0/authorize', 'https://graph.qq.com/oauth2.0/token', 'https://graph.qq.com/user/get_user_info', 'get_user_info', 1, 5, 'qq', 'QQ第三方登录'),
 (6, NOW(), NOW(), 0, 1, 1, 'Gitee', 'gitee', 'your_gitee_client_id', 'your_gitee_client_secret', 'http://localhost:5555/api/auth/oauth/gitee/callback', 'https://gitee.com/oauth/authorize', 'https://gitee.com/oauth/token', 'https://gitee.com/api/v5/user', 'user_info', 1, 6, 'gitee', 'Gitee 第三方登录');
+
+-- =============================================
+-- 9. 初始化字典类型
+-- =============================================
+INSERT INTO sys_dict_type (id, created_at, updated_at, is_delete, created_by, updated_by, name, code, status, remark) VALUES
+(1, NOW(), NOW(), 0, 1, 1, '系统状态', 'sys_status', 1, '系统通用状态'),
+(2, NOW(), NOW(), 0, 1, 1, '用户性别', 'sys_user_gender', 1, '用户性别'),
+(3, NOW(), NOW(), 0, 1, 1, '是否', 'sys_yes_no', 1, '是否选项'),
+(4, NOW(), NOW(), 0, 1, 1, '操作类型', 'sys_oper_type', 1, '操作日志类型'),
+(5, NOW(), NOW(), 0, 1, 1, '登录状态', 'sys_login_status', 1, '登录日志状态'),
+(6, NOW(), NOW(), 0, 1, 1, '通知类型', 'sys_notice_type', 1, '通知公告类型'),
+(7, NOW(), NOW(), 0, 1, 1, '通知状态', 'sys_notice_status', 1, '通知公告状态');
+
+-- =============================================
+-- 10. 初始化字典数据
+-- =============================================
+-- 系统状态
+INSERT INTO sys_dict_data (id, created_at, updated_at, is_delete, created_by, updated_by, type_code, label, value, sort, status, is_default, css_class, list_class, remark) VALUES
+(1, NOW(), NOW(), 0, 1, 1, 'sys_status', '启用', '1', 1, 1, 1, '', 'success', '正常状态'),
+(2, NOW(), NOW(), 0, 1, 1, 'sys_status', '禁用', '0', 2, 1, 0, '', 'error', '停用状态');
+
+-- 用户性别
+INSERT INTO sys_dict_data (id, created_at, updated_at, is_delete, created_by, updated_by, type_code, label, value, sort, status, is_default, css_class, list_class, remark) VALUES
+(3, NOW(), NOW(), 0, 1, 1, 'sys_user_gender', '未知', '0', 1, 1, 1, '', 'default', '未知性别'),
+(4, NOW(), NOW(), 0, 1, 1, 'sys_user_gender', '男', '1', 2, 1, 0, '', 'processing', '男性'),
+(5, NOW(), NOW(), 0, 1, 1, 'sys_user_gender', '女', '2', 3, 1, 0, '', 'warning', '女性');
+
+-- 是否
+INSERT INTO sys_dict_data (id, created_at, updated_at, is_delete, created_by, updated_by, type_code, label, value, sort, status, is_default, css_class, list_class, remark) VALUES
+(6, NOW(), NOW(), 0, 1, 1, 'sys_yes_no', '是', '1', 1, 1, 0, '', 'success', '是'),
+(7, NOW(), NOW(), 0, 1, 1, 'sys_yes_no', '否', '0', 2, 1, 1, '', 'error', '否');
+
+-- 操作类型
+INSERT INTO sys_dict_data (id, created_at, updated_at, is_delete, created_by, updated_by, type_code, label, value, sort, status, is_default, css_class, list_class, remark) VALUES
+(8, NOW(), NOW(), 0, 1, 1, 'sys_oper_type', '其他', '0', 1, 1, 1, '', 'default', '其他操作'),
+(9, NOW(), NOW(), 0, 1, 1, 'sys_oper_type', '新增', '1', 2, 1, 0, '', 'success', '新增操作'),
+(10, NOW(), NOW(), 0, 1, 1, 'sys_oper_type', '修改', '2', 3, 1, 0, '', 'warning', '修改操作'),
+(11, NOW(), NOW(), 0, 1, 1, 'sys_oper_type', '删除', '3', 4, 1, 0, '', 'error', '删除操作'),
+(12, NOW(), NOW(), 0, 1, 1, 'sys_oper_type', '查询', '4', 5, 1, 0, '', 'processing', '查询操作'),
+(13, NOW(), NOW(), 0, 1, 1, 'sys_oper_type', '导出', '5', 6, 1, 0, '', 'cyan', '导出操作'),
+(14, NOW(), NOW(), 0, 1, 1, 'sys_oper_type', '导入', '6', 7, 1, 0, '', 'purple', '导入操作');
+
+-- 登录状态
+INSERT INTO sys_dict_data (id, created_at, updated_at, is_delete, created_by, updated_by, type_code, label, value, sort, status, is_default, css_class, list_class, remark) VALUES
+(15, NOW(), NOW(), 0, 1, 1, 'sys_login_status', '成功', '1', 1, 1, 1, '', 'success', '登录成功'),
+(16, NOW(), NOW(), 0, 1, 1, 'sys_login_status', '失败', '0', 2, 1, 0, '', 'error', '登录失败');
+
+-- 通知类型
+INSERT INTO sys_dict_data (id, created_at, updated_at, is_delete, created_by, updated_by, type_code, label, value, sort, status, is_default, css_class, list_class, remark) VALUES
+(17, NOW(), NOW(), 0, 1, 1, 'sys_notice_type', '通知', '1', 1, 1, 1, '', 'warning', '通知'),
+(18, NOW(), NOW(), 0, 1, 1, 'sys_notice_type', '公告', '2', 2, 1, 0, '', 'success', '公告');
+
+-- 通知状态
+INSERT INTO sys_dict_data (id, created_at, updated_at, is_delete, created_by, updated_by, type_code, label, value, sort, status, is_default, css_class, list_class, remark) VALUES
+(19, NOW(), NOW(), 0, 1, 1, 'sys_notice_status', '正常', '1', 1, 1, 1, '', 'success', '正常状态'),
+(20, NOW(), NOW(), 0, 1, 1, 'sys_notice_status', '关闭', '0', 2, 1, 0, '', 'error', '关闭状态');

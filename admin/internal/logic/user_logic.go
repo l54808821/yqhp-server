@@ -216,6 +216,61 @@ func (l *UserLogic) getUserRoles(userID int64) ([]*model.SysRole, error) {
 	return r.WithContext(l.ctx).Where(r.ID.In(roleIDs...), r.IsDelete.Is(false)).Find()
 }
 
+// batchGetUserRoles 批量获取多个用户的角色列表
+// 返回 map[userID][]*model.SysRole
+func (l *UserLogic) batchGetUserRoles(userIDs []int64) (map[int64][]*model.SysRole, error) {
+	result := make(map[int64][]*model.SysRole)
+	if len(userIDs) == 0 {
+		return result, nil
+	}
+
+	// 1. 批量查询用户角色关联
+	ur := l.db().SysUserRole
+	userRoles, err := ur.WithContext(l.ctx).Where(ur.UserID.In(userIDs...), ur.IsDelete.Is(false)).Find()
+	if err != nil || len(userRoles) == 0 {
+		return result, err
+	}
+
+	// 2. 收集所有角色ID并建立 userID -> roleIDs 映射
+	roleIDSet := make(map[int64]struct{})
+	userRoleMap := make(map[int64][]int64) // userID -> roleIDs
+	for _, ur := range userRoles {
+		roleIDSet[ur.RoleID] = struct{}{}
+		userRoleMap[ur.UserID] = append(userRoleMap[ur.UserID], ur.RoleID)
+	}
+
+	// 3. 批量查询所有角色
+	roleIDs := make([]int64, 0, len(roleIDSet))
+	for roleID := range roleIDSet {
+		roleIDs = append(roleIDs, roleID)
+	}
+
+	r := l.db().SysRole
+	roles, err := r.WithContext(l.ctx).Where(r.ID.In(roleIDs...), r.IsDelete.Is(false)).Find()
+	if err != nil {
+		return result, err
+	}
+
+	// 4. 建立 roleID -> role 映射
+	roleMap := make(map[int64]*model.SysRole)
+	for _, role := range roles {
+		roleMap[role.ID] = role
+	}
+
+	// 5. 组装结果
+	for userID, roleIDs := range userRoleMap {
+		userRoles := make([]*model.SysRole, 0, len(roleIDs))
+		for _, roleID := range roleIDs {
+			if role, ok := roleMap[roleID]; ok {
+				userRoles = append(userRoles, role)
+			}
+		}
+		result[userID] = userRoles
+	}
+
+	return result, nil
+}
+
 // CreateUser 创建用户
 func (l *UserLogic) CreateUser(req *types.CreateUserRequest) (*types.UserInfo, error) {
 	u := l.db().SysUser
@@ -391,11 +446,16 @@ func (l *UserLogic) ListUsers(req *types.ListUsersRequest) ([]*types.UserInfo, i
 		return nil, 0, err
 	}
 
-	// 批量查询用户角色
+	// 批量查询用户角色（优化：只需2次查询，避免N+1问题）
+	userIDs := make([]int64, len(users))
+	for i, user := range users {
+		userIDs[i] = user.ID
+	}
+	userRolesMap, _ := l.batchGetUserRoles(userIDs)
+
 	list := make([]*types.UserInfo, len(users))
 	for i, user := range users {
-		roles, _ := l.getUserRoles(user.ID)
-		list[i] = types.ToUserInfoWithRoles(user, roles)
+		list[i] = types.ToUserInfoWithRoles(user, userRolesMap[user.ID])
 	}
 
 	return list, total, nil

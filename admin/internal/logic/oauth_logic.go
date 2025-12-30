@@ -183,17 +183,17 @@ func (l *OAuthLogic) findOrCreateUser(provider *model.SysOauthProvider, userInfo
 	unionID := getStringValue(userInfo, "unionid", "union_id")
 	nickname := getStringValue(userInfo, "name", "nickname", "login")
 	avatar := getStringValue(userInfo, "avatar_url", "avatar", "headimgurl")
+	email := getStringValue(userInfo, "email")
+	phone := getStringValue(userInfo, "phone", "mobile")
 
 	if openID == "" {
 		return nil, errors.New("获取用户标识失败")
 	}
 
-	// 平台信息
-	platform := provider.Code
-	platformUID := unionID    // 长码，优先使用 unionID
-	platformShortID := openID // 短码，使用 openID
-	if platformUID == "" {
-		platformUID = openID
+	// 获取应用ID（如果provider有配置应用ID则使用，否则使用默认应用ID 1）
+	appID := int64(1)
+	if provider.AppID != nil && *provider.AppID > 0 {
+		appID = *provider.AppID
 	}
 
 	ou := l.db().SysOauthUser
@@ -212,13 +212,10 @@ func (l *OAuthLogic) findOrCreateUser(provider *model.SysOauthProvider, userInfo
 
 			// 恢复用户
 			_, restoreErr := u.WithContext(l.ctx).Where(u.ID.Eq(model.GetInt64(oauthUser.UserID))).Updates(map[string]any{
-				"is_delete":         false,
-				"status":            1,
-				"nickname":          nickname,
-				"avatar":            avatar,
-				"platform":          platform,
-				"platform_uid":      platformUID,
-				"platform_short_id": platformShortID,
+				"is_delete": false,
+				"status":    1,
+				"nickname":  nickname,
+				"avatar":    avatar,
 			})
 			if restoreErr != nil {
 				logger.Error("[OAuth] 恢复用户失败", zap.Error(restoreErr))
@@ -229,64 +226,120 @@ func (l *OAuthLogic) findOrCreateUser(provider *model.SysOauthProvider, userInfo
 	}
 
 	if err != nil {
-		// 新用户，先检查是否有同名的软删除用户
-		isNew = true
-		username := fmt.Sprintf("%s_%s", provider.Code, openID[:8])
+		// 新用户，先尝试通过邮箱或手机号匹配现有用户
+		var existingUser *model.SysUser
+		var matchType string
 
-		existingUser, findErr := u.WithContext(l.ctx).Where(u.Username.Eq(username)).First()
-		var user *model.SysUser
-
-		if findErr == nil {
-			// 存在同名用户（软删除的），恢复它
-			logger.Info("[OAuth] 发现同名软删除用户，恢复", zap.String("username", username))
-			u.WithContext(l.ctx).Where(u.ID.Eq(existingUser.ID)).Updates(map[string]any{
-				"is_delete":         false,
-				"status":            1,
-				"nickname":          nickname,
-				"avatar":            avatar,
-				"platform":          platform,
-				"platform_uid":      platformUID,
-				"platform_short_id": platformShortID,
-			})
-			user = existingUser
-		} else {
-			// 创建新用户
-			user = &model.SysUser{
-				Username:        username,
-				Password:        utils.MD5(utils.GenerateRandomString(16)),
-				Nickname:        model.StringPtr(nickname),
-				Avatar:          model.StringPtr(avatar),
-				Status:          model.Int32Ptr(1),
-				IsDelete:        model.BoolPtr(false),
-				Platform:        model.StringPtr(platform),
-				PlatformUID:     model.StringPtr(platformUID),
-				PlatformShortID: model.StringPtr(platformShortID),
+		// 优先通过邮箱匹配
+		if email != "" {
+			existingUser, _ = u.WithContext(l.ctx).Where(u.Email.Eq(email), u.IsDelete.Is(false)).First()
+			if existingUser != nil {
+				matchType = "email"
+				logger.Info("[OAuth] 通过邮箱匹配到现有用户",
+					zap.String("email", email),
+					zap.Int64("userId", existingUser.ID))
 			}
-			if err := u.WithContext(l.ctx).Create(user); err != nil {
+		}
+
+		// 如果邮箱没匹配到，尝试手机号匹配
+		if existingUser == nil && phone != "" {
+			existingUser, _ = u.WithContext(l.ctx).Where(u.Phone.Eq(phone), u.IsDelete.Is(false)).First()
+			if existingUser != nil {
+				matchType = "phone"
+				logger.Info("[OAuth] 通过手机号匹配到现有用户",
+					zap.String("phone", phone),
+					zap.Int64("userId", existingUser.ID))
+			}
+		}
+
+		if existingUser != nil {
+			// 匹配到现有用户，创建OAuth绑定
+			isNew = false
+			rawData, _ := json.Marshal(userInfo)
+			accessToken, _ := tokenData["access_token"].(string)
+			refreshToken, _ := tokenData["refresh_token"].(string)
+			expiresIn, _ := tokenData["expires_in"].(float64)
+
+			oauthUser = &model.SysOauthUser{
+				UserID:       model.Int64Ptr(existingUser.ID),
+				ProviderCode: model.StringPtr(provider.Code),
+				OpenID:       model.StringPtr(openID),
+				UnionID:      model.StringPtr(unionID),
+				Nickname:     model.StringPtr(nickname),
+				Avatar:       model.StringPtr(avatar),
+				AccessToken:  model.StringPtr(accessToken),
+				RefreshToken: model.StringPtr(refreshToken),
+				ExpiresAt:    model.Int64Ptr(time.Now().Unix() + int64(expiresIn)),
+				RawData:      model.StringPtr(string(rawData)),
+				IsDelete:     model.BoolPtr(false),
+			}
+			if err := ou.WithContext(l.ctx).Create(oauthUser); err != nil {
 				return nil, err
 			}
-		}
 
-		rawData, _ := json.Marshal(userInfo)
-		accessToken, _ := tokenData["access_token"].(string)
-		refreshToken, _ := tokenData["refresh_token"].(string)
-		expiresIn, _ := tokenData["expires_in"].(float64)
+			logger.Info("[OAuth] 已将第三方账号绑定到现有用户",
+				zap.String("matchType", matchType),
+				zap.Int64("userId", existingUser.ID),
+				zap.String("provider", provider.Code))
+		} else {
+			// 没有匹配到现有用户，创建新用户
+			isNew = true
+			username := fmt.Sprintf("%s_%s", provider.Code, openID[:8])
 
-		oauthUser = &model.SysOauthUser{
-			UserID:       model.Int64Ptr(user.ID),
-			ProviderCode: model.StringPtr(provider.Code),
-			OpenID:       model.StringPtr(openID),
-			UnionID:      model.StringPtr(unionID),
-			Nickname:     model.StringPtr(nickname),
-			Avatar:       model.StringPtr(avatar),
-			AccessToken:  model.StringPtr(accessToken),
-			RefreshToken: model.StringPtr(refreshToken),
-			ExpiresAt:    model.Int64Ptr(time.Now().Unix() + int64(expiresIn)),
-			RawData:      model.StringPtr(string(rawData)),
-			IsDelete:     model.BoolPtr(false),
-		}
-		if err := ou.WithContext(l.ctx).Create(oauthUser); err != nil {
-			return nil, err
+			// 检查是否有同名的软删除用户
+			deletedUser, findErr := u.WithContext(l.ctx).Where(u.Username.Eq(username)).First()
+			var user *model.SysUser
+
+			if findErr == nil {
+				// 存在同名用户（软删除的），恢复它
+				logger.Info("[OAuth] 发现同名软删除用户，恢复", zap.String("username", username))
+				u.WithContext(l.ctx).Where(u.ID.Eq(deletedUser.ID)).Updates(map[string]any{
+					"is_delete": false,
+					"status":    1,
+					"nickname":  nickname,
+					"avatar":    avatar,
+					"email":     email,
+					"phone":     phone,
+				})
+				user = deletedUser
+			} else {
+				// 创建新用户
+				user = &model.SysUser{
+					Username: username,
+					Password: utils.MD5(utils.GenerateRandomString(16)),
+					Nickname: model.StringPtr(nickname),
+					Avatar:   model.StringPtr(avatar),
+					Email:    model.StringPtr(email),
+					Phone:    model.StringPtr(phone),
+					Status:   model.Int32Ptr(1),
+					IsDelete: model.BoolPtr(false),
+				}
+				if err := u.WithContext(l.ctx).Create(user); err != nil {
+					return nil, err
+				}
+			}
+
+			rawData, _ := json.Marshal(userInfo)
+			accessToken, _ := tokenData["access_token"].(string)
+			refreshToken, _ := tokenData["refresh_token"].(string)
+			expiresIn, _ := tokenData["expires_in"].(float64)
+
+			oauthUser = &model.SysOauthUser{
+				UserID:       model.Int64Ptr(user.ID),
+				ProviderCode: model.StringPtr(provider.Code),
+				OpenID:       model.StringPtr(openID),
+				UnionID:      model.StringPtr(unionID),
+				Nickname:     model.StringPtr(nickname),
+				Avatar:       model.StringPtr(avatar),
+				AccessToken:  model.StringPtr(accessToken),
+				RefreshToken: model.StringPtr(refreshToken),
+				ExpiresAt:    model.Int64Ptr(time.Now().Unix() + int64(expiresIn)),
+				RawData:      model.StringPtr(string(rawData)),
+				IsDelete:     model.BoolPtr(false),
+			}
+			if err := ou.WithContext(l.ctx).Create(oauthUser); err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -313,6 +366,9 @@ func (l *OAuthLogic) findOrCreateUser(provider *model.SysOauthProvider, userInfo
 	// 保存用户token记录
 	l.saveUserToken(user.ID, token, ip, now)
 
+	// 更新或创建用户-应用关联
+	l.updateUserApp(user.ID, appID, isNew, now)
+
 	return &types.OAuthLoginResponse{
 		Token:    token,
 		UserInfo: types.ToUserInfo(user),
@@ -336,6 +392,15 @@ func (l *OAuthLogic) ListProviders(req *types.ListProvidersRequest) ([]*types.OA
 	}
 	if req.Status != nil {
 		q = q.Where(p.Status.Eq(int32(*req.Status)))
+	}
+	if req.AppID != nil {
+		if *req.AppID == 0 {
+			// 查询全局配置
+			q = q.Where(p.AppID.IsNull())
+		} else {
+			// 查询指定应用的配置（包括全局配置）
+			q = q.Where(p.AppID.Eq(*req.AppID)).Or(q.Where(p.AppID.IsNull()))
+		}
 	}
 
 	total, _ := q.Count()
@@ -512,6 +577,42 @@ func (l *OAuthLogic) saveUserToken(userID int64, token string, ip string, now ti
 		IsDelete:     model.BoolPtr(false),
 	}
 	l.db().SysUserToken.WithContext(l.ctx).Create(userToken)
+}
+
+// updateUserApp 更新或创建用户-应用关联
+func (l *OAuthLogic) updateUserApp(userID, appID int64, isNew bool, now time.Time) {
+	ua := l.db().SysUserApp
+
+	// 查找现有关联
+	existing, err := ua.WithContext(l.ctx).Where(ua.UserID.Eq(userID), ua.AppID.Eq(appID)).First()
+	if err != nil {
+		// 不存在，创建新关联
+		userApp := &model.SysUserApp{
+			UserID:       userID,
+			AppID:        appID,
+			Source:       model.StringPtr("oauth"),
+			FirstLoginAt: &now,
+			LastLoginAt:  &now,
+			LoginCount:   model.Int32Ptr(1),
+			Status:       model.Int32Ptr(1),
+			IsDelete:     model.BoolPtr(false),
+		}
+		ua.WithContext(l.ctx).Create(userApp)
+		logger.Info("[OAuth] 创建用户-应用关联",
+			zap.Int64("userId", userID),
+			zap.Int64("appId", appID))
+	} else {
+		// 已存在，更新登录信息
+		var loginCount int32 = 1
+		if existing.LoginCount != nil {
+			loginCount = *existing.LoginCount + 1
+		}
+		ua.WithContext(l.ctx).Where(ua.ID.Eq(existing.ID)).Updates(map[string]any{
+			"last_login_at": now,
+			"login_count":   loginCount,
+			"is_delete":     false,
+		})
+	}
 }
 
 // getStringValue 从map中获取字符串值

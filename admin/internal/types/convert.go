@@ -280,3 +280,13 @@ func ToOAuthBindingInfo(b *model.SysOauthUser) *OAuthBindingInfo {
 func ToOAuthBindingInfoList(bindings []*model.SysOauthUser) []*OAuthBindingInfo {
 	return CopyList[OAuthBindingInfo](bindings)
 }
+
+// ========== UserApp 相关 ==========
+
+func ToUserAppInfo(ua *model.SysUserApp) *UserAppInfo {
+	return Copy[UserAppInfo](ua)
+}
+
+func ToUserAppInfoList(userApps []*model.SysUserApp) []*UserAppInfo {
+	return CopyList[UserAppInfo](userApps)
+}

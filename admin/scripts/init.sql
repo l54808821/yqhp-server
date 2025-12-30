@@ -6,6 +6,7 @@
 -- 清空现有数据（可选，生产环境慎用）
 -- TRUNCATE TABLE sys_role_resource;
 -- TRUNCATE TABLE sys_user_role;
+-- TRUNCATE TABLE sys_user_app;
 -- TRUNCATE TABLE sys_oauth_user;
 -- TRUNCATE TABLE sys_operation_log;
 -- TRUNCATE TABLE sys_login_log;
@@ -19,6 +20,33 @@
 -- TRUNCATE TABLE sys_user;
 -- TRUNCATE TABLE sys_dept;
 -- TRUNCATE TABLE sys_application;
+
+-- =============================================
+-- 0. 创建用户-应用关联表（如果不存在）
+-- =============================================
+CREATE TABLE IF NOT EXISTS `sys_user_app` (
+    `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+    `created_at` datetime DEFAULT NULL,
+    `updated_at` datetime DEFAULT NULL,
+    `is_delete` tinyint(1) DEFAULT '0',
+    `user_id` bigint unsigned DEFAULT NULL COMMENT '用户ID',
+    `app_id` bigint unsigned DEFAULT NULL COMMENT '应用ID',
+    `source` varchar(50) DEFAULT 'system' COMMENT '注册来源: system-系统创建, oauth-第三方登录, register-自主注册, invite-邀请注册',
+    `first_login_at` datetime DEFAULT NULL COMMENT '首次登录时间',
+    `last_login_at` datetime DEFAULT NULL COMMENT '最后登录时间',
+    `login_count` int DEFAULT '0' COMMENT '登录次数',
+    `status` tinyint DEFAULT '1' COMMENT '状态: 1-正常, 0-禁用',
+    `remark` varchar(500) DEFAULT NULL COMMENT '备注',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_user_app` (`user_id`, `app_id`),
+    KEY `idx_sys_user_app_user_id` (`user_id`),
+    KEY `idx_sys_user_app_app_id` (`app_id`),
+    KEY `idx_sys_user_app_is_delete` (`is_delete`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户-应用关联表';
+
+-- 为 sys_oauth_provider 表添加 app_id 字段（如果不存在）
+-- ALTER TABLE `sys_oauth_provider` ADD COLUMN IF NOT EXISTS `app_id` bigint unsigned DEFAULT NULL COMMENT '应用ID，NULL表示全局配置' AFTER `updated_by`;
+-- ALTER TABLE `sys_oauth_provider` ADD INDEX IF NOT EXISTS `idx_sys_oauth_provider_app_id` (`app_id`);
 
 -- =============================================
 -- 1. 初始化应用
@@ -41,14 +69,20 @@ INSERT INTO sys_role (id, created_at, updated_at, is_delete, created_by, updated
 -- =============================================
 -- 4. 初始化用户 (密码: 123456 的 MD5)
 -- =============================================
-INSERT INTO sys_user (id, created_at, updated_at, is_delete, created_by, updated_by, username, password, nickname, avatar, email, phone, gender, status, dept_id, platform, platform_uid, platform_short_id, last_login_at, last_login_ip, remark) VALUES
-(1, NOW(), NOW(), 0, 1, 1, 'admin', 'e10adc3949ba59abbe56e057f20f883e', '管理员', NULL, NULL, NULL, 0, 1, 1, 'system', NULL, NULL, NULL, NULL, NULL);
+INSERT INTO sys_user (id, created_at, updated_at, is_delete, created_by, updated_by, username, password, nickname, avatar, email, phone, gender, status, dept_id, last_login_at, last_login_ip, remark) VALUES
+(1, NOW(), NOW(), 0, 1, 1, 'admin', 'e10adc3949ba59abbe56e057f20f883e', '管理员', NULL, NULL, NULL, 0, 1, 1, NULL, NULL, NULL);
 
 -- =============================================
 -- 5. 初始化用户角色关联
 -- =============================================
 INSERT INTO sys_user_role (user_id, role_id, app_id, is_delete) VALUES
 (1, 1, 1, 0);
+
+-- =============================================
+-- 5.1 初始化用户-应用关联
+-- =============================================
+INSERT INTO sys_user_app (created_at, updated_at, is_delete, user_id, app_id, source, first_login_at, last_login_at, login_count, status) VALUES
+(NOW(), NOW(), 0, 1, 1, 'system', NOW(), NOW(), 1, 1);
 
 -- =============================================
 -- 6. 初始化菜单资源
@@ -144,13 +178,13 @@ INSERT INTO sys_role_resource (role_id, resource_id, is_delete) VALUES
 -- =============================================
 -- 8. 初始化第三方登录配置
 -- =============================================
-INSERT INTO sys_oauth_provider (id, created_at, updated_at, is_delete, created_by, updated_by, name, code, client_id, client_secret, redirect_uri, auth_url, token_url, user_info_url, scope, status, sort, icon, remark) VALUES
-(1, NOW(), NOW(), 0, 1, 1, 'GitHub', 'github', 'your_github_client_id', 'your_github_client_secret', 'http://localhost:5666/auth/oauth/github/callback', 'https://github.com/login/oauth/authorize', 'https://github.com/login/oauth/access_token', 'https://api.github.com/user', 'user:email', 1, 1, 'github', 'GitHub 第三方登录'),
-(2, NOW(), NOW(), 0, 1, 1, '微信', 'wechat', 'your_wechat_appid', 'your_wechat_secret', 'http://localhost:5555/api/auth/oauth/wechat/callback', 'https://open.weixin.qq.com/connect/qrconnect', 'https://api.weixin.qq.com/sns/oauth2/access_token', 'https://api.weixin.qq.com/sns/userinfo', 'snsapi_login', 1, 2, 'wechat', '微信扫码登录'),
-(3, NOW(), NOW(), 0, 1, 1, '飞书', 'feishu', 'your_feishu_app_id', 'your_feishu_app_secret', 'http://localhost:5555/api/auth/oauth/feishu/callback', 'https://open.feishu.cn/open-apis/authen/v1/authorize', 'https://open.feishu.cn/open-apis/authen/v1/oidc/access_token', 'https://open.feishu.cn/open-apis/authen/v1/user_info', '', 1, 3, 'feishu', '飞书第三方登录'),
-(4, NOW(), NOW(), 0, 1, 1, '钉钉', 'dingtalk', 'your_dingtalk_appkey', 'your_dingtalk_appsecret', 'http://localhost:5555/api/auth/oauth/dingtalk/callback', 'https://login.dingtalk.com/oauth2/auth', 'https://api.dingtalk.com/v1.0/oauth2/userAccessToken', 'https://api.dingtalk.com/v1.0/contact/users/me', 'openid', 1, 4, 'dingtalk', '钉钉第三方登录'),
-(5, NOW(), NOW(), 0, 1, 1, 'QQ', 'qq', 'your_qq_appid', 'your_qq_appkey', 'http://localhost:5555/api/auth/oauth/qq/callback', 'https://graph.qq.com/oauth2.0/authorize', 'https://graph.qq.com/oauth2.0/token', 'https://graph.qq.com/user/get_user_info', 'get_user_info', 1, 5, 'qq', 'QQ第三方登录'),
-(6, NOW(), NOW(), 0, 1, 1, 'Gitee', 'gitee', 'your_gitee_client_id', 'your_gitee_client_secret', 'http://localhost:5555/api/auth/oauth/gitee/callback', 'https://gitee.com/oauth/authorize', 'https://gitee.com/oauth/token', 'https://gitee.com/api/v5/user', 'user_info', 1, 6, 'gitee', 'Gitee 第三方登录');
+INSERT INTO sys_oauth_provider (id, created_at, updated_at, is_delete, created_by, updated_by, app_id, name, code, client_id, client_secret, redirect_uri, auth_url, token_url, user_info_url, scope, status, sort, icon, remark) VALUES
+(1, NOW(), NOW(), 0, 1, 1, NULL, 'GitHub', 'github', 'your_github_client_id', 'your_github_client_secret', 'http://localhost:5666/auth/oauth/github/callback', 'https://github.com/login/oauth/authorize', 'https://github.com/login/oauth/access_token', 'https://api.github.com/user', 'user:email', 1, 1, 'github', 'GitHub 第三方登录（全局）'),
+(2, NOW(), NOW(), 0, 1, 1, NULL, '微信', 'wechat', 'your_wechat_appid', 'your_wechat_secret', 'http://localhost:5555/api/auth/oauth/wechat/callback', 'https://open.weixin.qq.com/connect/qrconnect', 'https://api.weixin.qq.com/sns/oauth2/access_token', 'https://api.weixin.qq.com/sns/userinfo', 'snsapi_login', 1, 2, 'wechat', '微信扫码登录（全局）'),
+(3, NOW(), NOW(), 0, 1, 1, NULL, '飞书', 'feishu', 'your_feishu_app_id', 'your_feishu_app_secret', 'http://localhost:5555/api/auth/oauth/feishu/callback', 'https://open.feishu.cn/open-apis/authen/v1/authorize', 'https://open.feishu.cn/open-apis/authen/v1/oidc/access_token', 'https://open.feishu.cn/open-apis/authen/v1/user_info', '', 1, 3, 'feishu', '飞书第三方登录（全局）'),
+(4, NOW(), NOW(), 0, 1, 1, NULL, '钉钉', 'dingtalk', 'your_dingtalk_appkey', 'your_dingtalk_appsecret', 'http://localhost:5555/api/auth/oauth/dingtalk/callback', 'https://login.dingtalk.com/oauth2/auth', 'https://api.dingtalk.com/v1.0/oauth2/userAccessToken', 'https://api.dingtalk.com/v1.0/contact/users/me', 'openid', 1, 4, 'dingtalk', '钉钉第三方登录（全局）'),
+(5, NOW(), NOW(), 0, 1, 1, NULL, 'QQ', 'qq', 'your_qq_appid', 'your_qq_appkey', 'http://localhost:5555/api/auth/oauth/qq/callback', 'https://graph.qq.com/oauth2.0/authorize', 'https://graph.qq.com/oauth2.0/token', 'https://graph.qq.com/user/get_user_info', 'get_user_info', 1, 5, 'qq', 'QQ第三方登录（全局）'),
+(6, NOW(), NOW(), 0, 1, 1, NULL, 'Gitee', 'gitee', 'your_gitee_client_id', 'your_gitee_client_secret', 'http://localhost:5555/api/auth/oauth/gitee/callback', 'https://gitee.com/oauth/authorize', 'https://gitee.com/oauth/token', 'https://gitee.com/api/v5/user', 'user_info', 1, 6, 'gitee', 'Gitee 第三方登录（全局）');
 
 -- =============================================
 -- 9. 初始化字典类型

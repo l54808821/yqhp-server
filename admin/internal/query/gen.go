@@ -30,6 +30,7 @@ var (
 	SysRole          *sysRole
 	SysRoleResource  *sysRoleResource
 	SysUser          *sysUser
+	SysUserApp       *sysUserApp
 	SysUserRole      *sysUserRole
 	SysUserToken     *sysUserToken
 )
@@ -49,6 +50,7 @@ func SetDefault(db *gorm.DB, opts ...gen.DOOption) {
 	SysRole = &Q.SysRole
 	SysRoleResource = &Q.SysRoleResource
 	SysUser = &Q.SysUser
+	SysUserApp = &Q.SysUserApp
 	SysUserRole = &Q.SysUserRole
 	SysUserToken = &Q.SysUserToken
 }
@@ -69,6 +71,7 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		SysRole:          newSysRole(db, opts...),
 		SysRoleResource:  newSysRoleResource(db, opts...),
 		SysUser:          newSysUser(db, opts...),
+		SysUserApp:       newSysUserApp(db, opts...),
 		SysUserRole:      newSysUserRole(db, opts...),
 		SysUserToken:     newSysUserToken(db, opts...),
 	}
@@ -90,6 +93,7 @@ type Query struct {
 	SysRole          sysRole
 	SysRoleResource  sysRoleResource
 	SysUser          sysUser
+	SysUserApp       sysUserApp
 	SysUserRole      sysUserRole
 	SysUserToken     sysUserToken
 }
@@ -112,6 +116,7 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		SysRole:          q.SysRole.clone(db),
 		SysRoleResource:  q.SysRoleResource.clone(db),
 		SysUser:          q.SysUser.clone(db),
+		SysUserApp:       q.SysUserApp.clone(db),
 		SysUserRole:      q.SysUserRole.clone(db),
 		SysUserToken:     q.SysUserToken.clone(db),
 	}
@@ -141,6 +146,7 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		SysRole:          q.SysRole.replaceDB(db),
 		SysRoleResource:  q.SysRoleResource.replaceDB(db),
 		SysUser:          q.SysUser.replaceDB(db),
+		SysUserApp:       q.SysUserApp.replaceDB(db),
 		SysUserRole:      q.SysUserRole.replaceDB(db),
 		SysUserToken:     q.SysUserToken.replaceDB(db),
 	}
@@ -160,6 +166,7 @@ type queryCtx struct {
 	SysRole          ISysRoleDo
 	SysRoleResource  ISysRoleResourceDo
 	SysUser          ISysUserDo
+	SysUserApp       ISysUserAppDo
 	SysUserRole      ISysUserRoleDo
 	SysUserToken     ISysUserTokenDo
 }
@@ -179,6 +186,7 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		SysRole:          q.SysRole.WithContext(ctx),
 		SysRoleResource:  q.SysRoleResource.WithContext(ctx),
 		SysUser:          q.SysUser.WithContext(ctx),
+		SysUserApp:       q.SysUserApp.WithContext(ctx),
 		SysUserRole:      q.SysUserRole.WithContext(ctx),
 		SysUserToken:     q.SysUserToken.WithContext(ctx),
 	}

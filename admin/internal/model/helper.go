@@ -15,6 +15,7 @@ type (
 	LoginLog      = SysLoginLog
 	OperationLog  = SysOperationLog
 	UserRole      = SysUserRole
+	UserApp       = SysUserApp
 	RoleResource  = SysRoleResource
 )
 

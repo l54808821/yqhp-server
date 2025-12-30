@@ -67,6 +67,7 @@ func main() {
 		g.GenerateModel("sys_role"),
 		g.GenerateModel("sys_role_resource"),
 		g.GenerateModel("sys_user"),
+		g.GenerateModel("sys_user_app"),
 		g.GenerateModel("sys_user_role"),
 		g.GenerateModel("sys_user_token"),
 	)

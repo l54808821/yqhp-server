@@ -12,27 +12,24 @@ const TableNameSysUser = "sys_user"
 
 // SysUser mapped from table <sys_user>
 type SysUser struct {
-	ID              int64      `gorm:"column:id;type:bigint unsigned;primaryKey;autoIncrement:true" json:"id"`
-	CreatedAt       *time.Time `gorm:"column:created_at;type:datetime" json:"created_at"`
-	UpdatedAt       *time.Time `gorm:"column:updated_at;type:datetime" json:"updated_at"`
-	IsDelete        *bool      `gorm:"column:is_delete;type:tinyint(1);index:idx_sys_user_is_delete,priority:1" json:"is_delete"`
-	CreatedBy       *int64     `gorm:"column:created_by;type:bigint unsigned;comment:创建人ID" json:"created_by"` // 创建人ID
-	UpdatedBy       *int64     `gorm:"column:updated_by;type:bigint unsigned;comment:更新人ID" json:"updated_by"` // 更新人ID
-	Username        string     `gorm:"column:username;type:varchar(50);not null;uniqueIndex:idx_sys_user_username,priority:1" json:"username"`
-	Password        string     `gorm:"column:password;type:varchar(255);not null" json:"password"`
-	Nickname        *string    `gorm:"column:nickname;type:varchar(50)" json:"nickname"`
-	Avatar          *string    `gorm:"column:avatar;type:varchar(255)" json:"avatar"`
-	Email           *string    `gorm:"column:email;type:varchar(100)" json:"email"`
-	Phone           *string    `gorm:"column:phone;type:varchar(20)" json:"phone"`
-	Gender          *int32     `gorm:"column:gender;type:tinyint" json:"gender"`
-	Status          *int32     `gorm:"column:status;type:tinyint;default:1" json:"status"`
-	DeptID          *int64     `gorm:"column:dept_id;type:bigint unsigned" json:"dept_id"`
-	Platform        *string    `gorm:"column:platform;type:varchar(20);index:idx_sys_user_platform,priority:1;default:system;comment:用户来源平台: system-系统新建, github, wechat-微信, feishu-飞书, dingtalk-钉钉, qq, gitee" json:"platform"` // 用户来源平台: system-系统新建, github, wechat-微信, feishu-飞书, dingtalk-钉钉, qq, gitee
-	PlatformUID     *string    `gorm:"column:platform_uid;type:varchar(255);comment:平台唯一标识(长码)" json:"platform_uid"`                                                                                                             // 平台唯一标识(长码)
-	PlatformShortID *string    `gorm:"column:platform_short_id;type:varchar(100);comment:平台唯一标识(短码)" json:"platform_short_id"`                                                                                                   // 平台唯一标识(短码)
-	LastLoginAt     *time.Time `gorm:"column:last_login_at;type:datetime" json:"last_login_at"`
-	LastLoginIP     *string    `gorm:"column:last_login_ip;type:varchar(50)" json:"last_login_ip"`
-	Remark          *string    `gorm:"column:remark;type:varchar(500)" json:"remark"`
+	ID          int64      `gorm:"column:id;type:bigint unsigned;primaryKey;autoIncrement:true" json:"id"`
+	CreatedAt   *time.Time `gorm:"column:created_at;type:datetime" json:"created_at"`
+	UpdatedAt   *time.Time `gorm:"column:updated_at;type:datetime" json:"updated_at"`
+	IsDelete    *bool      `gorm:"column:is_delete;type:tinyint(1);index:idx_sys_user_is_delete,priority:1" json:"is_delete"`
+	CreatedBy   *int64     `gorm:"column:created_by;type:bigint unsigned;comment:创建人ID" json:"created_by"` // 创建人ID
+	UpdatedBy   *int64     `gorm:"column:updated_by;type:bigint unsigned;comment:更新人ID" json:"updated_by"` // 更新人ID
+	Username    string     `gorm:"column:username;type:varchar(50);not null;uniqueIndex:idx_sys_user_username,priority:1" json:"username"`
+	Password    string     `gorm:"column:password;type:varchar(255);not null" json:"password"`
+	Nickname    *string    `gorm:"column:nickname;type:varchar(50)" json:"nickname"`
+	Avatar      *string    `gorm:"column:avatar;type:varchar(255)" json:"avatar"`
+	Email       *string    `gorm:"column:email;type:varchar(100)" json:"email"`
+	Phone       *string    `gorm:"column:phone;type:varchar(20)" json:"phone"`
+	Gender      *int32     `gorm:"column:gender;type:tinyint" json:"gender"`
+	Status      *int32     `gorm:"column:status;type:tinyint;default:1" json:"status"`
+	DeptID      *int64     `gorm:"column:dept_id;type:bigint unsigned" json:"dept_id"`
+	LastLoginAt *time.Time `gorm:"column:last_login_at;type:datetime" json:"last_login_at"`
+	LastLoginIP *string    `gorm:"column:last_login_ip;type:varchar(50)" json:"last_login_ip"`
+	Remark      *string    `gorm:"column:remark;type:varchar(500)" json:"remark"`
 }
 
 // TableName SysUser's table name

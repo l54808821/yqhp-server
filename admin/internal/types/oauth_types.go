@@ -11,6 +11,7 @@ type OAuthLoginResponse struct {
 type CreateProviderRequest struct {
 	Name         string `json:"name" validate:"required"`
 	Code         string `json:"code" validate:"required"`
+	AppID        *int64 `json:"appId"` // 应用ID，nil表示全局配置
 	ClientID     string `json:"clientId"`
 	ClientSecret string `json:"clientSecret"`
 	RedirectURI  string `json:"redirectUri"`
@@ -46,6 +47,7 @@ type ListProvidersRequest struct {
 	Page     int    `json:"page"`
 	PageSize int    `json:"pageSize"`
 	Name     string `json:"name"`
+	AppID    *int64 `json:"appId"` // 应用ID筛选
 	Status   *int8  `json:"status"`
 }
 
@@ -54,6 +56,8 @@ type OAuthProviderInfo struct {
 	ID          int64     `json:"id"`
 	Name        string    `json:"name"`
 	Code        string    `json:"code"`
+	AppID       int64     `json:"appId"`   // 应用ID，0表示全局配置
+	AppName     string    `json:"appName"` // 应用名称（关联查询）
 	ClientID    string    `json:"clientId"`
 	RedirectURI string    `json:"redirectUri"`
 	AuthURL     string    `json:"authUrl"`

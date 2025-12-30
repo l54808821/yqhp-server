@@ -144,4 +144,10 @@ func Setup(app *fiber.App, db *gorm.DB) {
 	logs.Post("/operation", handler.TokenGetOperationLogs)
 	logs.Delete("/login", perm("system:log:delete"), handler.TokenClearLoginLogs)
 	logs.Delete("/operation", perm("system:log:delete"), handler.TokenClearOperationLogs)
+
+	// 用户-应用关联
+	userApps := sys.Group("/user-apps")
+	userApps.Post("/list", handler.UserAppList)
+	userApps.Get("/user/:userId", handler.UserAppGetByUser)
+	userApps.Get("/app/:appId", handler.UserAppGetByApp)
 }

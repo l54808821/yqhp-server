@@ -42,9 +42,6 @@ func newSysUser(db *gorm.DB, opts ...gen.DOOption) sysUser {
 	_sysUser.Gender = field.NewInt32(tableName, "gender")
 	_sysUser.Status = field.NewInt32(tableName, "status")
 	_sysUser.DeptID = field.NewInt64(tableName, "dept_id")
-	_sysUser.Platform = field.NewString(tableName, "platform")
-	_sysUser.PlatformUID = field.NewString(tableName, "platform_uid")
-	_sysUser.PlatformShortID = field.NewString(tableName, "platform_short_id")
 	_sysUser.LastLoginAt = field.NewTime(tableName, "last_login_at")
 	_sysUser.LastLoginIP = field.NewString(tableName, "last_login_ip")
 	_sysUser.Remark = field.NewString(tableName, "remark")
@@ -57,28 +54,25 @@ func newSysUser(db *gorm.DB, opts ...gen.DOOption) sysUser {
 type sysUser struct {
 	sysUserDo sysUserDo
 
-	ALL             field.Asterisk
-	ID              field.Int64
-	CreatedAt       field.Time
-	UpdatedAt       field.Time
-	IsDelete        field.Bool
-	CreatedBy       field.Int64 // 创建人ID
-	UpdatedBy       field.Int64 // 更新人ID
-	Username        field.String
-	Password        field.String
-	Nickname        field.String
-	Avatar          field.String
-	Email           field.String
-	Phone           field.String
-	Gender          field.Int32
-	Status          field.Int32
-	DeptID          field.Int64
-	Platform        field.String // 用户来源平台: system-系统新建, github, wechat-微信, feishu-飞书, dingtalk-钉钉, qq, gitee
-	PlatformUID     field.String // 平台唯一标识(长码)
-	PlatformShortID field.String // 平台唯一标识(短码)
-	LastLoginAt     field.Time
-	LastLoginIP     field.String
-	Remark          field.String
+	ALL         field.Asterisk
+	ID          field.Int64
+	CreatedAt   field.Time
+	UpdatedAt   field.Time
+	IsDelete    field.Bool
+	CreatedBy   field.Int64 // 创建人ID
+	UpdatedBy   field.Int64 // 更新人ID
+	Username    field.String
+	Password    field.String
+	Nickname    field.String
+	Avatar      field.String
+	Email       field.String
+	Phone       field.String
+	Gender      field.Int32
+	Status      field.Int32
+	DeptID      field.Int64
+	LastLoginAt field.Time
+	LastLoginIP field.String
+	Remark      field.String
 
 	fieldMap map[string]field.Expr
 }
@@ -110,9 +104,6 @@ func (s *sysUser) updateTableName(table string) *sysUser {
 	s.Gender = field.NewInt32(table, "gender")
 	s.Status = field.NewInt32(table, "status")
 	s.DeptID = field.NewInt64(table, "dept_id")
-	s.Platform = field.NewString(table, "platform")
-	s.PlatformUID = field.NewString(table, "platform_uid")
-	s.PlatformShortID = field.NewString(table, "platform_short_id")
 	s.LastLoginAt = field.NewTime(table, "last_login_at")
 	s.LastLoginIP = field.NewString(table, "last_login_ip")
 	s.Remark = field.NewString(table, "remark")
@@ -140,7 +131,7 @@ func (s *sysUser) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (s *sysUser) fillFieldMap() {
-	s.fieldMap = make(map[string]field.Expr, 21)
+	s.fieldMap = make(map[string]field.Expr, 18)
 	s.fieldMap["id"] = s.ID
 	s.fieldMap["created_at"] = s.CreatedAt
 	s.fieldMap["updated_at"] = s.UpdatedAt
@@ -156,9 +147,6 @@ func (s *sysUser) fillFieldMap() {
 	s.fieldMap["gender"] = s.Gender
 	s.fieldMap["status"] = s.Status
 	s.fieldMap["dept_id"] = s.DeptID
-	s.fieldMap["platform"] = s.Platform
-	s.fieldMap["platform_uid"] = s.PlatformUID
-	s.fieldMap["platform_short_id"] = s.PlatformShortID
 	s.fieldMap["last_login_at"] = s.LastLoginAt
 	s.fieldMap["last_login_ip"] = s.LastLoginIP
 	s.fieldMap["remark"] = s.Remark

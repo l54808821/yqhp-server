@@ -33,6 +33,7 @@ func newSysOauthProvider(db *gorm.DB, opts ...gen.DOOption) sysOauthProvider {
 	_sysOauthProvider.IsDelete = field.NewBool(tableName, "is_delete")
 	_sysOauthProvider.CreatedBy = field.NewInt64(tableName, "created_by")
 	_sysOauthProvider.UpdatedBy = field.NewInt64(tableName, "updated_by")
+	_sysOauthProvider.AppID = field.NewInt64(tableName, "app_id")
 	_sysOauthProvider.Name = field.NewString(tableName, "name")
 	_sysOauthProvider.Code = field.NewString(tableName, "code")
 	_sysOauthProvider.ClientID = field.NewString(tableName, "client_id")
@@ -62,6 +63,7 @@ type sysOauthProvider struct {
 	IsDelete     field.Bool
 	CreatedBy    field.Int64 // 创建人ID
 	UpdatedBy    field.Int64 // 更新人ID
+	AppID        field.Int64 // 应用ID，NULL表示全局配置
 	Name         field.String
 	Code         field.String
 	ClientID     field.String
@@ -97,6 +99,7 @@ func (s *sysOauthProvider) updateTableName(table string) *sysOauthProvider {
 	s.IsDelete = field.NewBool(table, "is_delete")
 	s.CreatedBy = field.NewInt64(table, "created_by")
 	s.UpdatedBy = field.NewInt64(table, "updated_by")
+	s.AppID = field.NewInt64(table, "app_id")
 	s.Name = field.NewString(table, "name")
 	s.Code = field.NewString(table, "code")
 	s.ClientID = field.NewString(table, "client_id")
@@ -138,13 +141,14 @@ func (s *sysOauthProvider) GetFieldByName(fieldName string) (field.OrderExpr, bo
 }
 
 func (s *sysOauthProvider) fillFieldMap() {
-	s.fieldMap = make(map[string]field.Expr, 19)
+	s.fieldMap = make(map[string]field.Expr, 20)
 	s.fieldMap["id"] = s.ID
 	s.fieldMap["created_at"] = s.CreatedAt
 	s.fieldMap["updated_at"] = s.UpdatedAt
 	s.fieldMap["is_delete"] = s.IsDelete
 	s.fieldMap["created_by"] = s.CreatedBy
 	s.fieldMap["updated_by"] = s.UpdatedBy
+	s.fieldMap["app_id"] = s.AppID
 	s.fieldMap["name"] = s.Name
 	s.fieldMap["code"] = s.Code
 	s.fieldMap["client_id"] = s.ClientID

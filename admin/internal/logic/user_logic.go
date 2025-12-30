@@ -98,6 +98,9 @@ func (l *UserLogic) Register(req *types.RegisterRequest, ip string) (*types.Logi
 	l.saveUserToken(user.ID, token, ip, now)
 	l.recordLoginLog(user.ID, req.Username, ip, 1, "注册并登录成功", "register")
 
+	// 创建用户-应用关联（默认应用ID为1，来源为注册）
+	l.updateUserApp(user.ID, 1, true, now)
+
 	// 新注册用户没有角色
 	return &types.LoginResponse{Token: token, UserInfo: types.ToUserInfoWithRoles(user, nil)}, nil
 }
@@ -141,6 +144,9 @@ func (l *UserLogic) Login(req *types.LoginRequest, ip string) (*types.LoginRespo
 	l.saveUserToken(user.ID, token, ip, now)
 	l.recordLoginLog(user.ID, req.Username, ip, 1, "登录成功", "password")
 
+	// 更新用户-应用关联（默认应用ID为1）
+	l.updateUserApp(user.ID, 1, false, now)
+
 	// 查询用户角色
 	roles, _ := l.getUserRoles(user.ID)
 	return &types.LoginResponse{Token: token, UserInfo: types.ToUserInfoWithRoles(user, roles)}, nil
@@ -177,6 +183,43 @@ func (l *UserLogic) recordLoginLog(userID int64, username string, ip string, sta
 		IsDelete:  model.BoolPtr(false),
 	}
 	l.db().SysLoginLog.WithContext(l.ctx).Create(log)
+}
+
+// updateUserApp 更新或创建用户-应用关联
+func (l *UserLogic) updateUserApp(userID, appID int64, isNew bool, now time.Time) {
+	ua := l.db().SysUserApp
+
+	// 查找现有关联
+	existing, err := ua.WithContext(l.ctx).Where(ua.UserID.Eq(userID), ua.AppID.Eq(appID)).First()
+	if err != nil {
+		// 不存在，创建新关联
+		source := "system"
+		if isNew {
+			source = "register"
+		}
+		userApp := &model.SysUserApp{
+			UserID:       userID,
+			AppID:        appID,
+			Source:       model.StringPtr(source),
+			FirstLoginAt: &now,
+			LastLoginAt:  &now,
+			LoginCount:   model.Int32Ptr(1),
+			Status:       model.Int32Ptr(1),
+			IsDelete:     model.BoolPtr(false),
+		}
+		ua.WithContext(l.ctx).Create(userApp)
+	} else {
+		// 已存在，更新登录信息
+		var loginCount int32 = 1
+		if existing.LoginCount != nil {
+			loginCount = *existing.LoginCount + 1
+		}
+		ua.WithContext(l.ctx).Where(ua.ID.Eq(existing.ID)).Updates(map[string]any{
+			"last_login_at": now,
+			"login_count":   loginCount,
+			"is_delete":     false,
+		})
+	}
 }
 
 // Logout 用户登出
@@ -279,29 +322,20 @@ func (l *UserLogic) CreateUser(req *types.CreateUserRequest) (*types.UserInfo, e
 		return nil, errors.New("用户名已存在")
 	}
 
-	// 默认平台为 system
-	platform := req.Platform
-	if platform == "" {
-		platform = "system"
-	}
-
 	currentUserID := ctxutil.GetUserID(l.ctx)
 	user := &model.SysUser{
-		Username:        req.Username,
-		Password:        utils.MD5(req.Password),
-		Nickname:        model.StringPtr(req.Nickname),
-		Email:           model.StringPtr(req.Email),
-		Phone:           model.StringPtr(req.Phone),
-		Gender:          model.Int32Ptr(int32(req.Gender)),
-		DeptID:          model.Int64Ptr(int64(req.DeptID)),
-		Platform:        model.StringPtr(platform),
-		PlatformUID:     model.StringPtr(req.PlatformUID),
-		PlatformShortID: model.StringPtr(req.PlatformShortID),
-		Status:          model.Int32Ptr(1),
-		Remark:          model.StringPtr(req.Remark),
-		IsDelete:        model.BoolPtr(false),
-		CreatedBy:       model.Int64Ptr(currentUserID),
-		UpdatedBy:       model.Int64Ptr(currentUserID),
+		Username:  req.Username,
+		Password:  utils.MD5(req.Password),
+		Nickname:  model.StringPtr(req.Nickname),
+		Email:     model.StringPtr(req.Email),
+		Phone:     model.StringPtr(req.Phone),
+		Gender:    model.Int32Ptr(int32(req.Gender)),
+		DeptID:    model.Int64Ptr(int64(req.DeptID)),
+		Status:    model.Int32Ptr(1),
+		Remark:    model.StringPtr(req.Remark),
+		IsDelete:  model.BoolPtr(false),
+		CreatedBy: model.Int64Ptr(currentUserID),
+		UpdatedBy: model.Int64Ptr(currentUserID),
 	}
 
 	if err := u.WithContext(l.ctx).Create(user); err != nil {
@@ -331,18 +365,15 @@ func (l *UserLogic) UpdateUser(req *types.UpdateUserRequest) error {
 	currentUserID := ctxutil.GetUserID(l.ctx)
 	u := l.db().SysUser
 	_, err := u.WithContext(l.ctx).Where(u.ID.Eq(int64(req.ID))).Updates(map[string]any{
-		"nickname":          req.Nickname,
-		"avatar":            req.Avatar,
-		"email":             req.Email,
-		"phone":             req.Phone,
-		"gender":            req.Gender,
-		"dept_id":           req.DeptID,
-		"status":            req.Status,
-		"platform":          req.Platform,
-		"platform_uid":      req.PlatformUID,
-		"platform_short_id": req.PlatformShortID,
-		"remark":            req.Remark,
-		"updated_by":        currentUserID,
+		"nickname":   req.Nickname,
+		"avatar":     req.Avatar,
+		"email":      req.Email,
+		"phone":      req.Phone,
+		"gender":     req.Gender,
+		"dept_id":    req.DeptID,
+		"status":     req.Status,
+		"remark":     req.Remark,
+		"updated_by": currentUserID,
 	})
 	if err != nil {
 		return err

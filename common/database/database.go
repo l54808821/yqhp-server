@@ -5,11 +5,11 @@ import (
 	"time"
 
 	"yqhp/common/config"
+	"yqhp/common/logger"
 
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
 var db *gorm.DB
@@ -44,7 +44,7 @@ func Init(cfg *config.DatabaseConfig) error {
 
 	var err error
 	db, err = gorm.Open(dialector, &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Info),
+		Logger: logger.NewGormLogger(),
 	})
 	if err != nil {
 		return err
@@ -79,4 +79,3 @@ func Close() error {
 	}
 	return nil
 }
-

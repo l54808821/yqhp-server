@@ -34,7 +34,7 @@ redis:
 # 日志配置
 log:
   level: debug # debug, info, warn, error
-  format: json # json, text
+  format: text # json, text
   output: stdout # stdout, file
   file_path: ./logs/app.log
   max_size: 100 # MB

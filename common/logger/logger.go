@@ -1,25 +1,29 @@
 package logger
 
 import (
+	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"go.uber.org/zap"
+	"go.uber.org/zap/buffer"
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 var (
-	log  *zap.Logger
-	once sync.Once
+	log    *zap.Logger
+	once   sync.Once
+	isJson bool
 )
 
 // Config 日志配置
 type Config struct {
 	Level      string // debug, info, warn, error
-	Format     string // json, console
+	Format     string // json, text
 	Output     string // stdout, file, both
 	FilePath   string
 	MaxSize    int // MB
@@ -31,7 +35,45 @@ type Config struct {
 func Init(cfg *Config) {
 	once.Do(func() {
 		log = newLogger(cfg)
+		isJson = cfg != nil && cfg.Format == "json"
 	})
+}
+
+// fixedWidthCallerEncoder 固定宽度的 caller encoder
+func fixedWidthCallerEncoder(caller zapcore.EntryCaller, enc zapcore.PrimitiveArrayEncoder) {
+	const width = 30
+	s := caller.TrimmedPath()
+	if len(s) < width {
+		s = s + strings.Repeat(" ", width-len(s))
+	}
+	enc.AppendString(s)
+}
+
+// fixedWidthNameEncoder 固定宽度的 name encoder（用于 SQL 日志的 caller）
+func fixedWidthNameEncoder(name string, enc zapcore.PrimitiveArrayEncoder) {
+	const width = 30
+	if len(name) < width {
+		name = name + strings.Repeat(" ", width-len(name))
+	}
+	enc.AppendString(name)
+}
+
+// customConsoleEncoder 自定义 console encoder
+type customConsoleEncoder struct {
+	zapcore.Encoder
+	pool buffer.Pool
+}
+
+func newCustomConsoleEncoder(cfg zapcore.EncoderConfig) zapcore.Encoder {
+	cfg.EncodeCaller = fixedWidthCallerEncoder
+	cfg.EncodeName = fixedWidthNameEncoder
+	return &customConsoleEncoder{
+		Encoder: zapcore.NewConsoleEncoder(cfg),
+	}
+}
+
+func (e *customConsoleEncoder) Clone() zapcore.Encoder {
+	return &customConsoleEncoder{Encoder: e.Encoder.Clone()}
 }
 
 // newLogger 创建日志实例
@@ -39,7 +81,7 @@ func newLogger(cfg *Config) *zap.Logger {
 	if cfg == nil {
 		cfg = &Config{
 			Level:  "info",
-			Format: "console",
+			Format: "text",
 			Output: "stdout",
 		}
 	}
@@ -78,7 +120,7 @@ func newLogger(cfg *Config) *zap.Logger {
 		encoder = zapcore.NewJSONEncoder(encoderConfig)
 	} else {
 		encoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
-		encoder = zapcore.NewConsoleEncoder(encoderConfig)
+		encoder = newCustomConsoleEncoder(encoderConfig)
 	}
 
 	// 配置输出
@@ -102,6 +144,11 @@ func newLogger(cfg *Config) *zap.Logger {
 	return zap.New(core, zap.AddCaller())
 }
 
+// IsJson 是否为 JSON 格式
+func IsJson() bool {
+	return isJson
+}
+
 // L 获取全局日志实例
 func L() *zap.Logger {
 	if log == nil {
@@ -112,8 +159,12 @@ func L() *zap.Logger {
 
 // WithTraceId 创建带 traceId 的 logger
 func WithTraceId(c *fiber.Ctx) *zap.Logger {
-	if traceId := c.Locals("requestid"); traceId != nil {
-		return L().With(zap.String("traceId", traceId.(string)))
+	traceId := ""
+	if t := c.Locals("requestid"); t != nil {
+		traceId = t.(string)
+	}
+	if isJson {
+		return L().With(zap.String("traceId", traceId))
 	}
 	return L()
 }
@@ -124,27 +175,41 @@ func Middleware() fiber.Handler {
 		start := time.Now()
 		err := c.Next()
 
-		fields := []zap.Field{
-			zap.Int("status", c.Response().StatusCode()),
-			zap.String("method", c.Method()),
-			zap.String("path", c.Path()),
-			zap.String("ip", c.IP()),
-			zap.Duration("latency", time.Since(start)),
-		}
-		if traceId := c.Locals("requestid"); traceId != nil {
-			fields = append(fields, zap.String("traceId", traceId.(string)))
-		}
-		if err != nil {
-			fields = append(fields, zap.Error(err))
+		status := c.Response().StatusCode()
+		latency := time.Since(start)
+		traceId := ""
+		if t := c.Locals("requestid"); t != nil {
+			traceId = t.(string)
 		}
 
-		status := c.Response().StatusCode()
-		if status >= 500 {
-			L().Error("HTTP", fields...)
-		} else if status >= 400 {
-			L().Warn("HTTP", fields...)
+		if isJson {
+			fields := []zap.Field{
+				zap.Int("status", status),
+				zap.String("method", c.Method()),
+				zap.String("path", c.Path()),
+				zap.String("ip", c.IP()),
+				zap.Duration("latency", latency),
+				zap.String("traceId", traceId),
+			}
+			if err != nil {
+				fields = append(fields, zap.Error(err))
+			}
+			if status >= 500 {
+				L().Error("HTTP", fields...)
+			} else if status >= 400 {
+				L().Warn("HTTP", fields...)
+			} else {
+				L().Info("HTTP", fields...)
+			}
 		} else {
-			L().Info("HTTP", fields...)
+			msg := fmt.Sprintf("[%s] %d %s %s %v", traceId[:8], status, c.Method(), c.Path(), latency)
+			if status >= 500 {
+				L().Error(msg)
+			} else if status >= 400 {
+				L().Warn(msg)
+			} else {
+				L().Info(msg)
+			}
 		}
 		return err
 	}

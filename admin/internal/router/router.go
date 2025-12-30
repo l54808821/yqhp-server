@@ -155,5 +155,7 @@ func Setup(app *fiber.App, db *gorm.DB) {
 	tableViews := sys.Group("/table-views")
 	tableViews.Get("/:tableKey", handler.TableViewGet)
 	tableViews.Post("", handler.TableViewSave)
+	tableViews.Put("/:tableKey/default/:id", handler.TableViewSetDefault)
+	tableViews.Put("/:tableKey/sort", handler.TableViewUpdateSort)
 	tableViews.Delete("/:id", handler.TableViewDelete)
 }

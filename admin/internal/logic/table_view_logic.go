@@ -98,6 +98,7 @@ func (l *TableViewLogic) SaveView(req *types.SaveTableViewRequest) (*types.Table
 		updates := map[string]any{
 			"name":          req.Name,
 			"user_id":       storeUserID,
+			"is_default":    req.IsDefault,
 			"column_keys":   string(columnsJSON),
 			"column_fixed":  string(columnFixedJSON),
 			"search_params": string(searchParamsJSON),
@@ -110,6 +111,7 @@ func (l *TableViewLogic) SaveView(req *types.SaveTableViewRequest) (*types.Table
 
 		existing.Name = req.Name
 		existing.UserID = storeUserID
+		existing.IsDefault = model.BoolPtr(req.IsDefault)
 		existing.ColumnKeys = model.StringPtr(string(columnsJSON))
 		existing.ColumnFixed = model.StringPtr(string(columnFixedJSON))
 		existing.SearchParams = model.StringPtr(string(searchParamsJSON))
@@ -181,6 +183,72 @@ func (l *TableViewLogic) DeleteView(id int64) error {
 		Update(tv.IsDelete, true)
 
 	return err
+}
+
+// SetDefaultView 设置默认视图
+func (l *TableViewLogic) SetDefaultView(tableKey string, id int64) error {
+	userID := ctxutil.GetUserID(l.ctx)
+	if userID == 0 {
+		return errors.New("用户未登录")
+	}
+
+	tv := l.db().SysTableView
+
+	// 先取消该表格下当前用户的所有默认视图
+	_, err := tv.WithContext(l.ctx).
+		Where(tv.TableKey.Eq(tableKey), tv.IsDelete.Is(false)).
+		Where(tv.WithContext(l.ctx).Or(tv.UserID.Eq(0)).Or(tv.UserID.Eq(userID))).
+		Update(tv.IsDefault, false)
+	if err != nil {
+		return err
+	}
+
+	// 如果 id 为 0，表示清除默认视图，直接返回
+	if id == 0 {
+		return nil
+	}
+
+	// 检查视图是否存在
+	view, err := tv.WithContext(l.ctx).
+		Where(tv.ID.Eq(id), tv.TableKey.Eq(tableKey), tv.IsDelete.Is(false)).
+		First()
+	if err != nil {
+		return errors.New("视图不存在")
+	}
+
+	// 检查权限：只能设置自己的视图或系统视图为默认
+	if view.UserID != 0 && view.UserID != userID {
+		return errors.New("无权操作此视图")
+	}
+
+	// 设置新的默认视图
+	_, err = tv.WithContext(l.ctx).
+		Where(tv.ID.Eq(id)).
+		Update(tv.IsDefault, true)
+
+	return err
+}
+
+// UpdateViewSort 更新视图排序
+func (l *TableViewLogic) UpdateViewSort(tableKey string, viewIds []int64) error {
+	userID := ctxutil.GetUserID(l.ctx)
+	if userID == 0 {
+		return errors.New("用户未登录")
+	}
+
+	tv := l.db().SysTableView
+
+	// 按顺序更新排序值
+	for i, id := range viewIds {
+		_, err := tv.WithContext(l.ctx).
+			Where(tv.ID.Eq(id), tv.TableKey.Eq(tableKey), tv.IsDelete.Is(false)).
+			Update(tv.Sort, int32(i))
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // modelToInfo 模型转换为响应信息

@@ -57,3 +57,39 @@ func TableViewDelete(c *fiber.Ctx) error {
 
 	return response.Success(c, nil)
 }
+
+// TableViewSetDefault 设置默认视图
+func TableViewSetDefault(c *fiber.Ctx) error {
+	tableKey := c.Params("tableKey")
+	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	if err != nil || tableKey == "" {
+		return response.Error(c, "参数错误")
+	}
+
+	if err := logic.NewTableViewLogic(c).SetDefaultView(tableKey, id); err != nil {
+		return response.Error(c, err.Error())
+	}
+
+	return response.Success(c, nil)
+}
+
+// TableViewUpdateSort 更新视图排序
+func TableViewUpdateSort(c *fiber.Ctx) error {
+	tableKey := c.Params("tableKey")
+	if tableKey == "" {
+		return response.Error(c, "参数错误")
+	}
+
+	var req struct {
+		ViewIds []int64 `json:"viewIds"`
+	}
+	if err := c.BodyParser(&req); err != nil {
+		return response.Error(c, "参数解析失败")
+	}
+
+	if err := logic.NewTableViewLogic(c).UpdateViewSort(tableKey, req.ViewIds); err != nil {
+		return response.Error(c, err.Error())
+	}
+
+	return response.Success(c, nil)
+}

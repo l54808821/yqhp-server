@@ -17,6 +17,7 @@ type (
 	UserRole      = SysUserRole
 	UserApp       = SysUserApp
 	RoleResource  = SysRoleResource
+	TableView     = SysTableView
 )
 
 // 内置应用编码常量

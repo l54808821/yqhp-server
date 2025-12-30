@@ -70,6 +70,7 @@ func main() {
 		g.GenerateModel("sys_user_app"),
 		g.GenerateModel("sys_user_role"),
 		g.GenerateModel("sys_user_token"),
+		g.GenerateModel("sys_table_view"),
 	)
 
 	// 执行生成

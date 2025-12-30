@@ -29,6 +29,7 @@ var (
 	SysResource      *sysResource
 	SysRole          *sysRole
 	SysRoleResource  *sysRoleResource
+	SysTableView     *sysTableView
 	SysUser          *sysUser
 	SysUserApp       *sysUserApp
 	SysUserRole      *sysUserRole
@@ -49,6 +50,7 @@ func SetDefault(db *gorm.DB, opts ...gen.DOOption) {
 	SysResource = &Q.SysResource
 	SysRole = &Q.SysRole
 	SysRoleResource = &Q.SysRoleResource
+	SysTableView = &Q.SysTableView
 	SysUser = &Q.SysUser
 	SysUserApp = &Q.SysUserApp
 	SysUserRole = &Q.SysUserRole
@@ -70,6 +72,7 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		SysResource:      newSysResource(db, opts...),
 		SysRole:          newSysRole(db, opts...),
 		SysRoleResource:  newSysRoleResource(db, opts...),
+		SysTableView:     newSysTableView(db, opts...),
 		SysUser:          newSysUser(db, opts...),
 		SysUserApp:       newSysUserApp(db, opts...),
 		SysUserRole:      newSysUserRole(db, opts...),
@@ -92,6 +95,7 @@ type Query struct {
 	SysResource      sysResource
 	SysRole          sysRole
 	SysRoleResource  sysRoleResource
+	SysTableView     sysTableView
 	SysUser          sysUser
 	SysUserApp       sysUserApp
 	SysUserRole      sysUserRole
@@ -115,6 +119,7 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		SysResource:      q.SysResource.clone(db),
 		SysRole:          q.SysRole.clone(db),
 		SysRoleResource:  q.SysRoleResource.clone(db),
+		SysTableView:     q.SysTableView.clone(db),
 		SysUser:          q.SysUser.clone(db),
 		SysUserApp:       q.SysUserApp.clone(db),
 		SysUserRole:      q.SysUserRole.clone(db),
@@ -145,6 +150,7 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		SysResource:      q.SysResource.replaceDB(db),
 		SysRole:          q.SysRole.replaceDB(db),
 		SysRoleResource:  q.SysRoleResource.replaceDB(db),
+		SysTableView:     q.SysTableView.replaceDB(db),
 		SysUser:          q.SysUser.replaceDB(db),
 		SysUserApp:       q.SysUserApp.replaceDB(db),
 		SysUserRole:      q.SysUserRole.replaceDB(db),
@@ -165,6 +171,7 @@ type queryCtx struct {
 	SysResource      ISysResourceDo
 	SysRole          ISysRoleDo
 	SysRoleResource  ISysRoleResourceDo
+	SysTableView     ISysTableViewDo
 	SysUser          ISysUserDo
 	SysUserApp       ISysUserAppDo
 	SysUserRole      ISysUserRoleDo
@@ -185,6 +192,7 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		SysResource:      q.SysResource.WithContext(ctx),
 		SysRole:          q.SysRole.WithContext(ctx),
 		SysRoleResource:  q.SysRoleResource.WithContext(ctx),
+		SysTableView:     q.SysTableView.WithContext(ctx),
 		SysUser:          q.SysUser.WithContext(ctx),
 		SysUserApp:       q.SysUserApp.WithContext(ctx),
 		SysUserRole:      q.SysUserRole.WithContext(ctx),

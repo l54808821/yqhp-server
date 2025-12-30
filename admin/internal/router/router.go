@@ -150,4 +150,10 @@ func Setup(app *fiber.App, db *gorm.DB) {
 	userApps.Post("/list", handler.UserAppList)
 	userApps.Get("/user/:userId", handler.UserAppGetByUser)
 	userApps.Get("/app/:appId", handler.UserAppGetByApp)
+
+	// 表格视图配置
+	tableViews := sys.Group("/table-views")
+	tableViews.Get("/:tableKey", handler.TableViewGet)
+	tableViews.Post("", handler.TableViewSave)
+	tableViews.Delete("/:id", handler.TableViewDelete)
 }

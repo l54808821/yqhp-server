@@ -22,7 +22,31 @@
 -- TRUNCATE TABLE sys_application;
 
 -- =============================================
--- 0. 创建用户-应用关联表（如果不存在）
+-- 0. 创建表格视图配置表（如果不存在）
+-- =============================================
+-- user_id = 0 表示系统视图，user_id > 0 表示用户视图
+CREATE TABLE IF NOT EXISTS `sys_table_view` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `created_at` datetime DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` datetime DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `is_delete` tinyint(1) DEFAULT '0',
+  `created_by` bigint unsigned DEFAULT NULL COMMENT '创建人ID',
+  `updated_by` bigint unsigned DEFAULT NULL COMMENT '更新人ID',
+  `user_id` bigint unsigned NOT NULL DEFAULT '0' COMMENT '用户ID(0表示系统视图)',
+  `table_key` varchar(100) NOT NULL COMMENT '表格标识',
+  `name` varchar(50) NOT NULL COMMENT '视图名称',
+  `is_default` tinyint(1) DEFAULT '0' COMMENT '是否默认视图',
+  `column_keys` text COMMENT '显示的列(JSON数组)',
+  `column_fixed` text COMMENT '列固定配置(JSON数组)',
+  `search_params` text COMMENT '搜索条件(JSON对象)',
+  `sort` int DEFAULT '0' COMMENT '排序',
+  PRIMARY KEY (`id`),
+  KEY `idx_sys_table_view_is_delete` (`is_delete`),
+  KEY `idx_sys_table_view_user_table` (`user_id`, `table_key`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='表格视图配置';
+
+-- =============================================
+-- 0.1 创建用户-应用关联表（如果不存在）
 -- =============================================
 CREATE TABLE IF NOT EXISTS `sys_user_app` (
     `id` bigint unsigned NOT NULL AUTO_INCREMENT,

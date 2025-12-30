@@ -12,6 +12,7 @@ import (
 	"yqhp/admin/internal/router"
 	"yqhp/admin/internal/svc"
 	"yqhp/common/database"
+	"yqhp/common/logger"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -22,6 +23,19 @@ func main() {
 	if err != nil {
 		log.Fatalf("加载配置失败: %v", err)
 	}
+
+	// 初始化日志
+	logger.Init(&logger.Config{
+		Level:      cfg.Log.Level,
+		Format:     cfg.Log.Format,
+		Output:     cfg.Log.Output,
+		FilePath:   cfg.Log.FilePath,
+		MaxSize:    cfg.Log.MaxSize,
+		MaxBackups: cfg.Log.MaxBackups,
+		MaxAge:     cfg.Log.MaxAge,
+	})
+	defer logger.Sync()
+	logger.Info("日志初始化完成")
 
 	// 初始化数据库
 	if err := database.Init(&cfg.Database); err != nil {

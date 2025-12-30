@@ -9,18 +9,24 @@ import (
 	"yqhp/admin/internal/query"
 	"yqhp/admin/internal/svc"
 	"yqhp/admin/internal/types"
+	"yqhp/common/logger"
 
 	"github.com/gofiber/fiber/v2"
+	"go.uber.org/zap"
 )
 
 // ApplicationLogic 应用逻辑
 type ApplicationLogic struct {
-	ctx context.Context
+	ctx    context.Context
+	logger *zap.Logger
 }
 
 // NewApplicationLogic 创建应用逻辑
 func NewApplicationLogic(c *fiber.Ctx) *ApplicationLogic {
-	return &ApplicationLogic{ctx: c.UserContext()}
+	return &ApplicationLogic{
+		ctx:    c.UserContext(),
+		logger: logger.WithTraceId(c),
+	}
 }
 
 func (l *ApplicationLogic) db() *query.Query {
@@ -101,6 +107,7 @@ func (l *ApplicationLogic) GetApplication(id int64) (*types.AppInfo, error) {
 
 // ListApplications 获取应用列表
 func (l *ApplicationLogic) ListApplications(req *types.ListApplicationsRequest) ([]*types.AppInfo, int64, error) {
+	l.logger.Info("开始。。。。")
 	app := l.db().SysApplication
 	q := app.WithContext(l.ctx).Where(app.IsDelete.Is(false))
 

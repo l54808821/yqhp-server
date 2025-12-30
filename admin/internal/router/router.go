@@ -17,7 +17,7 @@ func Setup(app *fiber.App, db *gorm.DB) {
 	perm := func(code string) fiber.Handler { return middleware.PermissionMiddleware(ps, code) }
 
 	// 全局中间件
-	app.Use(commonMiddleware.CORS(), commonMiddleware.Logger(), commonMiddleware.Recover())
+	app.Use(commonMiddleware.CORS(), commonMiddleware.RequestID(), commonMiddleware.Logger(), commonMiddleware.Recover())
 
 	api := app.Group("/api")
 

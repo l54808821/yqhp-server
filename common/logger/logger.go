@@ -3,7 +3,9 @@ package logger
 import (
 	"os"
 	"sync"
+	"time"
 
+	"github.com/gofiber/fiber/v2"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/natefinch/lumberjack.v2"
@@ -65,7 +67,7 @@ func newLogger(cfg *Config) *zap.Logger {
 		StacktraceKey:  "stacktrace",
 		LineEnding:     zapcore.DefaultLineEnding,
 		EncodeLevel:    zapcore.LowercaseLevelEncoder,
-		EncodeTime:     zapcore.ISO8601TimeEncoder,
+		EncodeTime:     zapcore.TimeEncoderOfLayout("2006-01-02 15:04:05"),
 		EncodeDuration: zapcore.SecondsDurationEncoder,
 		EncodeCaller:   zapcore.ShortCallerEncoder,
 	}
@@ -97,10 +99,10 @@ func newLogger(cfg *Config) *zap.Logger {
 	}
 
 	core := zapcore.NewTee(cores...)
-	return zap.New(core, zap.AddCaller(), zap.AddCallerSkip(1))
+	return zap.New(core, zap.AddCaller())
 }
 
-// L 获取日志实例
+// L 获取全局日志实例
 func L() *zap.Logger {
 	if log == nil {
 		Init(nil)
@@ -108,29 +110,69 @@ func L() *zap.Logger {
 	return log
 }
 
+// WithTraceId 创建带 traceId 的 logger
+func WithTraceId(c *fiber.Ctx) *zap.Logger {
+	if traceId := c.Locals("requestid"); traceId != nil {
+		return L().With(zap.String("traceId", traceId.(string)))
+	}
+	return L()
+}
+
+// Middleware HTTP 日志中间件
+func Middleware() fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		start := time.Now()
+		err := c.Next()
+
+		fields := []zap.Field{
+			zap.Int("status", c.Response().StatusCode()),
+			zap.String("method", c.Method()),
+			zap.String("path", c.Path()),
+			zap.String("ip", c.IP()),
+			zap.Duration("latency", time.Since(start)),
+		}
+		if traceId := c.Locals("requestid"); traceId != nil {
+			fields = append(fields, zap.String("traceId", traceId.(string)))
+		}
+		if err != nil {
+			fields = append(fields, zap.Error(err))
+		}
+
+		status := c.Response().StatusCode()
+		if status >= 500 {
+			L().Error("HTTP", fields...)
+		} else if status >= 400 {
+			L().Warn("HTTP", fields...)
+		} else {
+			L().Info("HTTP", fields...)
+		}
+		return err
+	}
+}
+
 // Debug 调试日志
 func Debug(msg string, fields ...zap.Field) {
-	L().Debug(msg, fields...)
+	L().WithOptions(zap.AddCallerSkip(1)).Debug(msg, fields...)
 }
 
 // Info 信息日志
 func Info(msg string, fields ...zap.Field) {
-	L().Info(msg, fields...)
+	L().WithOptions(zap.AddCallerSkip(1)).Info(msg, fields...)
 }
 
 // Warn 警告日志
 func Warn(msg string, fields ...zap.Field) {
-	L().Warn(msg, fields...)
+	L().WithOptions(zap.AddCallerSkip(1)).Warn(msg, fields...)
 }
 
 // Error 错误日志
 func Error(msg string, fields ...zap.Field) {
-	L().Error(msg, fields...)
+	L().WithOptions(zap.AddCallerSkip(1)).Error(msg, fields...)
 }
 
 // Fatal 致命错误日志
 func Fatal(msg string, fields ...zap.Field) {
-	L().Fatal(msg, fields...)
+	L().WithOptions(zap.AddCallerSkip(1)).Fatal(msg, fields...)
 }
 
 // Sync 同步日志

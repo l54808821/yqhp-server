@@ -1,21 +1,18 @@
 package middleware
 
 import (
+	"yqhp/common/logger"
+
 	"github.com/gofiber/fiber/v2"
-	"github.com/gofiber/fiber/v2/middleware/logger"
+	"github.com/gofiber/fiber/v2/middleware/requestid"
 )
+
+// RequestID 请求ID中间件
+func RequestID() fiber.Handler {
+	return requestid.New()
+}
 
 // Logger 日志中间件
 func Logger() fiber.Handler {
-	return logger.New(logger.Config{
-		Format:     "[${time}] ${status} - ${latency} ${method} ${path}\n",
-		TimeFormat: "2006-01-02 15:04:05",
-		TimeZone:   "Local",
-	})
+	return logger.Middleware()
 }
-
-// LoggerWithConfig 自定义日志配置
-func LoggerWithConfig(config logger.Config) fiber.Handler {
-	return logger.New(config)
-}
-

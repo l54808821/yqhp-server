@@ -49,6 +49,9 @@ type LoginLogInfo struct {
 	UserID    int64     `json:"userId"`
 	Username  string    `json:"username"`
 	IP        string    `json:"ip"`
+	Location  string    `json:"location"`
+	Browser   string    `json:"browser"`
+	Os        string    `json:"os"`
 	Status    int32     `json:"status"`
 	Message   string    `json:"message"`
 	LoginType string    `json:"loginType"`

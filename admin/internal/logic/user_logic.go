@@ -173,10 +173,20 @@ func (l *UserLogic) saveUserToken(userID int64, token string, ip string, now tim
 }
 
 func (l *UserLogic) recordLoginLog(userID int64, username string, ip string, status int8, message string, loginType string) {
+	var browser, os string
+	if l.fiber != nil {
+		userAgent := l.fiber.Get("User-Agent")
+		uaInfo := utils.ParseUserAgent(userAgent)
+		browser = uaInfo.Browser
+		os = uaInfo.Os
+	}
+
 	log := &model.SysLoginLog{
 		UserID:    model.Int64Ptr(userID),
 		Username:  model.StringPtr(username),
 		IP:        model.StringPtr(ip),
+		Browser:   model.StringPtr(browser),
+		Os:        model.StringPtr(os),
 		Status:    model.Int32Ptr(int32(status)),
 		Message:   model.StringPtr(message),
 		LoginType: model.StringPtr(loginType),

@@ -6,7 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/grafana/k6/workflow-engine/pkg/types"
+	"yqhp/workflow-engine/pkg/types"
 )
 
 // RampingArrivalRateMode implements the ramping-arrival-rate execution mode.

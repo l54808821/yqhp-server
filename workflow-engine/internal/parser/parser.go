@@ -2,7 +2,7 @@
 package parser
 
 import (
-	"github.com/grafana/k6/workflow-engine/pkg/types"
+	"yqhp/workflow-engine/pkg/types"
 )
 
 // Parser defines the interface for parsing workflow definitions.

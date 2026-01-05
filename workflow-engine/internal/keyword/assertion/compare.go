@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/grafana/k6/workflow-engine/internal/keyword"
+	"yqhp/workflow-engine/internal/keyword"
 )
 
 // CompareFunc is a function that compares two values.

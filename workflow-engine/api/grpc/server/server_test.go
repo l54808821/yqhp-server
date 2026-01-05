@@ -8,9 +8,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	pb "github.com/grafana/k6/workflow-engine/api/grpc/proto"
-	"github.com/grafana/k6/workflow-engine/internal/master"
-	"github.com/grafana/k6/workflow-engine/pkg/types"
+	pb "yqhp/workflow-engine/api/grpc/proto"
+	"yqhp/workflow-engine/internal/master"
+	"yqhp/workflow-engine/pkg/types"
 )
 
 // mockRegistry implements master.SlaveRegistry for testing.

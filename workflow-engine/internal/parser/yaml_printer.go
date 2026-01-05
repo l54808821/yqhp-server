@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"os"
 
-	"github.com/grafana/k6/workflow-engine/pkg/types"
+	"yqhp/workflow-engine/pkg/types"
 	"gopkg.in/yaml.v3"
 )
 

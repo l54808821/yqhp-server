@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/grafana/k6/workflow-engine/pkg/types"
+	"yqhp/workflow-engine/pkg/types"
 	"github.com/leanovate/gopter"
 	"github.com/leanovate/gopter/gen"
 	"github.com/leanovate/gopter/prop"

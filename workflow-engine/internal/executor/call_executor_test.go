@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/grafana/k6/workflow-engine/internal/script"
-	"github.com/grafana/k6/workflow-engine/pkg/types"
+	"yqhp/workflow-engine/internal/script"
+	"yqhp/workflow-engine/pkg/types"
 )
 
 func TestCallExecutor_Execute(t *testing.T) {

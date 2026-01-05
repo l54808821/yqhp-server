@@ -11,9 +11,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/grafana/k6/workflow-engine/internal/master"
-	"github.com/grafana/k6/workflow-engine/internal/parser"
-	"github.com/grafana/k6/workflow-engine/pkg/types"
+	"yqhp/workflow-engine/internal/master"
+	"yqhp/workflow-engine/internal/parser"
+	"yqhp/workflow-engine/pkg/types"
 )
 
 // Execute executes the run command with the given arguments.

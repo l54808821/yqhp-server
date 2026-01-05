@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/grafana/k6/workflow-engine/internal/keyword"
+	"yqhp/workflow-engine/internal/keyword"
 )
 
 func TestExtract_DelegateToJSONPath(t *testing.T) {

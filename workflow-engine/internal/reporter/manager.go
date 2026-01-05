@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/grafana/k6/workflow-engine/pkg/types"
+	"yqhp/workflow-engine/pkg/types"
 )
 
 // Manager manages multiple reporters for an execution.

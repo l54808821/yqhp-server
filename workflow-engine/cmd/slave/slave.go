@@ -12,10 +12,10 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/grafana/k6/workflow-engine/internal/config"
-	"github.com/grafana/k6/workflow-engine/internal/executor"
-	"github.com/grafana/k6/workflow-engine/internal/slave"
-	"github.com/grafana/k6/workflow-engine/pkg/types"
+	"yqhp/workflow-engine/internal/config"
+	"yqhp/workflow-engine/internal/executor"
+	"yqhp/workflow-engine/internal/slave"
+	"yqhp/workflow-engine/pkg/types"
 )
 
 // Execute executes the slave command with the given arguments.

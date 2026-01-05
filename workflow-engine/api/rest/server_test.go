@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/grafana/k6/workflow-engine/internal/master"
-	"github.com/grafana/k6/workflow-engine/pkg/types"
+	"yqhp/workflow-engine/internal/master"
+	"yqhp/workflow-engine/pkg/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

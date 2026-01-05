@@ -6,7 +6,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/grafana/k6/workflow-engine/internal/keyword"
+	"yqhp/workflow-engine/internal/keyword"
 )
 
 // stringKeyword is a base implementation for string assertions.

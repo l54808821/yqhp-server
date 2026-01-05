@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"reflect"
 
-	"github.com/grafana/k6/workflow-engine/internal/keyword"
+	"yqhp/workflow-engine/internal/keyword"
 )
 
 // In creates an in assertion keyword.

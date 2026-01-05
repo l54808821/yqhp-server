@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/grafana/k6/workflow-engine/internal/config"
-	"github.com/grafana/k6/workflow-engine/internal/master"
+	"yqhp/workflow-engine/internal/config"
+	"yqhp/workflow-engine/internal/master"
 )
 
 // Execute executes the master command with the given arguments.

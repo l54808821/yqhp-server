@@ -15,7 +15,7 @@ import (
 	"github.com/leanovate/gopter/prop"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/grafana/k6/workflow-engine/pkg/types"
+	"yqhp/workflow-engine/pkg/types"
 )
 
 // TestWorkSegmentDistributionProperty tests Property 7: Work segment distribution completeness.

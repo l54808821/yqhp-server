@@ -4,7 +4,7 @@ package rest
 import (
 	"time"
 
-	"github.com/grafana/k6/workflow-engine/pkg/types"
+	"yqhp/workflow-engine/pkg/types"
 )
 
 // ErrorResponse represents an error response.

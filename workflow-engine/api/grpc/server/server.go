@@ -15,10 +15,10 @@ import (
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/status"
 
-	"github.com/grafana/k6/workflow-engine/api/grpc/converter"
-	pb "github.com/grafana/k6/workflow-engine/api/grpc/proto"
-	"github.com/grafana/k6/workflow-engine/internal/master"
-	"github.com/grafana/k6/workflow-engine/pkg/types"
+	"yqhp/workflow-engine/api/grpc/converter"
+	pb "yqhp/workflow-engine/api/grpc/proto"
+	"yqhp/workflow-engine/internal/master"
+	"yqhp/workflow-engine/pkg/types"
 )
 
 // Config holds the configuration for the gRPC server.

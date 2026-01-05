@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"regexp"
 
-	"github.com/grafana/k6/workflow-engine/internal/keyword"
+	"yqhp/workflow-engine/internal/keyword"
 )
 
 // Regex creates a regex extractor keyword.

@@ -1,11 +1,11 @@
 package reporter
 
 import (
-	"github.com/grafana/k6/workflow-engine/internal/reporter/console"
-	"github.com/grafana/k6/workflow-engine/internal/reporter/file"
-	"github.com/grafana/k6/workflow-engine/internal/reporter/influxdb"
-	"github.com/grafana/k6/workflow-engine/internal/reporter/prometheus"
-	"github.com/grafana/k6/workflow-engine/internal/reporter/webhook"
+	"yqhp/workflow-engine/internal/reporter/console"
+	"yqhp/workflow-engine/internal/reporter/file"
+	"yqhp/workflow-engine/internal/reporter/influxdb"
+	"yqhp/workflow-engine/internal/reporter/prometheus"
+	"yqhp/workflow-engine/internal/reporter/webhook"
 )
 
 // RegisterBuiltinReporters registers all built-in reporters with the registry.

@@ -5,7 +5,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/grafana/k6/workflow-engine/pkg/types"
+	"yqhp/workflow-engine/pkg/types"
 )
 
 // Executor defines the interface for step executors.

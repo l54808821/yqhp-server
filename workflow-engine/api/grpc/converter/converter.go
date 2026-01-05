@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"time"
 
-	pb "github.com/grafana/k6/workflow-engine/api/grpc/proto"
-	"github.com/grafana/k6/workflow-engine/pkg/types"
+	pb "yqhp/workflow-engine/api/grpc/proto"
+	"yqhp/workflow-engine/pkg/types"
 )
 
 // SlaveInfoToProto converts types.SlaveInfo to protobuf RegisterRequest.

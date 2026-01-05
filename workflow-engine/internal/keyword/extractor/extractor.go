@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/grafana/k6/workflow-engine/internal/keyword"
+	"yqhp/workflow-engine/internal/keyword"
 )
 
 // Extract creates a generic extract keyword that delegates to specific extractors.

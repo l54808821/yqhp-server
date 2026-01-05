@@ -7,9 +7,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/grafana/k6/workflow-engine/internal/executor"
-	"github.com/grafana/k6/workflow-engine/internal/hook"
-	"github.com/grafana/k6/workflow-engine/pkg/types"
+	"yqhp/workflow-engine/internal/executor"
+	"yqhp/workflow-engine/internal/hook"
+	"yqhp/workflow-engine/pkg/types"
 )
 
 // TaskEngine handles workflow task execution.

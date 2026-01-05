@@ -13,11 +13,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/grafana/k6/workflow-engine/internal/executor"
-	"github.com/grafana/k6/workflow-engine/internal/master"
-	"github.com/grafana/k6/workflow-engine/internal/parser"
-	"github.com/grafana/k6/workflow-engine/internal/slave"
-	"github.com/grafana/k6/workflow-engine/pkg/types"
+	"yqhp/workflow-engine/internal/executor"
+	"yqhp/workflow-engine/internal/master"
+	"yqhp/workflow-engine/internal/parser"
+	"yqhp/workflow-engine/internal/slave"
+	"yqhp/workflow-engine/pkg/types"
 )
 
 // TestCompleteWorkflowExecution tests a complete workflow execution from parsing to completion.

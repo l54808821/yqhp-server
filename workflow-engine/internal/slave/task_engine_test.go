@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/grafana/k6/workflow-engine/internal/executor"
-	"github.com/grafana/k6/workflow-engine/pkg/types"
+	"yqhp/workflow-engine/internal/executor"
+	"yqhp/workflow-engine/pkg/types"
 )
 
 // mockExecutor is a simple executor for testing.

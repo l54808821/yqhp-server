@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/grafana/k6/workflow-engine/internal/config"
-	"github.com/grafana/k6/workflow-engine/internal/executor"
-	"github.com/grafana/k6/workflow-engine/internal/script"
+	"yqhp/workflow-engine/internal/config"
+	"yqhp/workflow-engine/internal/executor"
+	"yqhp/workflow-engine/internal/script"
 	"gopkg.in/yaml.v3"
 )
 

@@ -5,8 +5,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/grafana/k6/workflow-engine/internal/expression"
-	"github.com/grafana/k6/workflow-engine/pkg/types"
+	"yqhp/workflow-engine/internal/expression"
+	"yqhp/workflow-engine/pkg/types"
 )
 
 const (

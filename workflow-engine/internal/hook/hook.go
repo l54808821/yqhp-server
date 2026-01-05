@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/grafana/k6/workflow-engine/internal/executor"
-	"github.com/grafana/k6/workflow-engine/pkg/types"
+	"yqhp/workflow-engine/internal/executor"
+	"yqhp/workflow-engine/pkg/types"
 )
 
 // HookType represents the type of hook (pre or post).

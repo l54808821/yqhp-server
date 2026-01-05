@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/grafana/k6/workflow-engine/cmd/master"
-	"github.com/grafana/k6/workflow-engine/cmd/run"
-	"github.com/grafana/k6/workflow-engine/cmd/slave"
+	"yqhp/workflow-engine/cmd/master"
+	"yqhp/workflow-engine/cmd/run"
+	"yqhp/workflow-engine/cmd/slave"
 )
 
 const version = "0.1.0"

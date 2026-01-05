@@ -11,7 +11,7 @@ import (
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	fiberrecover "github.com/gofiber/fiber/v2/middleware/recover"
-	"github.com/grafana/k6/workflow-engine/internal/master"
+	"yqhp/workflow-engine/internal/master"
 )
 
 // Server represents the REST API server.

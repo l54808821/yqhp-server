@@ -5,7 +5,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/grafana/k6/workflow-engine/pkg/types"
+	"yqhp/workflow-engine/pkg/types"
 )
 
 // ScriptHook 脚本钩子定义

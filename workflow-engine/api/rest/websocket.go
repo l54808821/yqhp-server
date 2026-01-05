@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2/middleware/adaptor"
-	"github.com/grafana/k6/workflow-engine/pkg/types"
+	"yqhp/workflow-engine/pkg/types"
 	"golang.org/x/net/websocket"
 )
 

@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/grafana/k6/workflow-engine/pkg/types"
+	"yqhp/workflow-engine/pkg/types"
 )
 
 // Mode defines the interface for execution modes.

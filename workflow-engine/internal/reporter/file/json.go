@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/grafana/k6/workflow-engine/pkg/types"
+	"yqhp/workflow-engine/pkg/types"
 )
 
 // JSONConfig holds configuration for the JSON reporter.

@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/grafana/k6/workflow-engine/pkg/types"
+	"yqhp/workflow-engine/pkg/types"
 )
 
 // Reporter defines the interface for report output.

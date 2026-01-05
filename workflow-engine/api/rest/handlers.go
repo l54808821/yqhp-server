@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
-	"github.com/grafana/k6/workflow-engine/internal/master"
-	"github.com/grafana/k6/workflow-engine/internal/parser"
-	"github.com/grafana/k6/workflow-engine/pkg/types"
+	"yqhp/workflow-engine/internal/master"
+	"yqhp/workflow-engine/internal/parser"
+	"yqhp/workflow-engine/pkg/types"
 )
 
 // healthCheck handles GET /health

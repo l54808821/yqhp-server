@@ -3,7 +3,7 @@ package master
 import (
 	"context"
 
-	"github.com/grafana/k6/workflow-engine/pkg/types"
+	"yqhp/workflow-engine/pkg/types"
 )
 
 // SlaveRegistry manages slave registration and status.

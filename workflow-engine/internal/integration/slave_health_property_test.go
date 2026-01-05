@@ -14,8 +14,8 @@ import (
 	"github.com/leanovate/gopter/prop"
 	"github.com/stretchr/testify/assert"
 
-	"github.com/grafana/k6/workflow-engine/internal/master"
-	"github.com/grafana/k6/workflow-engine/pkg/types"
+	"yqhp/workflow-engine/internal/master"
+	"yqhp/workflow-engine/pkg/types"
 )
 
 // TestSlaveHealthMonitoringProperty tests Property 11: Slave health monitoring.

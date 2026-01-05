@@ -1,0 +1,23 @@
+# 2026/01/02 12:48:33.202407 [TestCircularCallDetectionProperty] [rapid] draw chainLength: 2
+# 2026/01/02 12:48:33.202435 [TestCircularCallDetectionProperty] [rapid] draw scriptName: "script_a"
+# 2026/01/02 12:48:33.202437 [TestCircularCallDetectionProperty] [rapid] draw scriptName: "script_a"
+# 2026/01/02 12:48:33.202444 [TestCircularCallDetectionProperty] [rapid] draw createCycle: false
+# 2026/01/02 12:48:33.202446 [TestCircularCallDetectionProperty] unexpected circular call detection at index 1
+# 
+v0.4.8#17643533995274730790
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0

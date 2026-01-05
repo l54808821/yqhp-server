@@ -1,0 +1,35 @@
+# Workflow Engine Configuration
+# This is the default configuration file
+
+server:
+    address: ":8080"
+    read_timeout: 30s
+    write_timeout: 30s
+    enable_cors: false
+    enable_swagger: false
+
+grpc:
+    address: ":9090"
+    max_recv_msg_size: 4194304 # 4MB
+    max_send_msg_size: 4194304 # 4MB
+    connection_timeout: 10s
+
+master:
+    heartbeat_interval: 5s
+    heartbeat_timeout: 15s
+    task_queue_size: 1000
+    max_slaves: 100
+
+slave:
+    type: worker
+    capabilities:
+        - http_executor
+        - script_executor
+    labels: {}
+    max_vus: 100
+    master_addr: "localhost:9090"
+
+logging:
+    level: info
+    format: json
+    output: stdout

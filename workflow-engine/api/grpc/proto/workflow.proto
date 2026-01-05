@@ -1,0 +1,200 @@
+// Copyright 2024 Grafana Labs
+// SPDX-License-Identifier: Apache-2.0
+
+syntax = "proto3";
+
+package workflow.v1;
+
+option go_package = "github.com/grafana/k6/workflow-engine/api/grpc/proto";
+
+// MasterService defines the gRPC service for Master-Slave communication.
+// Requirements: 15.1, 15.2, 15.4
+service MasterService {
+    // Register registers a slave with the master.
+    rpc Register(RegisterRequest) returns (RegisterResponse);
+
+    // Heartbeat maintains connection and reports status.
+    rpc Heartbeat(stream HeartbeatRequest) returns (stream HeartbeatResponse);
+
+    // StreamTasks streams task assignments and updates.
+    rpc StreamTasks(stream TaskUpdate) returns (stream TaskAssignment);
+
+    // StreamMetrics streams metrics from slave to master.
+    rpc StreamMetrics(stream MetricsReport) returns (stream MetricsAck);
+}
+
+// RegisterRequest contains slave registration information.
+message RegisterRequest {
+    string slave_id = 1;
+    string slave_type = 2;
+    repeated string capabilities = 3;
+    map<string, string> labels = 4;
+    ResourceInfo resources = 5;
+    string address = 6;
+}
+
+// RegisterResponse contains the registration result.
+message RegisterResponse {
+    bool accepted = 1;
+    string assigned_id = 2;
+    string error = 3;
+    MasterInfo master_info = 4;
+}
+
+// MasterInfo contains information about the master.
+message MasterInfo {
+    string master_id = 1;
+    string version = 2;
+    int64 heartbeat_interval_ms = 3;
+}
+
+// ResourceInfo contains resource information for a slave.
+message ResourceInfo {
+    int32 cpu_cores = 1;
+    int64 memory_mb = 2;
+    int32 max_vus = 3;
+    double current_load = 4;
+}
+
+// HeartbeatRequest contains heartbeat information from slave.
+message HeartbeatRequest {
+    string slave_id = 1;
+    SlaveStatus status = 2;
+    int64 timestamp = 3;
+}
+
+// HeartbeatResponse contains commands from master.
+message HeartbeatResponse {
+    repeated ControlCommand commands = 1;
+    int64 timestamp = 2;
+}
+
+// SlaveStatus contains the current status of a slave.
+message SlaveStatus {
+    string state = 1;
+    double load = 2;
+    int32 active_tasks = 3;
+    int64 last_seen = 4;
+    SlaveMetrics metrics = 5;
+}
+
+// SlaveMetrics contains metrics for a slave node.
+message SlaveMetrics {
+    double cpu_usage = 1;
+    double memory_usage = 2;
+    int32 active_vus = 3;
+    double throughput = 4;
+}
+
+// ControlCommand represents a command from master to slave.
+message ControlCommand {
+    CommandType type = 1;
+    string execution_id = 2;
+    map<string, string> params = 3;
+}
+
+// CommandType defines the type of control command.
+enum CommandType {
+    COMMAND_UNKNOWN = 0;
+    COMMAND_STOP = 1;
+    COMMAND_PAUSE = 2;
+    COMMAND_RESUME = 3;
+    COMMAND_SCALE = 4;
+}
+
+// TaskAssignment contains a task assigned to a slave.
+message TaskAssignment {
+    string task_id = 1;
+    string execution_id = 2;
+    bytes workflow_data = 3;  // Serialized Workflow
+    ExecutionSegment segment = 4;
+    ExecutionOptions options = 5;
+}
+
+// ExecutionSegment defines a portion of the total execution.
+message ExecutionSegment {
+    double start = 1;  // 0.0 to 1.0
+    double end = 2;    // 0.0 to 1.0
+}
+
+// ExecutionOptions defines execution parameters.
+message ExecutionOptions {
+    int32 vus = 1;
+    int64 duration_ms = 2;
+    int32 iterations = 3;
+    string execution_mode = 4;
+    repeated Stage stages = 5;
+}
+
+// Stage defines an execution stage.
+message Stage {
+    int64 duration_ms = 1;
+    int32 target = 2;
+    string name = 3;
+}
+
+// TaskUpdate contains task execution updates from slave.
+message TaskUpdate {
+    string task_id = 1;
+    string execution_id = 2;
+    TaskStatus status = 3;
+    bytes result_data = 4;  // Serialized TaskResult
+    repeated ExecutionError errors = 5;
+}
+
+// TaskStatus defines the status of a task.
+enum TaskStatus {
+    TASK_STATUS_UNKNOWN = 0;
+    TASK_STATUS_PENDING = 1;
+    TASK_STATUS_RUNNING = 2;
+    TASK_STATUS_PAUSED = 3;
+    TASK_STATUS_COMPLETED = 4;
+    TASK_STATUS_FAILED = 5;
+    TASK_STATUS_ABORTED = 6;
+}
+
+// ExecutionError represents an error during execution.
+message ExecutionError {
+    string code = 1;
+    string message = 2;
+    string step_id = 3;
+    int64 timestamp = 4;
+}
+
+// MetricsReport contains metrics from a slave.
+message MetricsReport {
+    string slave_id = 1;
+    string execution_id = 2;
+    int64 timestamp = 3;
+    bytes metrics_data = 4;  // Serialized Metrics
+    map<string, StepMetrics> step_metrics = 5;
+}
+
+// StepMetrics contains metrics for a specific step.
+message StepMetrics {
+    string step_id = 1;
+    int64 count = 2;
+    int64 success_count = 3;
+    int64 failure_count = 4;
+    DurationMetrics duration = 5;
+    map<string, double> custom_metrics = 6;
+}
+
+// DurationMetrics contains timing statistics.
+message DurationMetrics {
+    int64 min_ns = 1;
+    int64 max_ns = 2;
+    int64 avg_ns = 3;
+    int64 p50_ns = 4;
+    int64 p90_ns = 5;
+    int64 p95_ns = 6;
+    int64 p99_ns = 7;
+}
+
+// MetricsAck acknowledges receipt of metrics.
+message MetricsAck {
+    string execution_id = 1;
+    int64 timestamp = 2;
+    bool success = 3;
+    string error = 4;
+}

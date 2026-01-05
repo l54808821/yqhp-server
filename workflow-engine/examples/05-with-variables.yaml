@@ -1,0 +1,40 @@
+# 使用变量的工作流示例
+# 运行: ./workflow-engine run examples/05-with-variables.yaml
+
+id: workflow-with-variables
+name: Workflow with Variables
+description: 使用变量的工作流示例
+
+# 定义变量
+variables:
+  base_url: "https://httpbin.org"
+  api_version: "v1"
+  timeout_seconds: 30
+  user_name: "test-user"
+  user_email: "test@example.com"
+
+steps:
+  - id: get_request
+    name: GET Request with Variables
+    type: http
+    config:
+      method: GET
+      url: "${base_url}/get"
+      headers:
+        X-API-Version: "${api_version}"
+    timeout: 30s
+
+  - id: post_request
+    name: POST Request with Variables
+    type: http
+    config:
+      method: POST
+      url: "${base_url}/post"
+      headers:
+        Content-Type: "application/json"
+      body: |
+        {
+          "name": "${user_name}",
+          "email": "${user_email}"
+        }
+    timeout: 30s

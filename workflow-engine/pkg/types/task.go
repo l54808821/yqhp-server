@@ -16,6 +16,7 @@ type TaskResult struct {
 	Status      ExecutionStatus
 	Metrics     *Metrics
 	Errors      []ExecutionError
+	Iterations  int64 // Total iterations completed
 }
 
 // ExecutionPlan describes how work is distributed.

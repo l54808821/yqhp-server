@@ -1,0 +1,32 @@
+# 性能测试 - 恒定 VU 模式
+# 运行: ./workflow-engine run examples/09-performance-constant-vus.yaml
+# 或: ./workflow-engine run -vus 20 -duration 2m examples/09-performance-constant-vus.yaml
+
+id: performance-constant-vus
+name: Performance Test - Constant VUs
+description: 使用恒定虚拟用户数的性能测试示例
+
+options:
+  # 虚拟用户数
+  vus: 5
+  # 持续时间
+  duration: 20s
+  # 执行模式
+  mode: constant-vus
+  # 性能阈值
+  thresholds:
+    - metric: http_req_duration
+      condition: "p(95) < 500" # 95% 请求响应时间 < 500ms
+    - metric: http_req_duration
+      condition: "p(99) < 1000" # 99% 请求响应时间 < 1000ms
+    - metric: http_req_failed
+      condition: "rate < 0.01" # 错误率 < 1%
+
+steps:
+  - id: api_request
+    name: API Request
+    type: http
+    config:
+      method: GET
+      url: "https://www.baidu.com"
+    timeout: 30s

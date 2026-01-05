@@ -1,0 +1,15 @@
+# 简单 HTTP 请求示例
+# 运行: ./workflow-engine run examples/01-simple-http.yaml
+
+id: simple-http-test
+name: Simple HTTP Test
+description: 最简单的 HTTP GET 请求示例
+
+steps:
+  - id: get_request
+    name: GET Request
+    type: http
+    config:
+      method: GET
+      url: "https://www.baidu.com"
+    timeout: 30s

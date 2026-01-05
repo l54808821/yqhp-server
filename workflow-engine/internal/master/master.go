@@ -7,8 +7,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/google/uuid"
+	"yqhp/workflow-engine/internal/executor"
+	"yqhp/workflow-engine/internal/slave"
 	"yqhp/workflow-engine/pkg/types"
+
+	"github.com/google/uuid"
 )
 
 // Master defines the interface for a master node.
@@ -356,24 +359,99 @@ func (m *WorkflowMaster) runExecution(ctx context.Context, execInfo *ExecutionIn
 	m.simulateExecution(execCtx, execInfo)
 }
 
-// simulateExecution simulates workflow execution (placeholder for real implementation).
+// simulateExecution executes workflow in standalone mode using TaskEngine.
 func (m *WorkflowMaster) simulateExecution(ctx context.Context, execInfo *ExecutionInfo) {
 	execInfo.mu.Lock()
 	execInfo.State.Status = types.ExecutionStatusRunning
 	execInfo.mu.Unlock()
 
-	// Wait for completion or cancellation
+	// Create task engine with default executor registry
+	registry := executor.DefaultRegistry
+	taskEngine := slave.NewTaskEngine(registry, execInfo.Workflow.Options.VUs)
+
+	// Create task for execution
+	task := &types.Task{
+		ID:          uuid.New().String(),
+		ExecutionID: execInfo.ID,
+		Workflow:    execInfo.Workflow,
+		Segment: types.ExecutionSegment{
+			Start: 0,
+			End:   1,
+		},
+	}
+
+	// Execute in a goroutine so we can handle cancellation
+	resultCh := make(chan *types.TaskResult, 1)
+	errCh := make(chan error, 1)
+
+	go func() {
+		result, err := taskEngine.Execute(ctx, task)
+		if err != nil {
+			errCh <- err
+		} else {
+			resultCh <- result
+		}
+	}()
+
+	// Wait for completion, cancellation, or stop signal
 	select {
 	case <-ctx.Done():
+		taskEngine.Stop(context.Background())
 		execInfo.mu.Lock()
 		execInfo.State.Status = types.ExecutionStatusAborted
 		now := time.Now()
 		execInfo.EndTime = &now
 		execInfo.State.EndTime = &now
 		execInfo.mu.Unlock()
+
 	case <-execInfo.stopCh:
+		taskEngine.Stop(context.Background())
 		execInfo.mu.Lock()
 		execInfo.State.Status = types.ExecutionStatusAborted
+		now := time.Now()
+		execInfo.EndTime = &now
+		execInfo.State.EndTime = &now
+		execInfo.mu.Unlock()
+
+	case result := <-resultCh:
+		execInfo.mu.Lock()
+		if result.Status == types.ExecutionStatusCompleted {
+			execInfo.State.Status = types.ExecutionStatusCompleted
+			execInfo.State.Progress = 1.0
+		} else {
+			execInfo.State.Status = result.Status
+		}
+		// Store metrics
+		if result.Metrics != nil {
+			// Use actual iterations from result, fallback to workflow config
+			totalIterations := result.Iterations
+			if totalIterations == 0 {
+				totalIterations = int64(execInfo.Workflow.Options.Iterations)
+			}
+			execInfo.State.AggregatedMetrics = &types.AggregatedMetrics{
+				ExecutionID:     execInfo.ID,
+				TotalIterations: totalIterations,
+				TotalVUs:        execInfo.Workflow.Options.VUs,
+				StepMetrics:     make(map[string]*types.StepMetrics),
+			}
+			// Convert task metrics to aggregated metrics
+			for stepID, stepMetrics := range result.Metrics.StepMetrics {
+				execInfo.State.AggregatedMetrics.StepMetrics[stepID] = stepMetrics
+			}
+		}
+		now := time.Now()
+		execInfo.EndTime = &now
+		execInfo.State.EndTime = &now
+		execInfo.mu.Unlock()
+
+	case err := <-errCh:
+		execInfo.mu.Lock()
+		execInfo.State.Status = types.ExecutionStatusFailed
+		execInfo.State.Errors = append(execInfo.State.Errors, types.ExecutionError{
+			Code:      types.ErrCodeExecution,
+			Message:   err.Error(),
+			Timestamp: time.Now(),
+		})
 		now := time.Now()
 		execInfo.EndTime = &now
 		execInfo.State.EndTime = &now

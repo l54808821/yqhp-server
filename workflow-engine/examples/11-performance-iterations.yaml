@@ -1,0 +1,30 @@
+# 性能测试 - 迭代模式
+# 运行: ./workflow-engine run examples/11-performance-iterations.yaml
+# 或: ./workflow-engine run -iterations 200 examples/11-performance-iterations.yaml
+
+id: performance-iterations
+name: Performance Test - Iterations
+description: 基于迭代次数的性能测试示例
+
+options:
+  # 虚拟用户数
+  vus: 5
+  # 总迭代次数 (所有 VU 共享)
+  iterations: 100
+  # 执行模式
+  mode: shared-iterations
+  # 性能阈值
+  thresholds:
+    - metric: http_req_duration
+      condition: "avg < 300" # 平均响应时间 < 300ms
+    - metric: http_req_duration
+      condition: "p(95) < 500"
+
+steps:
+  - id: api_request
+    name: API Request
+    type: http
+    config:
+      method: GET
+      url: "https://httpbin.org/get"
+    timeout: 30s

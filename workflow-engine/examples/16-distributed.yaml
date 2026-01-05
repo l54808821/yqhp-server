@@ -1,0 +1,32 @@
+# 分布式执行示例
+# 运行步骤:
+# 1. 启动 Master: ./workflow-engine master start
+# 2. 启动 Slave: ./workflow-engine slave start --master localhost:9090 --labels region=us-east
+# 3. 通过 API 提交此工作流
+
+id: distributed-test
+name: Distributed Test
+description: 分布式执行示例，指定目标 Slave 节点
+
+options:
+  vus: 100
+  duration: 5m
+  mode: constant-vus
+  # 指定目标 Slave 节点
+  target_slaves:
+    labels:
+      region: us-east
+  thresholds:
+    - metric: http_req_duration
+      condition: "p(95) < 500"
+    - metric: http_req_failed
+      condition: "rate < 0.01"
+
+steps:
+  - id: api_request
+    name: API Request
+    type: http
+    config:
+      method: GET
+      url: "https://httpbin.org/get"
+    timeout: 30s

@@ -95,6 +95,9 @@ func (e *TaskEngine) Execute(ctx context.Context, task *types.Task) (*types.Task
 	// Collect final metrics
 	result.Metrics = e.collector.GetMetrics()
 
+	// Set iterations count
+	result.Iterations = e.iterations.Load()
+
 	return result, execErr
 }
 
@@ -536,10 +539,8 @@ func (e *TaskEngine) executeStep(ctx context.Context, exec executor.Executor, st
 }
 
 // recordWorkflowMetrics records metrics for a workflow execution.
+// Note: Step metrics are already recorded in executeStep, so this function
+// is kept for potential future use (e.g., recording workflow-level metrics).
 func (e *TaskEngine) recordWorkflowMetrics(result *hook.WorkflowExecutionResult) {
-	for _, stepResult := range result.StepResults {
-		if stepResult.StepResult != nil {
-			e.collector.RecordStep(stepResult.StepResult.StepID, stepResult.StepResult)
-		}
-	}
+	// Step metrics are already recorded in executeStep, no need to record again
 }

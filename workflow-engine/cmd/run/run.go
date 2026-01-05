@@ -200,6 +200,7 @@ type ExecutionResult struct {
 	TotalVUs         int
 	TotalIterations  int64
 	TotalRequests    int64
+	RPS              float64
 	SuccessRate      float64
 	ErrorRate        float64
 	AvgDuration      time.Duration
@@ -225,6 +226,8 @@ func executeWorkflow(ctx context.Context, workflow *types.Workflow, quiet bool) 
 	masterCfg := &master.Config{
 		StandaloneMode:          true,
 		MaxConcurrentExecutions: 1,
+		HealthCheckInterval:     10 * time.Second,
+		HeartbeatTimeout:        30 * time.Second,
 	}
 
 	registry := master.NewInMemorySlaveRegistry()
@@ -286,6 +289,11 @@ func executeWorkflow(ctx context.Context, workflow *types.Workflow, quiet bool) 
 				metrics, _ := m.GetMetrics(ctx, executionID)
 				if metrics != nil {
 					populateResultFromMetrics(result, metrics)
+				}
+
+				// Calculate RPS
+				if result.Duration.Seconds() > 0 {
+					result.RPS = float64(result.TotalRequests) / result.Duration.Seconds()
 				}
 
 				return result, nil
@@ -365,6 +373,7 @@ func printResults(result *ExecutionResult) {
 	fmt.Printf("     iterations........: %d\n", result.TotalIterations)
 	fmt.Printf("     requests..........: %d\n", result.TotalRequests)
 	if result.TotalRequests > 0 {
+		fmt.Printf("     rps...............: %.2f\n", result.RPS)
 		fmt.Printf("     success_rate......: %.2f%%\n", result.SuccessRate*100)
 		fmt.Printf("     error_rate........: %.2f%%\n", result.ErrorRate*100)
 		fmt.Printf("     avg_duration......: %s\n", result.AvgDuration.Round(time.Microsecond))
@@ -402,6 +411,7 @@ func writeJSONOutput(path string, result *ExecutionResult) error {
   "total_vus": %d,
   "total_iterations": %d,
   "total_requests": %d,
+  "rps": %.2f,
   "success_rate": %.4f,
   "error_rate": %.4f,
   "avg_duration_ms": %d,
@@ -417,6 +427,7 @@ func writeJSONOutput(path string, result *ExecutionResult) error {
 		result.TotalVUs,
 		result.TotalIterations,
 		result.TotalRequests,
+		result.RPS,
 		result.SuccessRate,
 		result.ErrorRate,
 		result.AvgDuration.Milliseconds(),

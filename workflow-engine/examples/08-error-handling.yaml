@@ -1,0 +1,55 @@
+# 错误处理示例
+# 运行: ./workflow-engine run examples/08-error-handling.yaml
+
+id: error-handling-workflow
+name: Error Handling Workflow
+description: 演示不同错误处理策略的工作流示例
+
+steps:
+  # 策略 1: abort - 遇到错误停止整个工作流 (默认)
+  - id: step_abort
+    name: Step with Abort Strategy
+    type: http
+    config:
+      method: GET
+      url: "https://httpbin.org/get"
+    on_error: abort
+    timeout: 30s
+
+  # 策略 2: continue - 遇到错误继续执行下一步
+  - id: step_continue
+    name: Step with Continue Strategy
+    type: http
+    config:
+      method: GET
+      url: "https://httpbin.org/status/500" # 这会返回 500 错误
+    on_error: continue
+    timeout: 30s
+
+  # 策略 3: skip - 跳过当前步骤
+  - id: step_skip
+    name: Step with Skip Strategy
+    type: http
+    config:
+      method: GET
+      url: "https://httpbin.org/delay/60" # 这会超时
+    on_error: skip
+    timeout: 5s
+
+  # 策略 4: retry - 重试当前步骤
+  - id: step_retry
+    name: Step with Retry Strategy
+    type: http
+    config:
+      method: GET
+      url: "https://httpbin.org/get"
+    on_error: retry
+    timeout: 30s
+
+  # 最后一步: 确认工作流完成
+  - id: final_step
+    name: Final Step
+    type: script
+    config:
+      script: |
+        console.log('Workflow completed with error handling');

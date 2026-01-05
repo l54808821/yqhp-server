@@ -1,0 +1,43 @@
+# 性能测试 - 阶梯负载模式
+# 运行: ./workflow-engine run examples/10-performance-ramping-vus.yaml
+
+id: performance-ramping-vus
+name: Performance Test - Ramping VUs
+description: 使用阶梯负载的性能测试示例，逐步增加和减少负载
+
+options:
+  # 执行模式
+  mode: ramping-vus
+  # 阶梯配置
+  stages:
+    # 阶段 1: 预热 - 10秒内从 0 增加到 10 VUs
+    - duration: 10s
+      target: 10
+      name: "Warm up"
+    # 阶段 2: 爬升 - 1分钟内从 10 增加到 50 VUs
+    - duration: 1m
+      target: 50
+      name: "Ramp up"
+    # 阶段 3: 稳定 - 保持 50 VUs 运行 2 分钟
+    - duration: 2m
+      target: 50
+      name: "Steady state"
+    # 阶段 4: 下降 - 10秒内从 50 降到 0 VUs
+    - duration: 10s
+      target: 0
+      name: "Ramp down"
+  # 性能阈值
+  thresholds:
+    - metric: http_req_duration
+      condition: "p(95) < 500"
+    - metric: http_req_failed
+      condition: "rate < 0.05"
+
+steps:
+  - id: api_request
+    name: API Request
+    type: http
+    config:
+      method: GET
+      url: "https://httpbin.org/get"
+    timeout: 30s

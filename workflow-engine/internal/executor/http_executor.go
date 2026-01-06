@@ -14,8 +14,9 @@ import (
 )
 
 const (
-	// HTTPExecutorType 是 HTTP 执行器的类型标识符。
-	HTTPExecutorType = "http"
+	// HTTPExecutorType 是标准库 HTTP 执行器的类型标识符。
+	// 注意：默认的 "http" 类型由 FastHTTP 执行器提供，此执行器使用 "http-std" 类型。
+	HTTPExecutorType = "http-std"
 
 	// HTTP 请求的默认超时时间。
 	defaultHTTPTimeout = 30 * time.Second
@@ -526,7 +527,9 @@ func (e *HTTPExecutor) buildOutput(resp *http.Response, body []byte) *HTTPRespon
 	return output
 }
 
-// init 在默认注册表中注册 HTTP 执行器。
+// init 在默认注册表中注册标准库 HTTP 执行器。
+// 注意：此执行器注册为 "http-std" 类型，默认的 "http" 类型由 FastHTTP 执行器提供。
+// 如需使用标准库实现，可在工作流中指定 type: http-std
 func init() {
 	MustRegister(NewHTTPExecutor())
 }

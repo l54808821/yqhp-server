@@ -1,0 +1,523 @@
+package executor
+
+import (
+	"context"
+	"crypto/tls"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"time"
+	"yqhp/workflow-engine/pkg/types"
+
+	"github.com/valyala/fasthttp"
+)
+
+const (
+	// FastHTTPExecutorType 是 FastHTTP 执行器的类型标识符。
+	FastHTTPExecutorType = "http"
+
+	// FastHTTP 请求的默认超时时间。
+	defaultFastHTTPTimeout = 30 * time.Second
+)
+
+// FastHTTPExecutor 使用 fasthttp 执行 HTTP 请求步骤，性能更优。
+type FastHTTPExecutor struct {
+	*BaseExecutor
+	client       *fasthttp.Client
+	globalConfig *HTTPGlobalConfig
+}
+
+// NewFastHTTPExecutor 创建一个新的 FastHTTP 执行器。
+func NewFastHTTPExecutor() *FastHTTPExecutor {
+	return &FastHTTPExecutor{
+		BaseExecutor: NewBaseExecutor(FastHTTPExecutorType),
+		globalConfig: DefaultHTTPGlobalConfig(),
+	}
+}
+
+// NewFastHTTPExecutorWithConfig 使用全局配置创建一个新的 FastHTTP 执行器。
+func NewFastHTTPExecutorWithConfig(globalConfig *HTTPGlobalConfig) *FastHTTPExecutor {
+	if globalConfig == nil {
+		globalConfig = DefaultHTTPGlobalConfig()
+	}
+	return &FastHTTPExecutor{
+		BaseExecutor: NewBaseExecutor(FastHTTPExecutorType),
+		globalConfig: globalConfig,
+	}
+}
+
+// SetGlobalConfig 设置全局 HTTP 配置。
+func (e *FastHTTPExecutor) SetGlobalConfig(config *HTTPGlobalConfig) {
+	if config != nil {
+		e.globalConfig = config
+	}
+}
+
+// GetGlobalConfig 返回全局 HTTP 配置。
+func (e *FastHTTPExecutor) GetGlobalConfig() *HTTPGlobalConfig {
+	return e.globalConfig
+}
+
+// Init 使用配置初始化 FastHTTP 执行器。
+func (e *FastHTTPExecutor) Init(ctx context.Context, config map[string]any) error {
+	if err := e.BaseExecutor.Init(ctx, config); err != nil {
+		return err
+	}
+
+	// 解析全局配置
+	if httpConfig, ok := config["http"].(map[string]any); ok {
+		e.parseGlobalConfig(httpConfig)
+	}
+
+	// 构建 FastHTTP 客户端
+	if err := e.buildClient(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// parseGlobalConfig 解析全局配置
+func (e *FastHTTPExecutor) parseGlobalConfig(config map[string]any) {
+	if baseURL, ok := config["base_url"].(string); ok {
+		e.globalConfig.BaseURL = baseURL
+	}
+
+	if headers, ok := config["headers"].(map[string]any); ok {
+		for k, v := range headers {
+			if s, ok := v.(string); ok {
+				e.globalConfig.Headers[k] = s
+			}
+		}
+	}
+
+	if domains, ok := config["domains"].(map[string]any); ok {
+		for k, v := range domains {
+			if s, ok := v.(string); ok {
+				e.globalConfig.Domains[k] = s
+			}
+		}
+	}
+
+	// 解析 SSL 配置
+	if ssl, ok := config["ssl"].(map[string]any); ok {
+		if verify, ok := ssl["verify"].(bool); ok {
+			e.globalConfig.SSL.Verify = &verify
+		}
+		if cert, ok := ssl["cert"].(string); ok {
+			e.globalConfig.SSL.CertPath = cert
+		}
+		if key, ok := ssl["key"].(string); ok {
+			e.globalConfig.SSL.KeyPath = key
+		}
+		if ca, ok := ssl["ca"].(string); ok {
+			e.globalConfig.SSL.CAPath = ca
+		}
+	}
+
+	// 解析重定向配置
+	if redirect, ok := config["redirect"].(map[string]any); ok {
+		if follow, ok := redirect["follow"].(bool); ok {
+			e.globalConfig.Redirect.Follow = &follow
+		}
+		if maxRedirects, ok := redirect["max_redirects"].(int); ok {
+			e.globalConfig.Redirect.MaxRedirects = &maxRedirects
+		}
+	}
+
+	// 解析超时配置
+	if timeout, ok := config["timeout"].(map[string]any); ok {
+		if connect, ok := timeout["connect"].(string); ok {
+			if d, err := time.ParseDuration(connect); err == nil {
+				e.globalConfig.Timeout.Connect = d
+			}
+		}
+		if read, ok := timeout["read"].(string); ok {
+			if d, err := time.ParseDuration(read); err == nil {
+				e.globalConfig.Timeout.Read = d
+			}
+		}
+		if write, ok := timeout["write"].(string); ok {
+			if d, err := time.ParseDuration(write); err == nil {
+				e.globalConfig.Timeout.Write = d
+			}
+		}
+		if request, ok := timeout["request"].(string); ok {
+			if d, err := time.ParseDuration(request); err == nil {
+				e.globalConfig.Timeout.Request = d
+			}
+		}
+	}
+}
+
+// buildClient 构建 FastHTTP 客户端
+func (e *FastHTTPExecutor) buildClient() error {
+	// 构建 TLS 配置
+	tlsConfig, err := e.globalConfig.SSL.BuildTLSConfig()
+	if err != nil {
+		return fmt.Errorf("构建 TLS 配置失败: %w", err)
+	}
+
+	e.client = &fasthttp.Client{
+		// 连接池配置
+		MaxConnsPerHost:     1000,
+		MaxIdleConnDuration: 90 * time.Second,
+
+		// 超时配置
+		ReadTimeout:  e.globalConfig.Timeout.Read,
+		WriteTimeout: e.globalConfig.Timeout.Write,
+
+		// TLS 配置
+		TLSConfig: tlsConfig,
+
+		// 禁用路径规范化以提高性能
+		DisablePathNormalizing: true,
+	}
+
+	return nil
+}
+
+// Execute 执行 HTTP 请求步骤。
+func (e *FastHTTPExecutor) Execute(ctx context.Context, step *types.Step, execCtx *ExecutionContext) (*types.StepResult, error) {
+	startTime := time.Now()
+
+	// 确保客户端已初始化
+	if e.client == nil {
+		if err := e.buildClient(); err != nil {
+			return CreateFailedResult(step.ID, startTime, err), nil
+		}
+	}
+
+	// 解析步骤配置
+	config, err := e.parseConfig(step.Config)
+	if err != nil {
+		return CreateFailedResult(step.ID, startTime, err), nil
+	}
+
+	// 合并步骤级配置
+	stepConfig := e.mergeStepConfig(config)
+
+	// 解析配置中的变量
+	config = e.resolveVariables(config, execCtx)
+
+	// 解析 URL（支持多域名）
+	config.URL = e.globalConfig.ResolveURL(config.URL, config.Domain)
+
+	// 如果指定了步骤超时则应用
+	timeout := step.Timeout
+	if timeout <= 0 {
+		timeout = stepConfig.Timeout.Request
+		if timeout <= 0 {
+			timeout = defaultFastHTTPTimeout
+		}
+	}
+
+	// 获取请求和响应对象（使用对象池）
+	req := fasthttp.AcquireRequest()
+	resp := fasthttp.AcquireResponse()
+	defer fasthttp.ReleaseRequest(req)
+	defer fasthttp.ReleaseResponse(resp)
+
+	// 构建请求
+	if err := e.buildRequest(req, config, stepConfig); err != nil {
+		return CreateFailedResult(step.ID, startTime, err), nil
+	}
+
+	// 执行请求
+	var execErr error
+	if e.globalConfig.Redirect.GetFollow() {
+		// 跟随重定向
+		execErr = e.client.DoRedirects(req, resp, e.globalConfig.Redirect.GetMaxRedirects())
+	} else {
+		execErr = e.client.DoTimeout(req, resp, timeout)
+	}
+
+	if execErr != nil {
+		if execErr == fasthttp.ErrTimeout {
+			return CreateTimeoutResult(step.ID, startTime, timeout), nil
+		}
+		return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "HTTP 请求失败", execErr)), nil
+	}
+
+	// 构建响应输出
+	output := e.buildOutput(resp)
+
+	// 创建结果
+	result := CreateSuccessResult(step.ID, startTime, output)
+
+	// 添加 HTTP 特定指标
+	result.Metrics["http_status"] = float64(resp.StatusCode())
+	result.Metrics["http_response_size"] = float64(len(resp.Body()))
+
+	return result, nil
+}
+
+// mergeStepConfig 合并步骤级配置
+func (e *FastHTTPExecutor) mergeStepConfig(config *HTTPConfig) *HTTPGlobalConfig {
+	stepConfig := &HTTPGlobalConfig{
+		Headers: make(map[string]string),
+		Domains: make(map[string]string),
+	}
+
+	// 从步骤配置中提取 SSL 配置
+	if config.SSL != nil {
+		stepConfig.SSL = *config.SSL
+	}
+
+	// 从步骤配置中提取重定向配置
+	if config.Redirect != nil {
+		stepConfig.Redirect = *config.Redirect
+	}
+
+	// 从步骤配置中提取超时配置
+	if config.Timeout != nil {
+		stepConfig.Timeout = *config.Timeout
+	}
+
+	// 合并：全局配置 < 步骤配置
+	return e.globalConfig.Merge(stepConfig)
+}
+
+// Cleanup 释放 FastHTTP 执行器持有的资源。
+func (e *FastHTTPExecutor) Cleanup(ctx context.Context) error {
+	// fasthttp.Client 不需要显式关闭
+	return nil
+}
+
+// parseConfig 将步骤配置解析为 HTTPConfig。
+func (e *FastHTTPExecutor) parseConfig(config map[string]any) (*HTTPConfig, error) {
+	httpConfig := &HTTPConfig{
+		Method:  "GET",
+		Headers: make(map[string]string),
+		Params:  make(map[string]string),
+	}
+
+	if method, ok := config["method"].(string); ok {
+		httpConfig.Method = strings.ToUpper(method)
+	}
+
+	if url, ok := config["url"].(string); ok {
+		httpConfig.URL = url
+	} else {
+		return nil, NewConfigError("HTTP 步骤需要 'url' 配置", nil)
+	}
+
+	// 解析域名标识
+	if domain, ok := config["domain"].(string); ok {
+		httpConfig.Domain = domain
+	}
+
+	if headers, ok := config["headers"].(map[string]any); ok {
+		for k, v := range headers {
+			if s, ok := v.(string); ok {
+				httpConfig.Headers[k] = s
+			}
+		}
+	}
+
+	if params, ok := config["params"].(map[string]any); ok {
+		for k, v := range params {
+			if s, ok := v.(string); ok {
+				httpConfig.Params[k] = s
+			}
+		}
+	}
+
+	httpConfig.Body = config["body"]
+
+	// 解析步骤级 SSL 配置
+	if ssl, ok := config["ssl"].(map[string]any); ok {
+		httpConfig.SSL = &SSLConfig{}
+		if verify, ok := ssl["verify"].(bool); ok {
+			httpConfig.SSL.Verify = &verify
+		}
+		if cert, ok := ssl["cert"].(string); ok {
+			httpConfig.SSL.CertPath = cert
+		}
+		if key, ok := ssl["key"].(string); ok {
+			httpConfig.SSL.KeyPath = key
+		}
+		if ca, ok := ssl["ca"].(string); ok {
+			httpConfig.SSL.CAPath = ca
+		}
+	}
+
+	// 解析步骤级重定向配置
+	if redirect, ok := config["redirect"].(map[string]any); ok {
+		httpConfig.Redirect = &RedirectConfig{}
+		if follow, ok := redirect["follow"].(bool); ok {
+			httpConfig.Redirect.Follow = &follow
+		}
+		if maxRedirects, ok := redirect["max_redirects"].(int); ok {
+			httpConfig.Redirect.MaxRedirects = &maxRedirects
+		}
+	}
+
+	// 解析步骤级超时配置
+	if timeout, ok := config["timeout"].(map[string]any); ok {
+		httpConfig.Timeout = &TimeoutConfig{}
+		if connect, ok := timeout["connect"].(string); ok {
+			if d, err := time.ParseDuration(connect); err == nil {
+				httpConfig.Timeout.Connect = d
+			}
+		}
+		if read, ok := timeout["read"].(string); ok {
+			if d, err := time.ParseDuration(read); err == nil {
+				httpConfig.Timeout.Read = d
+			}
+		}
+		if write, ok := timeout["write"].(string); ok {
+			if d, err := time.ParseDuration(write); err == nil {
+				httpConfig.Timeout.Write = d
+			}
+		}
+		if request, ok := timeout["request"].(string); ok {
+			if d, err := time.ParseDuration(request); err == nil {
+				httpConfig.Timeout.Request = d
+			}
+		}
+	}
+
+	return httpConfig, nil
+}
+
+// resolveVariables 解析配置中的变量引用。
+func (e *FastHTTPExecutor) resolveVariables(config *HTTPConfig, execCtx *ExecutionContext) *HTTPConfig {
+	if execCtx == nil {
+		return config
+	}
+
+	evalCtx := execCtx.ToEvaluationContext()
+
+	// 解析 URL
+	config.URL = resolveString(config.URL, evalCtx)
+
+	// 解析 headers
+	for k, v := range config.Headers {
+		config.Headers[k] = resolveString(v, evalCtx)
+	}
+
+	// 解析 params
+	for k, v := range config.Params {
+		config.Params[k] = resolveString(v, evalCtx)
+	}
+
+	// 如果 body 是字符串则解析
+	if bodyStr, ok := config.Body.(string); ok {
+		config.Body = resolveString(bodyStr, evalCtx)
+	}
+
+	return config
+}
+
+// buildRequest 构建 FastHTTP 请求。
+func (e *FastHTTPExecutor) buildRequest(req *fasthttp.Request, config *HTTPConfig, mergedConfig *HTTPGlobalConfig) error {
+	// 构建带查询参数的 URL
+	url := config.URL
+	if len(config.Params) > 0 {
+		params := make([]string, 0, len(config.Params))
+		for k, v := range config.Params {
+			params = append(params, fmt.Sprintf("%s=%s", k, v))
+		}
+		if strings.Contains(url, "?") {
+			url += "&" + strings.Join(params, "&")
+		} else {
+			url += "?" + strings.Join(params, "&")
+		}
+	}
+
+	// 设置请求方法和 URL
+	req.Header.SetMethod(config.Method)
+	req.SetRequestURI(url)
+
+	// 先设置全局 headers
+	for k, v := range mergedConfig.Headers {
+		req.Header.Set(k, v)
+	}
+
+	// 再设置步骤级 headers（覆盖全局）
+	for k, v := range config.Headers {
+		req.Header.Set(k, v)
+	}
+
+	// 设置请求体
+	if config.Body != nil {
+		switch body := config.Body.(type) {
+		case string:
+			req.SetBodyString(body)
+		case []byte:
+			req.SetBody(body)
+		default:
+			// 序列化为 JSON
+			jsonBody, err := json.Marshal(body)
+			if err != nil {
+				return NewConfigError("序列化请求体失败", err)
+			}
+			req.SetBody(jsonBody)
+		}
+
+		// 如果未指定 Content-Type 且有 body，则设置默认值
+		if len(req.Header.ContentType()) == 0 {
+			req.Header.SetContentType("application/json")
+		}
+	}
+
+	return nil
+}
+
+// FastHTTPResponse 表示 FastHTTP 步骤的输出。
+type FastHTTPResponse struct {
+	Status     string              `json:"status"`
+	StatusCode int                 `json:"status_code"`
+	Headers    map[string][]string `json:"headers"`
+	Body       any                 `json:"body"`
+	BodyRaw    string              `json:"body_raw"`
+}
+
+// buildOutput 构建响应输出。
+func (e *FastHTTPExecutor) buildOutput(resp *fasthttp.Response) *FastHTTPResponse {
+	// 复制响应体（因为 resp.Body() 返回的是内部缓冲区的引用）
+	bodyBytes := make([]byte, len(resp.Body()))
+	copy(bodyBytes, resp.Body())
+
+	output := &FastHTTPResponse{
+		Status:     fmt.Sprintf("%d %s", resp.StatusCode(), fasthttp.StatusMessage(resp.StatusCode())),
+		StatusCode: resp.StatusCode(),
+		Headers:    make(map[string][]string),
+		BodyRaw:    string(bodyBytes),
+	}
+
+	// 复制响应头
+	resp.Header.VisitAll(func(key, value []byte) {
+		k := string(key)
+		v := string(value)
+		if existing, ok := output.Headers[k]; ok {
+			output.Headers[k] = append(existing, v)
+		} else {
+			output.Headers[k] = []string{v}
+		}
+	})
+
+	// 尝试将 body 解析为 JSON
+	var jsonBody any
+	if err := json.Unmarshal(bodyBytes, &jsonBody); err == nil {
+		output.Body = jsonBody
+	} else {
+		output.Body = string(bodyBytes)
+	}
+
+	return output
+}
+
+// ConfigureTLS 配置 TLS（用于 HTTPS 请求）
+func (e *FastHTTPExecutor) ConfigureTLS(tlsConfig *tls.Config) {
+	if e.client != nil {
+		e.client.TLSConfig = tlsConfig
+	}
+}
+
+// init 在默认注册表中注册 FastHTTP 执行器（替代原有的 HTTP 执行器）。
+func init() {
+	// 注册 FastHTTP 执行器作为默认的 HTTP 执行器
+	MustRegister(NewFastHTTPExecutor())
+}

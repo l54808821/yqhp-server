@@ -250,41 +250,40 @@ func executeWorkflow(ctx context.Context, workflow *types.Workflow, quiet bool) 
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 
-	lastProgress := float64(0)
+	// 实时进度显示
+	progressPrinter := newProgressPrinter(workflow, quiet)
 
 	for {
 		select {
 		case <-ctx.Done():
+			progressPrinter.clear()
 			result.Status = "已中止"
 			result.Duration = time.Since(startTime)
 			return result, nil
 
 		case <-ticker.C:
-			status, err := m.GetExecutionStatus(ctx, executionID)
+			state, err := m.GetExecutionStatus(ctx, executionID)
 			if err != nil {
 				continue
 			}
 
-			// 打印进度
-			if !quiet && status.Progress != lastProgress {
-				fmt.Printf("\r  进度: %.1f%%", status.Progress*100)
-				lastProgress = status.Progress
-			}
+			// 获取实时指标
+			metrics, _ := m.GetMetrics(ctx, executionID)
+
+			// 更新进度显示
+			progressPrinter.update(state, metrics, time.Since(startTime))
 
 			// 检查是否完成
-			switch status.Status {
+			switch state.Status {
 			case types.ExecutionStatusCompleted:
-				if !quiet {
-					fmt.Printf("\r  进度: 100.0%%\n")
-				}
+				progressPrinter.clear()
 				result.Duration = time.Since(startTime)
-				result.TotalIterations = int64(status.Progress * float64(workflow.Options.Iterations))
+				result.TotalIterations = int64(state.Progress * float64(workflow.Options.Iterations))
 				if result.TotalIterations == 0 {
 					result.TotalIterations = 1
 				}
 
 				// 获取指标
-				metrics, _ := m.GetMetrics(ctx, executionID)
 				if metrics != nil {
 					populateResultFromMetrics(result, metrics)
 				}
@@ -297,26 +296,134 @@ func executeWorkflow(ctx context.Context, workflow *types.Workflow, quiet bool) 
 				return result, nil
 
 			case types.ExecutionStatusFailed:
-				if !quiet {
-					fmt.Println()
-				}
+				progressPrinter.clear()
 				result.Status = "失败"
 				result.Duration = time.Since(startTime)
-				for _, execErr := range status.Errors {
+				for _, execErr := range state.Errors {
 					result.Errors = append(result.Errors, execErr.Message)
 				}
 				return result, nil
 
 			case types.ExecutionStatusAborted:
-				if !quiet {
-					fmt.Println()
-				}
+				progressPrinter.clear()
 				result.Status = "已中止"
 				result.Duration = time.Since(startTime)
 				return result, nil
 			}
 		}
 	}
+}
+
+// progressPrinter 实时进度打印器
+type progressPrinter struct {
+	workflow   *types.Workflow
+	quiet      bool
+	lastLines  int
+	lastUpdate time.Time
+}
+
+func newProgressPrinter(workflow *types.Workflow, quiet bool) *progressPrinter {
+	return &progressPrinter{
+		workflow: workflow,
+		quiet:    quiet,
+	}
+}
+
+func (p *progressPrinter) update(state *types.ExecutionState, metrics *types.AggregatedMetrics, elapsed time.Duration) {
+	if p.quiet {
+		return
+	}
+
+	// 限制刷新频率
+	if time.Since(p.lastUpdate) < 200*time.Millisecond {
+		return
+	}
+	p.lastUpdate = time.Now()
+
+	// 清除之前的输出
+	p.clear()
+
+	// 计算进度条
+	progress := state.Progress
+	barWidth := 30
+	filled := int(progress * float64(barWidth))
+	bar := ""
+	for i := 0; i < barWidth; i++ {
+		if i < filled {
+			bar += "█"
+		} else {
+			bar += "░"
+		}
+	}
+
+	// 计算剩余时间
+	var eta string
+	if progress > 0 && progress < 1 {
+		remaining := time.Duration(float64(elapsed) / progress * (1 - progress))
+		eta = fmt.Sprintf("剩余 %s", remaining.Round(time.Second))
+	} else {
+		eta = ""
+	}
+
+	// 打印进度条
+	fmt.Printf("  [%s] %.1f%% %s\n", bar, progress*100, eta)
+	p.lastLines = 1
+
+	// 打印实时指标
+	if metrics != nil {
+		var totalRequests, totalSuccess, totalFailure int64
+		var totalDuration time.Duration
+		var avgDuration time.Duration
+
+		for _, stepMetrics := range metrics.StepMetrics {
+			totalRequests += stepMetrics.Count
+			totalSuccess += stepMetrics.SuccessCount
+			totalFailure += stepMetrics.FailureCount
+			if stepMetrics.Duration != nil && stepMetrics.Count > 0 {
+				totalDuration += stepMetrics.Duration.Avg * time.Duration(stepMetrics.Count)
+			}
+		}
+
+		if totalRequests > 0 {
+			avgDuration = totalDuration / time.Duration(totalRequests)
+		}
+
+		// 计算 RPS
+		rps := float64(0)
+		if elapsed.Seconds() > 0 {
+			rps = float64(totalRequests) / elapsed.Seconds()
+		}
+
+		// 计算成功率
+		successRate := float64(0)
+		if totalRequests > 0 {
+			successRate = float64(totalSuccess) / float64(totalRequests) * 100
+		}
+
+		fmt.Println()
+		fmt.Printf("  运行时间: %-12s  迭代: %-8d  VUs: %d\n",
+			elapsed.Round(time.Second), metrics.TotalIterations, metrics.TotalVUs)
+		fmt.Printf("  请求数:   %-12d  RPS:  %-8.1f  成功率: %.1f%%\n",
+			totalRequests, rps, successRate)
+		fmt.Printf("  平均延迟: %-12s  失败: %d\n",
+			avgDuration.Round(time.Microsecond), totalFailure)
+		p.lastLines += 4
+	}
+
+	fmt.Print("\033[?25l") // 隐藏光标
+}
+
+func (p *progressPrinter) clear() {
+	if p.quiet || p.lastLines == 0 {
+		return
+	}
+
+	// 移动光标到之前输出的开始位置并清除
+	for i := 0; i < p.lastLines; i++ {
+		fmt.Print("\033[A\033[K") // 上移一行并清除
+	}
+	fmt.Print("\033[?25h") // 显示光标
+	p.lastLines = 0
 }
 
 // populateResultFromMetrics 从指标数据填充结果

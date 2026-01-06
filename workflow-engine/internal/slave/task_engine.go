@@ -116,6 +116,21 @@ func (e *TaskEngine) GetMetrics() *types.SlaveMetrics {
 	}
 }
 
+// GetCurrentMetrics 返回当前收集的指标数据。
+func (e *TaskEngine) GetCurrentMetrics() *types.Metrics {
+	return e.collector.GetMetrics()
+}
+
+// GetIterations 返回当前迭代次数。
+func (e *TaskEngine) GetIterations() int64 {
+	return e.iterations.Load()
+}
+
+// GetActiveVUs 返回当前活跃的 VU 数量。
+func (e *TaskEngine) GetActiveVUs() int {
+	return int(e.activeVUs.Load())
+}
+
 // calculateVUs 计算此分段的 VU 数量。
 func (e *TaskEngine) calculateVUs(opts types.ExecutionOptions, segment types.ExecutionSegment) int {
 	totalVUs := opts.VUs

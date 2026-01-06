@@ -393,69 +393,110 @@ func (m *WorkflowMaster) simulateExecution(ctx context.Context, execInfo *Execut
 		}
 	}()
 
-	// 等待完成、取消或停止信号
-	select {
-	case <-ctx.Done():
-		taskEngine.Stop(context.Background())
-		execInfo.mu.Lock()
-		execInfo.State.Status = types.ExecutionStatusAborted
-		now := time.Now()
-		execInfo.EndTime = &now
-		execInfo.State.EndTime = &now
-		execInfo.mu.Unlock()
+	// 定期更新进度和指标
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
 
-	case <-execInfo.stopCh:
-		taskEngine.Stop(context.Background())
-		execInfo.mu.Lock()
-		execInfo.State.Status = types.ExecutionStatusAborted
-		now := time.Now()
-		execInfo.EndTime = &now
-		execInfo.State.EndTime = &now
-		execInfo.mu.Unlock()
+	startTime := time.Now()
+	totalIterations := execInfo.Workflow.Options.Iterations
+	totalDuration := execInfo.Workflow.Options.Duration
 
-	case result := <-resultCh:
-		execInfo.mu.Lock()
-		if result.Status == types.ExecutionStatusCompleted {
-			execInfo.State.Status = types.ExecutionStatusCompleted
-			execInfo.State.Progress = 1.0
-		} else {
-			execInfo.State.Status = result.Status
-		}
-		// 存储指标
-		if result.Metrics != nil {
-			// 使用结果中的实际迭代次数，如果没有则使用工作流配置
-			totalIterations := result.Iterations
-			if totalIterations == 0 {
-				totalIterations = int64(execInfo.Workflow.Options.Iterations)
+	for {
+		select {
+		case <-ticker.C:
+			// 更新实时指标
+			currentMetrics := taskEngine.GetCurrentMetrics()
+			currentIterations := taskEngine.GetIterations()
+			activeVUs := taskEngine.GetActiveVUs()
+
+			execInfo.mu.Lock()
+			// 计算进度
+			if totalDuration > 0 {
+				elapsed := time.Since(startTime)
+				execInfo.State.Progress = float64(elapsed) / float64(totalDuration)
+				if execInfo.State.Progress > 1.0 {
+					execInfo.State.Progress = 1.0
+				}
+			} else if totalIterations > 0 {
+				execInfo.State.Progress = float64(currentIterations) / float64(totalIterations)
+				if execInfo.State.Progress > 1.0 {
+					execInfo.State.Progress = 1.0
+				}
 			}
+
+			// 更新聚合指标
 			execInfo.State.AggregatedMetrics = &types.AggregatedMetrics{
 				ExecutionID:     execInfo.ID,
-				TotalIterations: totalIterations,
-				TotalVUs:        execInfo.Workflow.Options.VUs,
-				StepMetrics:     make(map[string]*types.StepMetrics),
+				TotalIterations: currentIterations,
+				TotalVUs:        activeVUs,
+				StepMetrics:     currentMetrics.StepMetrics,
 			}
-			// 将任务指标转换为聚合指标
-			for stepID, stepMetrics := range result.Metrics.StepMetrics {
-				execInfo.State.AggregatedMetrics.StepMetrics[stepID] = stepMetrics
-			}
-		}
-		now := time.Now()
-		execInfo.EndTime = &now
-		execInfo.State.EndTime = &now
-		execInfo.mu.Unlock()
+			execInfo.mu.Unlock()
 
-	case err := <-errCh:
-		execInfo.mu.Lock()
-		execInfo.State.Status = types.ExecutionStatusFailed
-		execInfo.State.Errors = append(execInfo.State.Errors, types.ExecutionError{
-			Code:      types.ErrCodeExecution,
-			Message:   err.Error(),
-			Timestamp: time.Now(),
-		})
-		now := time.Now()
-		execInfo.EndTime = &now
-		execInfo.State.EndTime = &now
-		execInfo.mu.Unlock()
+		case <-ctx.Done():
+			taskEngine.Stop(context.Background())
+			execInfo.mu.Lock()
+			execInfo.State.Status = types.ExecutionStatusAborted
+			now := time.Now()
+			execInfo.EndTime = &now
+			execInfo.State.EndTime = &now
+			execInfo.mu.Unlock()
+			return
+
+		case <-execInfo.stopCh:
+			taskEngine.Stop(context.Background())
+			execInfo.mu.Lock()
+			execInfo.State.Status = types.ExecutionStatusAborted
+			now := time.Now()
+			execInfo.EndTime = &now
+			execInfo.State.EndTime = &now
+			execInfo.mu.Unlock()
+			return
+
+		case result := <-resultCh:
+			execInfo.mu.Lock()
+			if result.Status == types.ExecutionStatusCompleted {
+				execInfo.State.Status = types.ExecutionStatusCompleted
+				execInfo.State.Progress = 1.0
+			} else {
+				execInfo.State.Status = result.Status
+			}
+			// 存储最终指标
+			if result.Metrics != nil {
+				totalIterations := result.Iterations
+				if totalIterations == 0 {
+					totalIterations = int64(execInfo.Workflow.Options.Iterations)
+				}
+				execInfo.State.AggregatedMetrics = &types.AggregatedMetrics{
+					ExecutionID:     execInfo.ID,
+					TotalIterations: totalIterations,
+					TotalVUs:        execInfo.Workflow.Options.VUs,
+					StepMetrics:     make(map[string]*types.StepMetrics),
+				}
+				for stepID, stepMetrics := range result.Metrics.StepMetrics {
+					execInfo.State.AggregatedMetrics.StepMetrics[stepID] = stepMetrics
+				}
+			}
+			now := time.Now()
+			execInfo.EndTime = &now
+			execInfo.State.EndTime = &now
+			execInfo.mu.Unlock()
+			return
+
+		case err := <-errCh:
+			execInfo.mu.Lock()
+			execInfo.State.Status = types.ExecutionStatusFailed
+			execInfo.State.Errors = append(execInfo.State.Errors, types.ExecutionError{
+				Code:      types.ErrCodeExecution,
+				Message:   err.Error(),
+				Timestamp: time.Now(),
+			})
+			now := time.Now()
+			execInfo.EndTime = &now
+			execInfo.State.EndTime = &now
+			execInfo.mu.Unlock()
+			return
+		}
 	}
 }
 

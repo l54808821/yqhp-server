@@ -7,13 +7,13 @@ import (
 	"yqhp/workflow-engine/pkg/types"
 )
 
-// BaseExecutor provides common functionality for executors.
+// BaseExecutor 为执行器提供通用功能。
 type BaseExecutor struct {
 	execType string
 	config   map[string]any
 }
 
-// NewBaseExecutor creates a new BaseExecutor.
+// NewBaseExecutor 创建一个新的 BaseExecutor。
 func NewBaseExecutor(execType string) *BaseExecutor {
 	return &BaseExecutor{
 		execType: execType,
@@ -21,28 +21,28 @@ func NewBaseExecutor(execType string) *BaseExecutor {
 	}
 }
 
-// Type returns the executor type.
+// Type 返回执行器类型。
 func (b *BaseExecutor) Type() string {
 	return b.execType
 }
 
-// Init initializes the base executor.
+// Init 初始化基础执行器。
 func (b *BaseExecutor) Init(ctx context.Context, config map[string]any) error {
 	b.config = config
 	return nil
 }
 
-// Cleanup cleans up the base executor.
+// Cleanup 清理基础执行器。
 func (b *BaseExecutor) Cleanup(ctx context.Context) error {
 	return nil
 }
 
-// GetConfig returns the executor configuration.
+// GetConfig 返回执行器配置。
 func (b *BaseExecutor) GetConfig() map[string]any {
 	return b.config
 }
 
-// GetConfigString gets a string config value.
+// GetConfigString 获取字符串类型的配置值。
 func (b *BaseExecutor) GetConfigString(key string, defaultVal string) string {
 	if val, ok := b.config[key]; ok {
 		if s, ok := val.(string); ok {
@@ -52,7 +52,7 @@ func (b *BaseExecutor) GetConfigString(key string, defaultVal string) string {
 	return defaultVal
 }
 
-// GetConfigInt gets an int config value.
+// GetConfigInt 获取整数类型的配置值。
 func (b *BaseExecutor) GetConfigInt(key string, defaultVal int) int {
 	if val, ok := b.config[key]; ok {
 		switch v := val.(type) {
@@ -67,7 +67,7 @@ func (b *BaseExecutor) GetConfigInt(key string, defaultVal int) int {
 	return defaultVal
 }
 
-// GetConfigBool gets a bool config value.
+// GetConfigBool 获取布尔类型的配置值。
 func (b *BaseExecutor) GetConfigBool(key string, defaultVal bool) bool {
 	if val, ok := b.config[key]; ok {
 		if b, ok := val.(bool); ok {
@@ -77,7 +77,7 @@ func (b *BaseExecutor) GetConfigBool(key string, defaultVal bool) bool {
 	return defaultVal
 }
 
-// GetConfigDuration gets a duration config value.
+// GetConfigDuration 获取时间间隔类型的配置值。
 func (b *BaseExecutor) GetConfigDuration(key string, defaultVal time.Duration) time.Duration {
 	if val, ok := b.config[key]; ok {
 		switch v := val.(type) {
@@ -98,7 +98,7 @@ func (b *BaseExecutor) GetConfigDuration(key string, defaultVal time.Duration) t
 	return defaultVal
 }
 
-// CreateSuccessResult creates a successful step result.
+// CreateSuccessResult 创建成功的步骤结果。
 func CreateSuccessResult(stepID string, startTime time.Time, output any) *types.StepResult {
 	endTime := time.Now()
 	return &types.StepResult{
@@ -112,7 +112,7 @@ func CreateSuccessResult(stepID string, startTime time.Time, output any) *types.
 	}
 }
 
-// CreateFailedResult creates a failed step result.
+// CreateFailedResult 创建失败的步骤结果。
 func CreateFailedResult(stepID string, startTime time.Time, err error) *types.StepResult {
 	endTime := time.Now()
 	return &types.StepResult{
@@ -126,7 +126,7 @@ func CreateFailedResult(stepID string, startTime time.Time, err error) *types.St
 	}
 }
 
-// CreateTimeoutResult creates a timeout step result.
+// CreateTimeoutResult 创建超时的步骤结果。
 func CreateTimeoutResult(stepID string, startTime time.Time, timeout time.Duration) *types.StepResult {
 	endTime := time.Now()
 	return &types.StepResult{
@@ -140,7 +140,7 @@ func CreateTimeoutResult(stepID string, startTime time.Time, timeout time.Durati
 	}
 }
 
-// CreateSkippedResult creates a skipped step result.
+// CreateSkippedResult 创建跳过的步骤结果。
 func CreateSkippedResult(stepID string) *types.StepResult {
 	now := time.Now()
 	return &types.StepResult{
@@ -153,7 +153,7 @@ func CreateSkippedResult(stepID string) *types.StepResult {
 	}
 }
 
-// ExecuteWithTimeout executes a function with timeout.
+// ExecuteWithTimeout 带超时执行函数。
 func ExecuteWithTimeout(ctx context.Context, timeout time.Duration, fn func(ctx context.Context) error) error {
 	if timeout <= 0 {
 		return fn(ctx)

@@ -10,10 +10,10 @@ import (
 )
 
 const (
-	// MQExecutorType is the type identifier for MQ executor.
+	// MQExecutorType 是消息队列执行器的类型标识符。
 	MQExecutorType = "mq"
 
-	// Default timeout for MQ operations.
+	// 消息队列操作的默认超时时间。
 	defaultMQTimeout = 30 * time.Second
 )
 
@@ -93,14 +93,14 @@ type MQMessage struct {
 	Offset    int64             `json:"offset,omitempty"`
 }
 
-// MQExecutor executes MQ operations.
+// MQExecutor 执行消息队列操作。
 type MQExecutor struct {
 	*BaseExecutor
 	config   *MQConfig
 	adapters map[MQType]MQAdapter
 }
 
-// NewMQExecutor creates a new MQ executor.
+// NewMQExecutor 创建一个新的消息队列执行器。
 func NewMQExecutor() *MQExecutor {
 	return &MQExecutor{
 		BaseExecutor: NewBaseExecutor(MQExecutorType),
@@ -113,7 +113,7 @@ func (e *MQExecutor) RegisterAdapter(mqType MQType, adapter MQAdapter) {
 	e.adapters[mqType] = adapter
 }
 
-// Init initializes the MQ executor with configuration.
+// Init 使用配置初始化消息队列执行器。
 func (e *MQExecutor) Init(ctx context.Context, config map[string]any) error {
 	if err := e.BaseExecutor.Init(ctx, config); err != nil {
 		return err
@@ -168,7 +168,7 @@ func (e *MQExecutor) Init(ctx context.Context, config map[string]any) error {
 	return nil
 }
 
-// Execute executes an MQ operation step.
+// Execute 执行消息队列操作步骤。
 func (e *MQExecutor) Execute(ctx context.Context, step *types.Step, execCtx *ExecutionContext) (*types.StepResult, error) {
 	startTime := time.Now()
 
@@ -321,7 +321,7 @@ func (e *MQExecutor) parseStepConfig(config map[string]any) *MQConfig {
 	return stepConfig
 }
 
-// Cleanup releases resources held by the MQ executor.
+// Cleanup 释放消息队列执行器持有的资源。
 func (e *MQExecutor) Cleanup(ctx context.Context) error {
 	for _, adapter := range e.adapters {
 		if err := adapter.Close(ctx); err != nil {
@@ -331,7 +331,7 @@ func (e *MQExecutor) Cleanup(ctx context.Context) error {
 	return nil
 }
 
-// init registers the MQ executor with the default registry.
+// init 在默认注册表中注册消息队列执行器。
 func init() {
 	MustRegister(NewMQExecutor())
 }

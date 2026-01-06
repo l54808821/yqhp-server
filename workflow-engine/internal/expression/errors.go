@@ -2,27 +2,27 @@ package expression
 
 import "fmt"
 
-// ExpressionError represents an error during expression parsing or evaluation.
+// ExpressionError 表示表达式解析或求值期间的错误。
 type ExpressionError struct {
-	Position int    // Position in the expression where the error occurred
-	Message  string // Error message
-	Cause    error  // Underlying error
+	Position int    // 错误发生的位置
+	Message  string // 错误消息
+	Cause    error  // 底层错误
 }
 
-// Error implements the error interface.
+// Error 实现 error 接口。
 func (e *ExpressionError) Error() string {
 	if e.Position >= 0 {
-		return fmt.Sprintf("expression error at position %d: %s", e.Position, e.Message)
+		return fmt.Sprintf("表达式错误，位于位置 %d: %s", e.Position, e.Message)
 	}
-	return fmt.Sprintf("expression error: %s", e.Message)
+	return fmt.Sprintf("表达式错误: %s", e.Message)
 }
 
-// Unwrap returns the underlying error.
+// Unwrap 返回底层错误。
 func (e *ExpressionError) Unwrap() error {
 	return e.Cause
 }
 
-// NewExpressionError creates a new ExpressionError.
+// NewExpressionError 创建一个新的 ExpressionError。
 func NewExpressionError(pos int, message string, cause error) *ExpressionError {
 	return &ExpressionError{
 		Position: pos,
@@ -31,19 +31,19 @@ func NewExpressionError(pos int, message string, cause error) *ExpressionError {
 	}
 }
 
-// ParseError represents a parsing error.
+// ParseError 表示解析错误。
 type ParseError struct {
 	Position int
 	Expected string
 	Got      string
 }
 
-// Error implements the error interface.
+// Error 实现 error 接口。
 func (e *ParseError) Error() string {
-	return fmt.Sprintf("parse error at position %d: expected %s, got %s", e.Position, e.Expected, e.Got)
+	return fmt.Sprintf("解析错误，位于位置 %d: 期望 %s，得到 %s", e.Position, e.Expected, e.Got)
 }
 
-// NewParseError creates a new ParseError.
+// NewParseError 创建一个新的 ParseError。
 func NewParseError(pos int, expected, got string) *ParseError {
 	return &ParseError{
 		Position: pos,
@@ -52,26 +52,26 @@ func NewParseError(pos int, expected, got string) *ParseError {
 	}
 }
 
-// EvaluationError represents an error during expression evaluation.
+// EvaluationError 表示表达式求值期间的错误。
 type EvaluationError struct {
 	Message string
 	Cause   error
 }
 
-// Error implements the error interface.
+// Error 实现 error 接口。
 func (e *EvaluationError) Error() string {
 	if e.Cause != nil {
-		return fmt.Sprintf("evaluation error: %s: %v", e.Message, e.Cause)
+		return fmt.Sprintf("求值错误: %s: %v", e.Message, e.Cause)
 	}
-	return fmt.Sprintf("evaluation error: %s", e.Message)
+	return fmt.Sprintf("求值错误: %s", e.Message)
 }
 
-// Unwrap returns the underlying error.
+// Unwrap 返回底层错误。
 func (e *EvaluationError) Unwrap() error {
 	return e.Cause
 }
 
-// NewEvaluationError creates a new EvaluationError.
+// NewEvaluationError 创建一个新的 EvaluationError。
 func NewEvaluationError(message string, cause error) *EvaluationError {
 	return &EvaluationError{
 		Message: message,
@@ -79,19 +79,19 @@ func NewEvaluationError(message string, cause error) *EvaluationError {
 	}
 }
 
-// TypeMismatchError represents a type mismatch during evaluation.
+// TypeMismatchError 表示求值期间的类型不匹配错误。
 type TypeMismatchError struct {
 	Expected string
 	Got      string
 	Value    any
 }
 
-// Error implements the error interface.
+// Error 实现 error 接口。
 func (e *TypeMismatchError) Error() string {
-	return fmt.Sprintf("type mismatch: expected %s, got %s (value: %v)", e.Expected, e.Got, e.Value)
+	return fmt.Sprintf("类型不匹配: 期望 %s，得到 %s (值: %v)", e.Expected, e.Got, e.Value)
 }
 
-// NewTypeMismatchError creates a new TypeMismatchError.
+// NewTypeMismatchError 创建一个新的 TypeMismatchError。
 func NewTypeMismatchError(expected, got string, value any) *TypeMismatchError {
 	return &TypeMismatchError{
 		Expected: expected,
@@ -100,17 +100,17 @@ func NewTypeMismatchError(expected, got string, value any) *TypeMismatchError {
 	}
 }
 
-// VariableNotFoundError represents a variable not found error.
+// VariableNotFoundError 表示变量未找到错误。
 type VariableNotFoundError struct {
 	Name string
 }
 
-// Error implements the error interface.
+// Error 实现 error 接口。
 func (e *VariableNotFoundError) Error() string {
-	return fmt.Sprintf("variable not found: %s", e.Name)
+	return fmt.Sprintf("变量未找到: %s", e.Name)
 }
 
-// NewVariableNotFoundError creates a new VariableNotFoundError.
+// NewVariableNotFoundError 创建一个新的 VariableNotFoundError。
 func NewVariableNotFoundError(name string) *VariableNotFoundError {
 	return &VariableNotFoundError{Name: name}
 }

@@ -1,4 +1,4 @@
-// Package config provides configuration management for the workflow execution engine.
-// It supports loading configuration from YAML files, environment variables, and command-line flags,
-// with a defined precedence order: defaults < YAML file < environment variables < command-line flags.
+// Package config 提供工作流执行引擎的配置管理功能。
+// 支持从 YAML 文件、环境变量和命令行参数加载配置，
+// 优先级顺序为：默认值 < YAML 文件 < 环境变量 < 命令行参数。
 package config

@@ -1,5 +1,4 @@
-// Package run provides CLI commands for executing workflows in standalone mode.
-// Requirements: 5.7
+// Package run 提供独立模式执行工作流的 CLI 命令
 package run
 
 import (
@@ -16,22 +15,21 @@ import (
 	"yqhp/workflow-engine/pkg/types"
 )
 
-// Execute executes the run command with the given arguments.
-// Requirements: 5.7
+// Execute 执行 run 命令
 func Execute(args []string) error {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 
-	// Execution options
+	// 执行选项
 	vus := fs.Int("vus", 0, "虚拟用户数 (覆盖工作流配置)")
 	duration := fs.Duration("duration", 0, "测试持续时间 (覆盖工作流配置)")
 	iterations := fs.Int("iterations", 0, "迭代次数 (覆盖工作流配置)")
 	mode := fs.String("mode", "", "执行模式 (constant-vus, ramping-vus 等)")
 
-	// Output options
+	// 输出选项
 	quiet := fs.Bool("quiet", false, "静默模式，不输出进度")
 	jsonOutput := fs.String("out-json", "", "输出 JSON 结果到文件")
 
-	// Help
+	// 帮助
 	help := fs.Bool("help", false, "显示帮助信息")
 
 	fs.Usage = func() {
@@ -47,7 +45,7 @@ func Execute(args []string) error {
 		return nil
 	}
 
-	// Get workflow file path
+	// 获取工作流文件路径
 	remainingArgs := fs.Args()
 	if len(remainingArgs) < 1 {
 		printUsage()
@@ -56,14 +54,14 @@ func Execute(args []string) error {
 
 	workflowPath := remainingArgs[0]
 
-	// Parse workflow file
+	// 解析工作流文件
 	p := parser.NewYAMLParser()
 	workflow, err := p.ParseFile(workflowPath)
 	if err != nil {
 		return fmt.Errorf("解析工作流失败: %w", err)
 	}
 
-	// Apply command-line overrides
+	// 应用命令行参数覆盖
 	if *vus > 0 {
 		workflow.Options.VUs = *vus
 	}
@@ -77,7 +75,7 @@ func Execute(args []string) error {
 		workflow.Options.ExecutionMode = types.ExecutionMode(*mode)
 	}
 
-	// Set defaults if not specified
+	// 设置默认值
 	if workflow.Options.VUs <= 0 {
 		workflow.Options.VUs = 1
 	}
@@ -85,11 +83,11 @@ func Execute(args []string) error {
 		workflow.Options.Iterations = 1
 	}
 
-	// Create context with cancellation
+	// 创建可取消的上下文
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Handle shutdown signals
+	// 处理关闭信号
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
@@ -99,23 +97,23 @@ func Execute(args []string) error {
 		cancel()
 	}()
 
-	// Print execution info
+	// 打印执行信息
 	if !*quiet {
 		printExecutionInfo(workflow)
 	}
 
-	// Execute workflow
+	// 执行工作流
 	result, err := executeWorkflow(ctx, workflow, *quiet)
 	if err != nil {
 		return fmt.Errorf("执行失败: %w", err)
 	}
 
-	// Print results
+	// 打印结果
 	if !*quiet {
 		printResults(result)
 	}
 
-	// Write JSON output if requested
+	// 写入 JSON 输出
 	if *jsonOutput != "" {
 		if err := writeJSONOutput(*jsonOutput, result); err != nil {
 			return fmt.Errorf("写入 JSON 输出失败: %w", err)
@@ -125,7 +123,7 @@ func Execute(args []string) error {
 		}
 	}
 
-	// Check thresholds
+	// 检查阈值
 	if result.ThresholdsFailed > 0 {
 		return fmt.Errorf("阈值检查失败: %d/%d", result.ThresholdsFailed, result.ThresholdsPassed+result.ThresholdsFailed)
 	}
@@ -191,24 +189,24 @@ func printExecutionInfo(workflow *types.Workflow) {
 	fmt.Println()
 }
 
-// ExecutionResult holds the results of a workflow execution.
+// ExecutionResult 保存工作流执行结果
 type ExecutionResult struct {
-	WorkflowID       string
-	WorkflowName     string
-	Status           string
-	Duration         time.Duration
-	TotalVUs         int
-	TotalIterations  int64
-	TotalRequests    int64
-	RPS              float64
-	SuccessRate      float64
-	ErrorRate        float64
-	AvgDuration      time.Duration
-	P95Duration      time.Duration
-	P99Duration      time.Duration
-	ThresholdsPassed int
-	ThresholdsFailed int
-	Errors           []string
+	WorkflowID       string        // 工作流 ID
+	WorkflowName     string        // 工作流名称
+	Status           string        // 执行状态
+	Duration         time.Duration // 总耗时
+	TotalVUs         int           // 虚拟用户数
+	TotalIterations  int64         // 总迭代次数
+	TotalRequests    int64         // 总请求数
+	RPS              float64       // 每秒请求数
+	SuccessRate      float64       // 成功率
+	ErrorRate        float64       // 失败率
+	AvgDuration      time.Duration // 平均响应时间
+	P95Duration      time.Duration // P95 响应时间
+	P99Duration      time.Duration // P99 响应时间
+	ThresholdsPassed int           // 通过的阈值数
+	ThresholdsFailed int           // 失败的阈值数
+	Errors           []string      // 错误信息列表
 }
 
 func executeWorkflow(ctx context.Context, workflow *types.Workflow, quiet bool) (*ExecutionResult, error) {
@@ -222,7 +220,7 @@ func executeWorkflow(ctx context.Context, workflow *types.Workflow, quiet bool) 
 		Errors:       []string{},
 	}
 
-	// Create master in standalone mode
+	// 创建独立模式的 master
 	masterCfg := &master.Config{
 		StandaloneMode:          true,
 		MaxConcurrentExecutions: 1,
@@ -236,19 +234,19 @@ func executeWorkflow(ctx context.Context, workflow *types.Workflow, quiet bool) 
 
 	m := master.NewWorkflowMaster(masterCfg, registry, scheduler, aggregator)
 
-	// Start master
+	// 启动 master
 	if err := m.Start(ctx); err != nil {
 		return nil, fmt.Errorf("启动执行引擎失败: %w", err)
 	}
 	defer m.Stop(context.Background())
 
-	// Submit workflow
+	// 提交工作流
 	executionID, err := m.SubmitWorkflow(ctx, workflow)
 	if err != nil {
 		return nil, fmt.Errorf("提交工作流失败: %w", err)
 	}
 
-	// Monitor execution
+	// 监控执行状态
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
 
@@ -267,13 +265,13 @@ func executeWorkflow(ctx context.Context, workflow *types.Workflow, quiet bool) 
 				continue
 			}
 
-			// Print progress
+			// 打印进度
 			if !quiet && status.Progress != lastProgress {
 				fmt.Printf("\r  进度: %.1f%%", status.Progress*100)
 				lastProgress = status.Progress
 			}
 
-			// Check if completed
+			// 检查是否完成
 			switch status.Status {
 			case types.ExecutionStatusCompleted:
 				if !quiet {
@@ -285,13 +283,13 @@ func executeWorkflow(ctx context.Context, workflow *types.Workflow, quiet bool) 
 					result.TotalIterations = 1
 				}
 
-				// Get metrics
+				// 获取指标
 				metrics, _ := m.GetMetrics(ctx, executionID)
 				if metrics != nil {
 					populateResultFromMetrics(result, metrics)
 				}
 
-				// Calculate RPS
+				// 计算 RPS
 				if result.Duration.Seconds() > 0 {
 					result.RPS = float64(result.TotalRequests) / result.Duration.Seconds()
 				}
@@ -321,6 +319,7 @@ func executeWorkflow(ctx context.Context, workflow *types.Workflow, quiet bool) 
 	}
 }
 
+// populateResultFromMetrics 从指标数据填充结果
 func populateResultFromMetrics(result *ExecutionResult, metrics *types.AggregatedMetrics) {
 	result.TotalIterations = metrics.TotalIterations
 	result.TotalVUs = metrics.TotalVUs
@@ -401,8 +400,8 @@ func printResults(result *ExecutionResult) {
 	fmt.Println()
 }
 
+// writeJSONOutput 将结果写入 JSON 文件
 func writeJSONOutput(path string, result *ExecutionResult) error {
-	// Simple JSON serialization without external dependencies
 	content := fmt.Sprintf(`{
   "workflow_id": "%s",
   "workflow_name": "%s",

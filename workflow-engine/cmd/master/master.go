@@ -1,5 +1,4 @@
-// Package master provides CLI commands for managing the master node.
-// Requirements: 5.1
+// Package master 提供管理 Master 节点的 CLI 命令
 package master
 
 import (
@@ -15,7 +14,7 @@ import (
 	"yqhp/workflow-engine/internal/master"
 )
 
-// Execute executes the master command with the given arguments.
+// Execute 执行 master 命令
 func Execute(args []string) error {
 	if len(args) < 1 {
 		printUsage()
@@ -34,43 +33,42 @@ func Execute(args []string) error {
 		printUsage()
 		return nil
 	default:
-		return fmt.Errorf("unknown master subcommand: %s", subcommand)
+		return fmt.Errorf("未知的 master 子命令: %s", subcommand)
 	}
 }
 
 func printUsage() {
-	fmt.Println(`workflow-engine master - Manage the master node
+	fmt.Println(`workflow-engine master - 管理 Master 节点
 
-Usage:
-  workflow-engine master <subcommand> [options]
+用法:
+  workflow-engine master <子命令> [选项]
 
-Subcommands:
-  start     Start the master node
-  status    Show master node status
+子命令:
+  start     启动 Master 节点
+  status    查看 Master 节点状态
 
-Use "workflow-engine master <subcommand> --help" for more information.`)
+使用 "workflow-engine master <子命令> --help" 获取更多信息。`)
 }
 
-// executeStart starts the master node.
-// Requirements: 5.1
+// executeStart 启动 Master 节点
 func executeStart(args []string) error {
 	fs := flag.NewFlagSet("master start", flag.ExitOnError)
 
-	// Configuration flags
-	configPath := fs.String("config", "", "Path to configuration file")
-	address := fs.String("address", ":8080", "HTTP server address")
-	grpcAddress := fs.String("grpc-address", ":9090", "gRPC server address")
-	standalone := fs.Bool("standalone", false, "Run in standalone mode without slaves")
-	heartbeatTimeout := fs.Duration("heartbeat-timeout", 30*time.Second, "Slave heartbeat timeout")
-	maxExecutions := fs.Int("max-executions", 100, "Maximum concurrent executions")
+	// 配置选项
+	configPath := fs.String("config", "", "配置文件路径")
+	address := fs.String("address", ":8080", "HTTP 服务地址")
+	grpcAddress := fs.String("grpc-address", ":9090", "gRPC 服务地址")
+	standalone := fs.Bool("standalone", false, "独立模式运行（无需 Slave）")
+	heartbeatTimeout := fs.Duration("heartbeat-timeout", 30*time.Second, "Slave 心跳超时时间")
+	maxExecutions := fs.Int("max-executions", 100, "最大并发执行数")
 
 	fs.Usage = func() {
-		fmt.Println(`workflow-engine master start - Start the master node
+		fmt.Println(`workflow-engine master start - 启动 Master 节点
 
-Usage:
-  workflow-engine master start [options]
+用法:
+  workflow-engine master start [选项]
 
-Options:`)
+选项:`)
 		fs.PrintDefaults()
 	}
 
@@ -78,7 +76,7 @@ Options:`)
 		return err
 	}
 
-	// Load configuration
+	// 加载配置
 	loader := config.NewLoader()
 	if *configPath != "" {
 		loader = loader.WithConfigPath(*configPath)
@@ -86,10 +84,10 @@ Options:`)
 
 	cfg, err := loader.Load()
 	if err != nil {
-		return fmt.Errorf("failed to load configuration: %w", err)
+		return fmt.Errorf("加载配置失败: %w", err)
 	}
 
-	// Apply command-line overrides
+	// 应用命令行参数覆盖
 	if *address != ":8080" {
 		cfg.Server.Address = *address
 	}
@@ -100,7 +98,7 @@ Options:`)
 		cfg.Master.HeartbeatTimeout = *heartbeatTimeout
 	}
 
-	// Create master configuration
+	// 创建 Master 配置
 	masterCfg := &master.Config{
 		Address:                 cfg.Server.Address,
 		HeartbeatTimeout:        cfg.Master.HeartbeatTimeout,
@@ -109,69 +107,68 @@ Options:`)
 		MaxConcurrentExecutions: *maxExecutions,
 	}
 
-	// Create registry, scheduler, and aggregator
+	// 创建注册中心、调度器和聚合器
 	registry := master.NewInMemorySlaveRegistry()
 	scheduler := master.NewWorkflowScheduler(registry)
 	aggregator := master.NewDefaultMetricsAggregator()
 
-	// Create and start master
+	// 创建并启动 Master
 	m := master.NewWorkflowMaster(masterCfg, registry, scheduler, aggregator)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Handle shutdown signals
+	// 处理关闭信号
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
 		<-sigCh
-		fmt.Println("\nShutting down master...")
+		fmt.Println("\n正在关闭 Master...")
 		cancel()
 	}()
 
-	fmt.Printf("Starting master node...\n")
-	fmt.Printf("  HTTP Address: %s\n", cfg.Server.Address)
-	fmt.Printf("  gRPC Address: %s\n", cfg.GRPC.Address)
-	fmt.Printf("  Standalone Mode: %v\n", *standalone)
-	fmt.Printf("  Max Concurrent Executions: %d\n", *maxExecutions)
+	fmt.Printf("正在启动 Master 节点...\n")
+	fmt.Printf("  HTTP 地址: %s\n", cfg.Server.Address)
+	fmt.Printf("  gRPC 地址: %s\n", cfg.GRPC.Address)
+	fmt.Printf("  独立模式: %v\n", *standalone)
+	fmt.Printf("  最大并发执行数: %d\n", *maxExecutions)
 	fmt.Println()
 
 	if err := m.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start master: %w", err)
+		return fmt.Errorf("启动 Master 失败: %w", err)
 	}
 
-	fmt.Println("Master node started successfully. Press Ctrl+C to stop.")
+	fmt.Println("Master 节点启动成功。按 Ctrl+C 停止。")
 
-	// Wait for context cancellation
+	// 等待上下文取消
 	<-ctx.Done()
 
-	// Graceful shutdown
+	// 优雅关闭
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
 
 	if err := m.Stop(shutdownCtx); err != nil {
-		return fmt.Errorf("failed to stop master: %w", err)
+		return fmt.Errorf("停止 Master 失败: %w", err)
 	}
 
-	fmt.Println("Master node stopped.")
+	fmt.Println("Master 节点已停止。")
 	return nil
 }
 
-// executeStatus shows the master node status.
-// Requirements: 5.1
+// executeStatus 查看 Master 节点状态
 func executeStatus(args []string) error {
 	fs := flag.NewFlagSet("master status", flag.ExitOnError)
 
-	address := fs.String("address", "http://localhost:8080", "Master node address")
+	address := fs.String("address", "http://localhost:8080", "Master 节点地址")
 
 	fs.Usage = func() {
-		fmt.Println(`workflow-engine master status - Show master node status
+		fmt.Println(`workflow-engine master status - 查看 Master 节点状态
 
-Usage:
-  workflow-engine master status [options]
+用法:
+  workflow-engine master status [选项]
 
-Options:`)
+选项:`)
 		fs.PrintDefaults()
 	}
 
@@ -179,16 +176,14 @@ Options:`)
 		return err
 	}
 
-	fmt.Printf("Checking master status at %s...\n", *address)
+	fmt.Printf("正在检查 Master 状态: %s...\n", *address)
 
-	// In a real implementation, this would make an HTTP request to the master
-	// For now, we'll just print a placeholder message
 	fmt.Println()
-	fmt.Println("Master Status:")
-	fmt.Println("  State: unknown (not connected)")
+	fmt.Println("Master 状态:")
+	fmt.Println("  状态: 未知 (未连接)")
 	fmt.Println()
-	fmt.Println("Note: To get actual status, ensure the master is running and accessible.")
-	fmt.Printf("      Try: curl %s/api/v1/health\n", *address)
+	fmt.Println("提示: 请确保 Master 正在运行且可访问。")
+	fmt.Printf("      尝试: curl %s/api/v1/health\n", *address)
 
 	return nil
 }

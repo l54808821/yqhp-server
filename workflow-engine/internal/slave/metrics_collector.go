@@ -8,7 +8,7 @@ import (
 	"yqhp/workflow-engine/pkg/types"
 )
 
-// MetricsCollector collects and aggregates execution metrics.
+// MetricsCollector 收集和聚合执行指标。
 // Requirements: 9.1, 9.5
 type MetricsCollector struct {
 	stepMetrics map[string]*stepMetricsData
@@ -16,7 +16,7 @@ type MetricsCollector struct {
 	mu          sync.RWMutex
 }
 
-// stepMetricsData holds raw metrics data for a step.
+// stepMetricsData 保存步骤的原始指标数据。
 type stepMetricsData struct {
 	count         int64
 	successCount  int64
@@ -25,7 +25,7 @@ type stepMetricsData struct {
 	customMetrics map[string][]float64
 }
 
-// NewMetricsCollector creates a new metrics collector.
+// NewMetricsCollector 创建一个新的指标收集器。
 func NewMetricsCollector() *MetricsCollector {
 	return &MetricsCollector{
 		stepMetrics: make(map[string]*stepMetricsData),
@@ -33,7 +33,7 @@ func NewMetricsCollector() *MetricsCollector {
 	}
 }
 
-// RecordStep records metrics for a step execution.
+// RecordStep 记录步骤执行的指标。
 // Requirements: 9.1
 func (c *MetricsCollector) RecordStep(stepID string, result *types.StepResult) {
 	if result == nil {
@@ -62,7 +62,7 @@ func (c *MetricsCollector) RecordStep(stepID string, result *types.StepResult) {
 		data.failureCount++
 	}
 
-	// Record custom metrics
+	// 记录自定义指标
 	for k, v := range result.Metrics {
 		if data.customMetrics[k] == nil {
 			data.customMetrics[k] = make([]float64, 0, 100)
@@ -71,7 +71,7 @@ func (c *MetricsCollector) RecordStep(stepID string, result *types.StepResult) {
 	}
 }
 
-// GetMetrics returns the aggregated metrics.
+// GetMetrics 返回聚合后的指标。
 // Requirements: 9.1, 9.5
 func (c *MetricsCollector) GetMetrics() *types.Metrics {
 	c.mu.RLock()
@@ -97,21 +97,21 @@ func (c *MetricsCollector) GetMetrics() *types.Metrics {
 	return metrics
 }
 
-// calculateDurationMetrics calculates duration statistics including percentiles.
+// calculateDurationMetrics 计算耗时统计数据，包括百分位数。
 // Requirements: 9.5
 func (c *MetricsCollector) calculateDurationMetrics(durations []time.Duration) *types.DurationMetrics {
 	if len(durations) == 0 {
 		return &types.DurationMetrics{}
 	}
 
-	// Sort durations for percentile calculation
+	// 对耗时进行排序以计算百分位数
 	sorted := make([]time.Duration, len(durations))
 	copy(sorted, durations)
 	sort.Slice(sorted, func(i, j int) bool {
 		return sorted[i] < sorted[j]
 	})
 
-	// Calculate statistics
+	// 计算统计数据
 	var sum time.Duration
 	for _, d := range sorted {
 		sum += d
@@ -128,7 +128,7 @@ func (c *MetricsCollector) calculateDurationMetrics(durations []time.Duration) *
 	}
 }
 
-// percentile calculates the p-th percentile of sorted durations.
+// percentile 计算已排序耗时数据的第 p 百分位数。
 // Requirements: 9.5
 func (c *MetricsCollector) percentile(sorted []time.Duration, p int) time.Duration {
 	if len(sorted) == 0 {
@@ -142,7 +142,7 @@ func (c *MetricsCollector) percentile(sorted []time.Duration, p int) time.Durati
 		return sorted[len(sorted)-1]
 	}
 
-	// Use nearest-rank method
+	// 使用最近秩方法
 	index := (p * len(sorted)) / 100
 	if index >= len(sorted) {
 		index = len(sorted) - 1
@@ -151,7 +151,7 @@ func (c *MetricsCollector) percentile(sorted []time.Duration, p int) time.Durati
 	return sorted[index]
 }
 
-// aggregateCustomMetrics aggregates custom metrics.
+// aggregateCustomMetrics 聚合自定义指标。
 func (c *MetricsCollector) aggregateCustomMetrics(customMetrics map[string][]float64) map[string]float64 {
 	result := make(map[string]float64)
 
@@ -160,7 +160,7 @@ func (c *MetricsCollector) aggregateCustomMetrics(customMetrics map[string][]flo
 			continue
 		}
 
-		// Calculate average
+		// 计算平均值
 		var sum float64
 		for _, v := range values {
 			sum += v
@@ -171,7 +171,7 @@ func (c *MetricsCollector) aggregateCustomMetrics(customMetrics map[string][]flo
 	return result
 }
 
-// GetThroughput returns the current throughput (requests per second).
+// GetThroughput 返回当前吞吐量（每秒请求数）。
 func (c *MetricsCollector) GetThroughput() float64 {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -189,7 +189,7 @@ func (c *MetricsCollector) GetThroughput() float64 {
 	return float64(totalCount) / elapsed
 }
 
-// GetStepMetrics returns metrics for a specific step.
+// GetStepMetrics 返回指定步骤的指标。
 func (c *MetricsCollector) GetStepMetrics(stepID string) *types.StepMetrics {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -209,7 +209,7 @@ func (c *MetricsCollector) GetStepMetrics(stepID string) *types.StepMetrics {
 	}
 }
 
-// Reset resets all collected metrics.
+// Reset 重置所有已收集的指标。
 func (c *MetricsCollector) Reset() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -218,7 +218,7 @@ func (c *MetricsCollector) Reset() {
 	c.startTime = time.Now()
 }
 
-// GetErrorRate returns the overall error rate.
+// GetErrorRate 返回总体错误率。
 func (c *MetricsCollector) GetErrorRate() float64 {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -236,8 +236,8 @@ func (c *MetricsCollector) GetErrorRate() float64 {
 	return float64(failureCount) / float64(totalCount)
 }
 
-// GetDurationSamples returns raw duration samples for a step.
-// Useful for property-based testing.
+// GetDurationSamples 返回指定步骤的原始耗时样本。
+// 适用于基于属性的测试。
 func (c *MetricsCollector) GetDurationSamples(stepID string) []time.Duration {
 	c.mu.RLock()
 	defer c.mu.RUnlock()

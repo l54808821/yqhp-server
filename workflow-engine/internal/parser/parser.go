@@ -1,30 +1,30 @@
-// Package parser provides workflow parsing and serialization functionality.
+// Package parser 提供工作流解析和序列化功能。
 package parser
 
 import (
 	"yqhp/workflow-engine/pkg/types"
 )
 
-// Parser defines the interface for parsing workflow definitions.
+// Parser 定义了解析工作流定义的接口。
 type Parser interface {
-	// Parse parses a workflow definition from bytes.
+	// Parse 从字节数据解析工作流定义。
 	Parse(data []byte) (*types.Workflow, error)
 
-	// ParseFile parses a workflow definition from a file.
+	// ParseFile 从文件解析工作流定义。
 	ParseFile(path string) (*types.Workflow, error)
 }
 
-// Printer defines the interface for serializing workflow definitions.
+// Printer 定义了序列化工作流定义的接口。
 type Printer interface {
-	// Print serializes a workflow to bytes.
+	// Print 将工作流序列化为字节数据。
 	Print(workflow *types.Workflow) ([]byte, error)
 
-	// PrintToFile serializes a workflow to a file.
+	// PrintToFile 将工作流序列化到文件。
 	PrintToFile(workflow *types.Workflow, path string) error
 }
 
-// VariableResolver defines the interface for resolving variable references.
+// VariableResolver 定义了解析变量引用的接口。
 type VariableResolver interface {
-	// Resolve resolves a variable reference and returns its value.
+	// Resolve 解析变量引用并返回其值。
 	Resolve(ref string) (any, error)
 }

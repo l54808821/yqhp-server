@@ -1,20 +1,20 @@
-// Package hook provides the hook execution framework for workflow and step pre/post hooks.
+// Package hook 提供工作流前置/后置钩子的执行框架。
 //
-// The hook system supports:
-//   - Workflow-level pre-hooks: Executed before any workflow steps
-//   - Workflow-level post-hooks: Executed after all workflow steps complete
-//   - Step-level pre-hooks: Executed before each step
-//   - Step-level post-hooks: Executed after each step
+// 钩子系统支持：
+//   - 工作流级前置钩子：在任何工作流步骤之前执行
+//   - 工作流级后置钩子：在所有工作流步骤完成后执行
+//   - 步骤级前置钩子：在每个步骤之前执行
+//   - 步骤级后置钩子：在每个步骤之后执行
 //
-// Hook failure handling:
-//   - Pre-hook failure: The associated step/workflow is skipped, error is recorded
-//   - Post-hook: Always executed regardless of step/workflow success or failure
+// 钩子失败处理：
+//   - 前置钩子失败：跳过关联的步骤/工作流，记录错误
+//   - 后置钩子：无论步骤/工作流成功或失败都会执行
 //
-// Requirements covered:
-//   - 4.1: Workflow pre-hook execution
-//   - 4.2: Workflow post-hook execution
-//   - 4.3: Step pre-hook execution
-//   - 4.4: Step post-hook execution
-//   - 4.5: Pre-hook failure handling (skip associated step/workflow)
-//   - 4.6: Post-hook always executes regardless of success/failure
+// 覆盖的需求：
+//   - 4.1: 工作流前置钩子执行
+//   - 4.2: 工作流后置钩子执行
+//   - 4.3: 步骤前置钩子执行
+//   - 4.4: 步骤后置钩子执行
+//   - 4.5: 前置钩子失败处理（跳过关联的步骤/工作流）
+//   - 4.6: 后置钩子无论成功/失败都会执行
 package hook

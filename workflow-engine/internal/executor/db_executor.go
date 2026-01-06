@@ -10,10 +10,10 @@ import (
 )
 
 const (
-	// DBExecutorType is the type identifier for DB executor.
+	// DBExecutorType 是数据库执行器的类型标识符。
 	DBExecutorType = "db"
 
-	// Default timeout for DB operations.
+	// 数据库操作的默认超时时间。
 	defaultDBTimeout = 30 * time.Second
 )
 
@@ -79,14 +79,14 @@ type DBResult struct {
 	Error        string           `json:"error,omitempty"`
 }
 
-// DBExecutor executes database operations.
+// DBExecutor 执行数据库操作。
 type DBExecutor struct {
 	*BaseExecutor
 	config   *DBConfig
 	adapters map[DBDriver]DBAdapter
 }
 
-// NewDBExecutor creates a new DB executor.
+// NewDBExecutor 创建一个新的数据库执行器。
 func NewDBExecutor() *DBExecutor {
 	return &DBExecutor{
 		BaseExecutor: NewBaseExecutor(DBExecutorType),
@@ -99,7 +99,7 @@ func (e *DBExecutor) RegisterAdapter(driver DBDriver, adapter DBAdapter) {
 	e.adapters[driver] = adapter
 }
 
-// Init initializes the DB executor with configuration.
+// Init 使用配置初始化数据库执行器。
 func (e *DBExecutor) Init(ctx context.Context, config map[string]any) error {
 	if err := e.BaseExecutor.Init(ctx, config); err != nil {
 		return err
@@ -130,7 +130,7 @@ func (e *DBExecutor) Init(ctx context.Context, config map[string]any) error {
 	return nil
 }
 
-// Execute executes a database operation step.
+// Execute 执行数据库操作步骤。
 func (e *DBExecutor) Execute(ctx context.Context, step *types.Step, execCtx *ExecutionContext) (*types.StepResult, error) {
 	startTime := time.Now()
 
@@ -339,7 +339,7 @@ func (e *DBExecutor) parseStepConfig(config map[string]any) *DBConfig {
 	return stepConfig
 }
 
-// Cleanup releases resources held by the DB executor.
+// Cleanup 释放数据库执行器持有的资源。
 func (e *DBExecutor) Cleanup(ctx context.Context) error {
 	for _, adapter := range e.adapters {
 		if err := adapter.Close(ctx); err != nil {
@@ -349,7 +349,7 @@ func (e *DBExecutor) Cleanup(ctx context.Context) error {
 	return nil
 }
 
-// init registers the DB executor with the default registry.
+// init 在默认注册表中注册数据库执行器。
 func init() {
 	MustRegister(NewDBExecutor())
 }

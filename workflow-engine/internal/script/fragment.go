@@ -1,5 +1,5 @@
-// Package script provides the script fragment system for workflow engine v2.
-// Script fragments are reusable pieces of workflow logic that can be called with parameters.
+// Package script 提供工作流引擎 v2 的脚本片段系统。
+// 脚本片段是可复用的工作流逻辑，可以通过参数调用。
 package script
 
 import (

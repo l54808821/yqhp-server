@@ -11,68 +11,68 @@ import (
 	"yqhp/workflow-engine/pkg/types"
 )
 
-// Slave defines the interface for a slave node.
+// Slave 定义了 Slave 节点的接口。
 // Requirements: 12.1, 12.4
 type Slave interface {
-	// Start initializes and starts the slave node.
+	// Start 初始化并启动 Slave 节点。
 	Start(ctx context.Context) error
 
-	// Stop gracefully shuts down the slave node.
+	// Stop 优雅地关闭 Slave 节点。
 	Stop(ctx context.Context) error
 
-	// Connect connects to the master node.
+	// Connect 连接到 Master 节点。
 	Connect(ctx context.Context, masterAddr string) error
 
-	// Disconnect disconnects from the master node.
+	// Disconnect 断开与 Master 节点的连接。
 	Disconnect(ctx context.Context) error
 
-	// ExecuteTask executes an assigned task.
+	// ExecuteTask 执行分配的任务。
 	ExecuteTask(ctx context.Context, task *types.Task) (*types.TaskResult, error)
 
-	// GetStatus returns the current slave status.
+	// GetStatus 返回当前 Slave 状态。
 	GetStatus() *types.SlaveStatus
 
-	// GetInfo returns the slave registration information.
+	// GetInfo 返回 Slave 注册信息。
 	GetInfo() *types.SlaveInfo
 }
 
-// Config holds the configuration for a slave node.
+// Config 保存 Slave 节点的配置信息。
 type Config struct {
-	// ID is the unique identifier for this slave.
+	// ID 是此 Slave 的唯一标识符。
 	ID string
 
-	// Type is the type of slave (worker, gateway, aggregator).
+	// Type 是 Slave 的类型（worker、gateway、aggregator）。
 	Type types.SlaveType
 
-	// Address is the address this slave listens on.
+	// Address 是此 Slave 监听的地址。
 	Address string
 
-	// MasterAddress is the address of the master node.
+	// MasterAddress 是 Master 节点的地址。
 	MasterAddress string
 
-	// Capabilities are the capabilities this slave supports.
+	// Capabilities 是此 Slave 支持的能力列表。
 	Capabilities []string
 
-	// Labels are key-value labels for this slave.
+	// Labels 是此 Slave 的键值标签。
 	Labels map[string]string
 
-	// HeartbeatInterval is the interval between heartbeats.
+	// HeartbeatInterval 是心跳发送间隔。
 	HeartbeatInterval time.Duration
 
-	// HeartbeatTimeout is the timeout for heartbeat responses.
+	// HeartbeatTimeout 是心跳响应超时时间。
 	HeartbeatTimeout time.Duration
 
-	// MaxVUs is the maximum number of virtual users this slave can handle.
+	// MaxVUs 是此 Slave 可处理的最大虚拟用户数。
 	MaxVUs int
 
-	// CPUCores is the number of CPU cores available.
+	// CPUCores 是可用的 CPU 核心数。
 	CPUCores int
 
-	// MemoryMB is the amount of memory available in MB.
+	// MemoryMB 是可用内存大小（单位：MB）。
 	MemoryMB int64
 }
 
-// DefaultConfig returns a default slave configuration.
+// DefaultConfig 返回默认的 Slave 配置。
 func DefaultConfig() *Config {
 	return &Config{
 		Type:              types.SlaveTypeWorker,
@@ -84,37 +84,37 @@ func DefaultConfig() *Config {
 	}
 }
 
-// WorkerSlave implements the Slave interface for executing workflows.
+// WorkerSlave 实现了用于执行工作流的 Slave 接口。
 // Requirements: 12.1, 12.4
 type WorkerSlave struct {
 	config   *Config
 	registry *executor.Registry
 
-	// State management
+	// 状态管理
 	state       atomic.Value // types.SlaveState
 	connected   atomic.Bool
 	masterAddr  string
 	activeTasks atomic.Int32
 	currentLoad atomic.Value // float64
 
-	// Heartbeat management
+	// 心跳管理
 	heartbeatCtx    context.Context
 	heartbeatCancel context.CancelFunc
 	lastHeartbeat   atomic.Value // time.Time
 
-	// Metrics
+	// 指标数据
 	metrics *types.SlaveMetrics
 
-	// Task execution
+	// 任务执行
 	taskEngine *TaskEngine
 
-	// Synchronization
+	// 同步控制
 	mu       sync.RWMutex
 	stopOnce sync.Once
 	stopped  chan struct{}
 }
 
-// NewWorkerSlave creates a new worker slave.
+// NewWorkerSlave 创建一个新的 Worker Slave。
 func NewWorkerSlave(config *Config, registry *executor.Registry) *WorkerSlave {
 	if config == nil {
 		config = DefaultConfig()
@@ -134,36 +134,36 @@ func NewWorkerSlave(config *Config, registry *executor.Registry) *WorkerSlave {
 	return s
 }
 
-// Start initializes and starts the slave node.
+// Start 初始化并启动 Slave 节点。
 // Requirements: 12.1
 func (s *WorkerSlave) Start(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Initialize task engine
+	// 初始化任务引擎
 	s.taskEngine = NewTaskEngine(s.registry, s.config.MaxVUs)
 
-	// Set state to online
+	// 设置状态为在线
 	s.state.Store(types.SlaveStateOnline)
 
 	return nil
 }
 
-// Stop gracefully shuts down the slave node.
+// Stop 优雅地关闭 Slave 节点。
 func (s *WorkerSlave) Stop(ctx context.Context) error {
 	var err error
 	s.stopOnce.Do(func() {
-		// Stop heartbeat
+		// 停止心跳
 		if s.heartbeatCancel != nil {
 			s.heartbeatCancel()
 		}
 
-		// Stop task engine
+		// 停止任务引擎
 		if s.taskEngine != nil {
 			err = s.taskEngine.Stop(ctx)
 		}
 
-		// Set state to offline
+		// 设置状态为离线
 		s.state.Store(types.SlaveStateOffline)
 		s.connected.Store(false)
 
@@ -172,7 +172,7 @@ func (s *WorkerSlave) Stop(ctx context.Context) error {
 	return err
 }
 
-// Connect connects to the master node.
+// Connect 连接到 Master 节点。
 // Requirements: 12.1
 func (s *WorkerSlave) Connect(ctx context.Context, masterAddr string) error {
 	s.mu.Lock()
@@ -185,14 +185,14 @@ func (s *WorkerSlave) Connect(ctx context.Context, masterAddr string) error {
 	s.masterAddr = masterAddr
 	s.connected.Store(true)
 
-	// Start heartbeat goroutine
+	// 启动心跳协程
 	s.heartbeatCtx, s.heartbeatCancel = context.WithCancel(context.Background())
 	go s.heartbeatLoop()
 
 	return nil
 }
 
-// Disconnect disconnects from the master node.
+// Disconnect 断开与 Master 节点的连接。
 func (s *WorkerSlave) Disconnect(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -201,7 +201,7 @@ func (s *WorkerSlave) Disconnect(ctx context.Context) error {
 		return nil
 	}
 
-	// Stop heartbeat
+	// 停止心跳
 	if s.heartbeatCancel != nil {
 		s.heartbeatCancel()
 	}
@@ -212,7 +212,7 @@ func (s *WorkerSlave) Disconnect(ctx context.Context) error {
 	return nil
 }
 
-// ExecuteTask executes an assigned task.
+// ExecuteTask 执行分配的任务。
 // Requirements: 12.1
 func (s *WorkerSlave) ExecuteTask(ctx context.Context, task *types.Task) (*types.TaskResult, error) {
 	if task == nil {
@@ -222,15 +222,15 @@ func (s *WorkerSlave) ExecuteTask(ctx context.Context, task *types.Task) (*types
 	s.activeTasks.Add(1)
 	defer s.activeTasks.Add(-1)
 
-	// Update state to busy if we have active tasks
+	// 如果有活跃任务，更新状态为忙碌
 	if s.activeTasks.Load() > 0 {
 		s.state.Store(types.SlaveStateBusy)
 	}
 
-	// Execute the task using the task engine
+	// 使用任务引擎执行任务
 	result, err := s.taskEngine.Execute(ctx, task)
 
-	// Update state back to online if no more active tasks
+	// 如果没有更多活跃任务，将状态恢复为在线
 	if s.activeTasks.Load() == 0 {
 		s.state.Store(types.SlaveStateOnline)
 	}
@@ -238,7 +238,7 @@ func (s *WorkerSlave) ExecuteTask(ctx context.Context, task *types.Task) (*types
 	return result, err
 }
 
-// GetStatus returns the current slave status.
+// GetStatus 返回当前 Slave 状态。
 // Requirements: 12.4
 func (s *WorkerSlave) GetStatus() *types.SlaveStatus {
 	load, _ := s.currentLoad.Load().(float64)
@@ -254,7 +254,7 @@ func (s *WorkerSlave) GetStatus() *types.SlaveStatus {
 	}
 }
 
-// GetInfo returns the slave registration information.
+// GetInfo 返回 Slave 注册信息。
 // Requirements: 12.1
 func (s *WorkerSlave) GetInfo() *types.SlaveInfo {
 	return &types.SlaveInfo{
@@ -272,14 +272,14 @@ func (s *WorkerSlave) GetInfo() *types.SlaveInfo {
 	}
 }
 
-// getCapabilities returns the capabilities of this slave.
+// getCapabilities 返回此 Slave 的能力列表。
 // Requirements: 12.1
 func (s *WorkerSlave) getCapabilities() []string {
-	// Start with configured capabilities
+	// 从配置的能力开始
 	caps := make([]string, len(s.config.Capabilities))
 	copy(caps, s.config.Capabilities)
 
-	// Add capabilities based on registered executors
+	// 根据已注册的执行器添加能力
 	if s.registry != nil {
 		for _, execType := range s.registry.Types() {
 			caps = append(caps, execType+"_executor")
@@ -289,7 +289,7 @@ func (s *WorkerSlave) getCapabilities() []string {
 	return caps
 }
 
-// getMetrics returns the current slave metrics.
+// getMetrics 返回当前 Slave 指标数据。
 func (s *WorkerSlave) getMetrics() *types.SlaveMetrics {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -301,7 +301,7 @@ func (s *WorkerSlave) getMetrics() *types.SlaveMetrics {
 	return &types.SlaveMetrics{}
 }
 
-// heartbeatLoop sends periodic heartbeats to the master.
+// heartbeatLoop 定期向 Master 发送心跳。
 // Requirements: 12.4
 func (s *WorkerSlave) heartbeatLoop() {
 	ticker := time.NewTicker(s.config.HeartbeatInterval)
@@ -317,33 +317,33 @@ func (s *WorkerSlave) heartbeatLoop() {
 	}
 }
 
-// sendHeartbeat sends a heartbeat to the master.
+// sendHeartbeat 向 Master 发送心跳。
 // Requirements: 12.4
 func (s *WorkerSlave) sendHeartbeat() {
 	s.lastHeartbeat.Store(time.Now())
 
-	// Update load metrics
+	// 更新负载指标
 	s.updateLoad()
 
-	// In a real implementation, this would send the heartbeat via gRPC
-	// For now, we just update the local state
+	// 在实际实现中，这里会通过 gRPC 发送心跳
+	// 目前只更新本地状态
 }
 
-// updateLoad updates the current load metrics.
+// updateLoad 更新当前负载指标。
 func (s *WorkerSlave) updateLoad() {
-	// Calculate load based on active tasks and max VUs
+	// 根据活跃任务数和最大 VU 数计算负载
 	if s.config.MaxVUs > 0 {
 		load := float64(s.activeTasks.Load()) / float64(s.config.MaxVUs) * 100
 		s.currentLoad.Store(load)
 	}
 }
 
-// IsConnected returns whether the slave is connected to a master.
+// IsConnected 返回 Slave 是否已连接到 Master。
 func (s *WorkerSlave) IsConnected() bool {
 	return s.connected.Load()
 }
 
-// GetMasterAddress returns the address of the connected master.
+// GetMasterAddress 返回已连接的 Master 地址。
 func (s *WorkerSlave) GetMasterAddress() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

@@ -9,18 +9,18 @@ import (
 )
 
 const (
-	// ConditionExecutorType is the type identifier for condition executor.
+	// ConditionExecutorType 是条件执行器的类型标识符。
 	ConditionExecutorType = "condition"
 )
 
-// ConditionExecutor executes conditional logic steps.
+// ConditionExecutor 执行条件逻辑步骤。
 type ConditionExecutor struct {
 	*BaseExecutor
 	evaluator expression.ExpressionEvaluator
 	registry  *Registry
 }
 
-// NewConditionExecutor creates a new condition executor.
+// NewConditionExecutor 创建一个新的条件执行器。
 func NewConditionExecutor() *ConditionExecutor {
 	return &ConditionExecutor{
 		BaseExecutor: NewBaseExecutor(ConditionExecutorType),
@@ -28,7 +28,7 @@ func NewConditionExecutor() *ConditionExecutor {
 	}
 }
 
-// NewConditionExecutorWithRegistry creates a new condition executor with a custom registry.
+// NewConditionExecutorWithRegistry 使用自定义注册表创建一个新的条件执行器。
 func NewConditionExecutorWithRegistry(registry *Registry) *ConditionExecutor {
 	return &ConditionExecutor{
 		BaseExecutor: NewBaseExecutor(ConditionExecutorType),
@@ -37,31 +37,31 @@ func NewConditionExecutorWithRegistry(registry *Registry) *ConditionExecutor {
 	}
 }
 
-// Init initializes the condition executor.
+// Init 初始化条件执行器。
 func (e *ConditionExecutor) Init(ctx context.Context, config map[string]any) error {
 	return e.BaseExecutor.Init(ctx, config)
 }
 
-// Execute executes a condition step.
+// Execute 执行条件步骤。
 func (e *ConditionExecutor) Execute(ctx context.Context, step *types.Step, execCtx *ExecutionContext) (*types.StepResult, error) {
 	startTime := time.Now()
 
-	// Get condition from step
+	// 从步骤获取条件
 	condition := step.Condition
 	if condition == nil {
 		return CreateFailedResult(step.ID, startTime, NewConfigError("condition step requires 'condition' configuration", nil)), nil
 	}
 
-	// Build evaluation context
+	// 构建求值上下文
 	evalCtx := e.buildEvaluationContext(execCtx)
 
-	// Evaluate the condition expression
+	// 求值条件表达式
 	result, err := e.evaluator.EvaluateString(condition.Expression, evalCtx)
 	if err != nil {
 		return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "failed to evaluate condition", err)), nil
 	}
 
-	// Determine which branch to execute
+	// 确定执行哪个分支
 	var branchSteps []types.Step
 	var branchName string
 	if result {
@@ -72,7 +72,7 @@ func (e *ConditionExecutor) Execute(ctx context.Context, step *types.Step, execC
 		branchName = "else"
 	}
 
-	// Build output
+	// 构建输出
 	output := &ConditionOutput{
 		Expression:    condition.Expression,
 		Result:        result,
@@ -80,7 +80,7 @@ func (e *ConditionExecutor) Execute(ctx context.Context, step *types.Step, execC
 		StepsExecuted: make([]string, 0),
 	}
 
-	// Execute branch steps
+	// 执行分支步骤
 	if len(branchSteps) > 0 {
 		branchResults, err := e.executeBranch(ctx, branchSteps, execCtx)
 		if err != nil {
@@ -89,12 +89,12 @@ func (e *ConditionExecutor) Execute(ctx context.Context, step *types.Step, execC
 			return failedResult, nil
 		}
 
-		// Collect executed step IDs
+		// 收集已执行的步骤 ID
 		for _, br := range branchResults {
 			output.StepsExecuted = append(output.StepsExecuted, br.StepID)
 		}
 
-		// Check if any branch step failed
+		// 检查是否有分支步骤失败
 		for _, br := range branchResults {
 			if br.Status == types.ResultStatusFailed || br.Status == types.ResultStatusTimeout {
 				failedResult := CreateFailedResult(step.ID, startTime, br.Error)
@@ -104,7 +104,7 @@ func (e *ConditionExecutor) Execute(ctx context.Context, step *types.Step, execC
 		}
 	}
 
-	// Create success result
+	// 创建成功结果
 	successResult := CreateSuccessResult(step.ID, startTime, output)
 	successResult.Metrics["condition_result"] = boolToFloat(result)
 	successResult.Metrics["branch_steps_count"] = float64(len(branchSteps))
@@ -112,12 +112,12 @@ func (e *ConditionExecutor) Execute(ctx context.Context, step *types.Step, execC
 	return successResult, nil
 }
 
-// Cleanup releases resources held by the condition executor.
+// Cleanup 释放条件执行器持有的资源。
 func (e *ConditionExecutor) Cleanup(ctx context.Context) error {
 	return nil
 }
 
-// ConditionOutput represents the output of a condition step.
+// ConditionOutput 表示条件步骤的输出。
 type ConditionOutput struct {
 	Expression    string   `json:"expression"`
 	Result        bool     `json:"result"`
@@ -125,7 +125,7 @@ type ConditionOutput struct {
 	StepsExecuted []string `json:"steps_executed"`
 }
 
-// buildEvaluationContext converts ExecutionContext to expression.EvaluationContext.
+// buildEvaluationContext 将 ExecutionContext 转换为表达式求值上下文。
 func (e *ConditionExecutor) buildEvaluationContext(execCtx *ExecutionContext) *expression.EvaluationContext {
 	evalCtx := expression.NewEvaluationContext()
 
@@ -133,12 +133,12 @@ func (e *ConditionExecutor) buildEvaluationContext(execCtx *ExecutionContext) *e
 		return evalCtx
 	}
 
-	// Copy variables
+	// 复制变量
 	for k, v := range execCtx.Variables {
 		evalCtx.Set(k, v)
 	}
 
-	// Convert step results to evaluation context format
+	// 将步骤结果转换为求值上下文格式
 	for stepID, result := range execCtx.Results {
 		resultMap := map[string]any{
 			"status":   string(result.Status),
@@ -146,18 +146,18 @@ func (e *ConditionExecutor) buildEvaluationContext(execCtx *ExecutionContext) *e
 			"step_id":  result.StepID,
 		}
 
-		// Add output fields
+		// 添加输出字段
 		if result.Output != nil {
 			resultMap["output"] = result.Output
 
-			// If output is a map, flatten it for easier access
+			// 如果输出是 map，展平以便于访问
 			if outputMap, ok := result.Output.(map[string]any); ok {
 				for k, v := range outputMap {
 					resultMap[k] = v
 				}
 			}
 
-			// Handle HTTPResponse specifically
+			// 特殊处理 HTTPResponse
 			if httpResp, ok := result.Output.(*HTTPResponse); ok {
 				resultMap["status_code"] = httpResp.StatusCode
 				resultMap["body"] = httpResp.Body
@@ -175,41 +175,41 @@ func (e *ConditionExecutor) buildEvaluationContext(execCtx *ExecutionContext) *e
 	return evalCtx
 }
 
-// executeBranch executes a sequence of steps in a branch.
+// executeBranch 执行分支中的步骤序列。
 func (e *ConditionExecutor) executeBranch(ctx context.Context, steps []types.Step, execCtx *ExecutionContext) ([]*types.StepResult, error) {
 	results := make([]*types.StepResult, 0, len(steps))
 
 	for i := range steps {
 		step := &steps[i]
 
-		// Get executor for step type
+		// 获取步骤类型的执行器
 		executor, err := e.getExecutor(step.Type)
 		if err != nil {
 			return results, err
 		}
 
-		// Execute step
+		// 执行步骤
 		result, err := executor.Execute(ctx, step, execCtx)
 		if err != nil {
 			return results, err
 		}
 
-		// Store result in context for subsequent steps
+		// 将结果存储到上下文中供后续步骤使用
 		execCtx.SetResult(step.ID, result)
 		results = append(results, result)
 
-		// Handle error strategy
+		// 处理错误策略
 		if result.Status == types.ResultStatusFailed || result.Status == types.ResultStatusTimeout {
 			switch step.OnError {
 			case types.ErrorStrategyAbort:
 				return results, result.Error
 			case types.ErrorStrategyContinue:
-				// Continue to next step
+				// 继续下一步
 			case types.ErrorStrategySkip:
-				// Skip remaining steps in branch
+				// 跳过分支中的剩余步骤
 				return results, nil
 			default:
-				// Default is abort
+				// 默认是中止
 				return results, result.Error
 			}
 		}
@@ -218,17 +218,17 @@ func (e *ConditionExecutor) executeBranch(ctx context.Context, steps []types.Ste
 	return results, nil
 }
 
-// getExecutor gets an executor for the given type.
+// getExecutor 获取给定类型的执行器。
 func (e *ConditionExecutor) getExecutor(execType string) (Executor, error) {
-	// Use custom registry if provided
+	// 如果提供了自定义注册表则使用
 	if e.registry != nil {
 		return e.registry.GetOrError(execType)
 	}
-	// Fall back to default registry
+	// 回退到默认注册表
 	return DefaultRegistry.GetOrError(execType)
 }
 
-// boolToFloat converts a bool to float64.
+// boolToFloat 将布尔值转换为 float64。
 func boolToFloat(b bool) float64 {
 	if b {
 		return 1.0
@@ -236,7 +236,7 @@ func boolToFloat(b bool) float64 {
 	return 0.0
 }
 
-// init registers the condition executor with the default registry.
+// init 在默认注册表中注册条件执行器。
 func init() {
 	MustRegister(NewConditionExecutor())
 }

@@ -8,20 +8,20 @@ import (
 	"yqhp/workflow-engine/pkg/types"
 )
 
-// WorkflowScheduler implements the Scheduler interface.
+// WorkflowScheduler 实现了 Scheduler 接口。
 // Requirements: 5.3, 13.1, 13.2, 13.3
 type WorkflowScheduler struct {
 	registry SlaveRegistry
 }
 
-// NewWorkflowScheduler creates a new workflow scheduler.
+// NewWorkflowScheduler 创建一个新的工作流调度器。
 func NewWorkflowScheduler(registry SlaveRegistry) *WorkflowScheduler {
 	return &WorkflowScheduler{
 		registry: registry,
 	}
 }
 
-// Schedule distributes workflow execution to slaves.
+// Schedule 将工作流执行分发到 Slave。
 // Requirements: 5.3
 func (s *WorkflowScheduler) Schedule(ctx context.Context, workflow *types.Workflow, slaves []*types.SlaveInfo) (*types.ExecutionPlan, error) {
 	if workflow == nil {
@@ -31,7 +31,7 @@ func (s *WorkflowScheduler) Schedule(ctx context.Context, workflow *types.Workfl
 		return nil, fmt.Errorf("no slaves available for scheduling")
 	}
 
-	// Calculate execution segments for each slave
+	// 为每个 Slave 计算执行分段
 	assignments := s.calculateSegments(workflow, slaves)
 
 	return &types.ExecutionPlan{
@@ -39,8 +39,8 @@ func (s *WorkflowScheduler) Schedule(ctx context.Context, workflow *types.Workfl
 	}, nil
 }
 
-// calculateSegments calculates execution segments for each slave.
-// The segments are distributed evenly across all slaves.
+// calculateSegments 为每个 Slave 计算执行分段。
+// 分段在所有 Slave 之间均匀分配。
 func (s *WorkflowScheduler) calculateSegments(workflow *types.Workflow, slaves []*types.SlaveInfo) []*types.SlaveAssignment {
 	numSlaves := len(slaves)
 	segmentSize := 1.0 / float64(numSlaves)
@@ -50,7 +50,7 @@ func (s *WorkflowScheduler) calculateSegments(workflow *types.Workflow, slaves [
 		start := float64(i) * segmentSize
 		end := float64(i+1) * segmentSize
 
-		// Ensure the last segment ends exactly at 1.0
+		// 确保最后一个分段正好结束于 1.0
 		if i == numSlaves-1 {
 			end = 1.0
 		}
@@ -68,14 +68,14 @@ func (s *WorkflowScheduler) calculateSegments(workflow *types.Workflow, slaves [
 	return assignments
 }
 
-// Reschedule handles task redistribution on slave failure.
+// Reschedule 处理 Slave 故障时的任务重新分配。
 // Requirements: 5.5
 func (s *WorkflowScheduler) Reschedule(ctx context.Context, failedSlaveID string, plan *types.ExecutionPlan) (*types.ExecutionPlan, error) {
 	if plan == nil {
 		return nil, fmt.Errorf("execution plan cannot be nil")
 	}
 
-	// Find the failed assignment
+	// 查找失败的分配
 	var failedAssignment *types.SlaveAssignment
 	remainingAssignments := make([]*types.SlaveAssignment, 0)
 
@@ -88,21 +88,21 @@ func (s *WorkflowScheduler) Reschedule(ctx context.Context, failedSlaveID string
 	}
 
 	if failedAssignment == nil {
-		return plan, nil // No change needed
+		return plan, nil // 无需更改
 	}
 
 	if len(remainingAssignments) == 0 {
 		return nil, fmt.Errorf("no remaining slaves to reschedule work")
 	}
 
-	// Redistribute the failed segment among remaining slaves
+	// 将失败的分段重新分配给剩余的 Slave
 	failedSegmentSize := failedAssignment.Segment.End - failedAssignment.Segment.Start
 	redistributeSize := failedSegmentSize / float64(len(remainingAssignments))
 
 	for i, assignment := range remainingAssignments {
-		// Extend each remaining assignment's segment
+		// 扩展每个剩余分配的分段
 		if i == len(remainingAssignments)-1 {
-			// Last slave takes any remaining work
+			// 最后一个 Slave 接管所有剩余工作
 			assignment.Segment.End = 1.0
 		} else {
 			assignment.Segment.End += redistributeSize
@@ -115,7 +115,7 @@ func (s *WorkflowScheduler) Reschedule(ctx context.Context, failedSlaveID string
 	}, nil
 }
 
-// SelectSlaves selects slaves based on the selection strategy.
+// SelectSlaves 根据选择策略选择 Slave。
 // Requirements: 13.1, 13.2, 13.3
 func (s *WorkflowScheduler) SelectSlaves(ctx context.Context, selector *types.SlaveSelector) ([]*types.SlaveInfo, error) {
 	if selector == nil {
@@ -136,7 +136,7 @@ func (s *WorkflowScheduler) SelectSlaves(ctx context.Context, selector *types.Sl
 	}
 }
 
-// selectManual selects slaves by their IDs.
+// selectManual 通过 ID 选择 Slave。
 // Requirements: 13.1
 func (s *WorkflowScheduler) selectManual(ctx context.Context, selector *types.SlaveSelector) ([]*types.SlaveInfo, error) {
 	if len(selector.SlaveIDs) == 0 {
@@ -150,7 +150,7 @@ func (s *WorkflowScheduler) selectManual(ctx context.Context, selector *types.Sl
 			return nil, fmt.Errorf("slave not found: %s", id)
 		}
 
-		// Check if slave is online
+		// 检查 Slave 是否在线
 		status, err := s.registry.GetSlaveStatus(ctx, id)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get slave status: %s", id)
@@ -165,7 +165,7 @@ func (s *WorkflowScheduler) selectManual(ctx context.Context, selector *types.Sl
 	return slaves, nil
 }
 
-// selectByLabel selects slaves by their labels.
+// selectByLabel 通过标签选择 Slave。
 // Requirements: 13.2
 func (s *WorkflowScheduler) selectByLabel(ctx context.Context, selector *types.SlaveSelector) ([]*types.SlaveInfo, error) {
 	if len(selector.Labels) == 0 {
@@ -189,7 +189,7 @@ func (s *WorkflowScheduler) selectByLabel(ctx context.Context, selector *types.S
 	return slaves, nil
 }
 
-// selectByCapability selects slaves by their capabilities.
+// selectByCapability 通过能力选择 Slave。
 // Requirements: 13.3
 func (s *WorkflowScheduler) selectByCapability(ctx context.Context, selector *types.SlaveSelector) ([]*types.SlaveInfo, error) {
 	if len(selector.Capabilities) == 0 {
@@ -213,10 +213,10 @@ func (s *WorkflowScheduler) selectByCapability(ctx context.Context, selector *ty
 	return slaves, nil
 }
 
-// selectAuto automatically selects slaves based on load balancing.
+// selectAuto 基于负载均衡自动选择 Slave。
 // Requirements: 13.4
 func (s *WorkflowScheduler) selectAuto(ctx context.Context, selector *types.SlaveSelector) ([]*types.SlaveInfo, error) {
-	// Get all online slaves
+	// 获取所有在线的 Slave
 	slaves, err := s.registry.GetOnlineSlaves(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get online slaves: %w", err)
@@ -226,7 +226,7 @@ func (s *WorkflowScheduler) selectAuto(ctx context.Context, selector *types.Slav
 		return nil, fmt.Errorf("no online slaves available")
 	}
 
-	// Sort by load (lowest first)
+	// 按负载排序（最低优先）
 	slavesWithLoad := make([]slaveWithLoad, len(slaves))
 	for i, slave := range slaves {
 		status, _ := s.registry.GetSlaveStatus(ctx, slave.ID)
@@ -241,7 +241,7 @@ func (s *WorkflowScheduler) selectAuto(ctx context.Context, selector *types.Slav
 		return slavesWithLoad[i].load < slavesWithLoad[j].load
 	})
 
-	// Apply min/max constraints
+	// 应用最小/最大约束
 	minSlaves := selector.MinSlaves
 	maxSlaves := selector.MaxSlaves
 
@@ -256,7 +256,7 @@ func (s *WorkflowScheduler) selectAuto(ctx context.Context, selector *types.Slav
 		return nil, fmt.Errorf("not enough slaves available: need %d, have %d", minSlaves, len(slavesWithLoad))
 	}
 
-	// Select slaves up to maxSlaves
+	// 选择最多 maxSlaves 个 Slave
 	selectedCount := maxSlaves
 	if selectedCount > len(slavesWithLoad) {
 		selectedCount = len(slavesWithLoad)
@@ -270,13 +270,13 @@ func (s *WorkflowScheduler) selectAuto(ctx context.Context, selector *types.Slav
 	return result, nil
 }
 
-// slaveWithLoad pairs a slave with its current load.
+// slaveWithLoad 将 Slave 与其当前负载配对。
 type slaveWithLoad struct {
 	slave *types.SlaveInfo
 	load  float64
 }
 
-// CalculateVUsPerSlave calculates how many VUs each slave should handle.
+// CalculateVUsPerSlave 计算每个 Slave 应处理的 VU 数量。
 func (s *WorkflowScheduler) CalculateVUsPerSlave(totalVUs int, numSlaves int) []int {
 	if numSlaves <= 0 {
 		return []int{}
@@ -296,7 +296,7 @@ func (s *WorkflowScheduler) CalculateVUsPerSlave(totalVUs int, numSlaves int) []
 	return vusPerSlave
 }
 
-// CalculateIterationsPerSlave calculates how many iterations each slave should handle.
+// CalculateIterationsPerSlave 计算每个 Slave 应处理的迭代次数。
 func (s *WorkflowScheduler) CalculateIterationsPerSlave(totalIterations int64, numSlaves int) []int64 {
 	if numSlaves <= 0 {
 		return []int64{}

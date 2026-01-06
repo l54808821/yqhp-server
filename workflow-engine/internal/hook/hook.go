@@ -1,4 +1,4 @@
-// Package hook provides the hook execution framework for workflow pre/post hooks.
+// Package hook 提供工作流前置/后置钩子的执行框架。
 package hook
 
 import (
@@ -10,31 +10,31 @@ import (
 	"yqhp/workflow-engine/pkg/types"
 )
 
-// HookType represents the type of hook (pre or post).
+// HookType 表示钩子类型（前置或后置）。
 type HookType string
 
 const (
-	// HookTypePre represents a pre-execution hook.
+	// HookTypePre 表示前置执行钩子。
 	HookTypePre HookType = "pre"
-	// HookTypePost represents a post-execution hook.
+	// HookTypePost 表示后置执行钩子。
 	HookTypePost HookType = "post"
 )
 
-// HookLevel represents the level at which the hook is defined.
+// HookLevel 表示钩子定义的级别。
 type HookLevel string
 
 const (
-	// HookLevelWorkflow represents a workflow-level hook.
+	// HookLevelWorkflow 表示工作流级钩子。
 	HookLevelWorkflow HookLevel = "workflow"
-	// HookLevelStep represents a step-level hook.
+	// HookLevelStep 表示步骤级钩子。
 	HookLevelStep HookLevel = "step"
 )
 
-// HookResult contains the result of a hook execution.
+// HookResult 包含钩子执行的结果。
 type HookResult struct {
 	HookType  HookType
 	HookLevel HookLevel
-	StepID    string // Empty for workflow-level hooks
+	StepID    string // 工作流级钩子为空
 	Status    types.ResultStatus
 	StartTime time.Time
 	EndTime   time.Time
@@ -43,7 +43,7 @@ type HookResult struct {
 	Error     error
 }
 
-// HookError represents an error during hook execution.
+// HookError 表示钩子执行期间的错误。
 type HookError struct {
 	HookType  HookType
 	HookLevel HookLevel
@@ -52,22 +52,22 @@ type HookError struct {
 	Cause     error
 }
 
-// Error implements the error interface.
+// Error 实现 error 接口。
 func (e *HookError) Error() string {
 	level := string(e.HookLevel)
 	hookType := string(e.HookType)
 	if e.StepID != "" {
-		return fmt.Sprintf("[%s-%s hook for step %s] %s: %v", level, hookType, e.StepID, e.Message, e.Cause)
+		return fmt.Sprintf("[%s-%s 钩子，步骤 %s] %s: %v", level, hookType, e.StepID, e.Message, e.Cause)
 	}
-	return fmt.Sprintf("[%s-%s hook] %s: %v", level, hookType, e.Message, e.Cause)
+	return fmt.Sprintf("[%s-%s 钩子] %s: %v", level, hookType, e.Message, e.Cause)
 }
 
-// Unwrap returns the underlying error.
+// Unwrap 返回底层错误。
 func (e *HookError) Unwrap() error {
 	return e.Cause
 }
 
-// NewHookError creates a new HookError.
+// NewHookError 创建一个新的 HookError。
 func NewHookError(hookType HookType, level HookLevel, stepID, message string, cause error) *HookError {
 	return &HookError{
 		HookType:  hookType,
@@ -78,18 +78,18 @@ func NewHookError(hookType HookType, level HookLevel, stepID, message string, ca
 	}
 }
 
-// IsHookError checks if the error is a HookError.
+// IsHookError 检查错误是否为 HookError。
 func IsHookError(err error) bool {
 	_, ok := err.(*HookError)
 	return ok
 }
 
-// HookExecutor executes hooks using the appropriate executor.
+// HookExecutor 使用适当的执行器执行钩子。
 type HookExecutor struct {
 	registry *executor.Registry
 }
 
-// NewHookExecutor creates a new HookExecutor.
+// NewHookExecutor 创建一个新的 HookExecutor。
 func NewHookExecutor(registry *executor.Registry) *HookExecutor {
 	if registry == nil {
 		registry = executor.DefaultRegistry
@@ -99,7 +99,7 @@ func NewHookExecutor(registry *executor.Registry) *HookExecutor {
 	}
 }
 
-// ExecuteHook executes a single hook and returns the result.
+// ExecuteHook 执行单个钩子并返回结果。
 func (h *HookExecutor) ExecuteHook(
 	ctx context.Context,
 	hook *types.Hook,
@@ -114,7 +114,7 @@ func (h *HookExecutor) ExecuteHook(
 
 	startTime := time.Now()
 
-	// Get the executor for the hook type
+	// 获取钩子类型的执行器
 	exec, err := h.registry.GetOrError(hook.Type)
 	if err != nil {
 		return &HookResult{
@@ -125,11 +125,11 @@ func (h *HookExecutor) ExecuteHook(
 			StartTime: startTime,
 			EndTime:   time.Now(),
 			Duration:  time.Since(startTime),
-			Error:     NewHookError(hookType, level, stepID, "executor not found", err),
-		}, NewHookError(hookType, level, stepID, "executor not found", err)
+			Error:     NewHookError(hookType, level, stepID, "执行器未找到", err),
+		}, NewHookError(hookType, level, stepID, "执行器未找到", err)
 	}
 
-	// Create a step from the hook for execution
+	// 从钩子创建步骤用于执行
 	hookStep := &types.Step{
 		ID:     h.generateHookStepID(hookType, level, stepID),
 		Name:   fmt.Sprintf("%s-%s-hook", level, hookType),
@@ -137,7 +137,7 @@ func (h *HookExecutor) ExecuteHook(
 		Config: hook.Config,
 	}
 
-	// Execute the hook
+	// 执行钩子
 	result, err := exec.Execute(ctx, hookStep, execCtx)
 	endTime := time.Now()
 
@@ -152,7 +152,7 @@ func (h *HookExecutor) ExecuteHook(
 
 	if err != nil {
 		hookResult.Status = types.ResultStatusFailed
-		hookResult.Error = NewHookError(hookType, level, stepID, "hook execution failed", err)
+		hookResult.Error = NewHookError(hookType, level, stepID, "钩子执行失败", err)
 		return hookResult, hookResult.Error
 	}
 
@@ -160,14 +160,14 @@ func (h *HookExecutor) ExecuteHook(
 		hookResult.Status = result.Status
 		hookResult.Output = result.Output
 		if result.Error != nil {
-			hookResult.Error = NewHookError(hookType, level, stepID, "hook execution failed", result.Error)
+			hookResult.Error = NewHookError(hookType, level, stepID, "钩子执行失败", result.Error)
 		}
 	}
 
-	// Check if the hook failed
+	// 检查钩子是否失败
 	if hookResult.Status == types.ResultStatusFailed || hookResult.Status == types.ResultStatusTimeout {
 		if hookResult.Error == nil {
-			hookResult.Error = NewHookError(hookType, level, stepID, "hook execution failed", nil)
+			hookResult.Error = NewHookError(hookType, level, stepID, "钩子执行失败", nil)
 		}
 		return hookResult, hookResult.Error
 	}
@@ -175,7 +175,7 @@ func (h *HookExecutor) ExecuteHook(
 	return hookResult, nil
 }
 
-// generateHookStepID generates a unique step ID for a hook.
+// generateHookStepID 为钩子生成唯一的步骤 ID。
 func (h *HookExecutor) generateHookStepID(hookType HookType, level HookLevel, stepID string) string {
 	if stepID != "" {
 		return fmt.Sprintf("__%s_%s_hook_%s", level, hookType, stepID)

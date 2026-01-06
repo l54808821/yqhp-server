@@ -1,4 +1,4 @@
-// Package response provides unified response handling for workflow engine v2.
+// Package response 提供工作流引擎 v2 的统一响应处理。
 package response
 
 import (

@@ -1,4 +1,4 @@
-// Package reporter provides the reporting framework for the workflow execution engine.
+// Package reporter 提供工作流执行引擎的报告框架。
 // Requirements: 9.1.1
 package reporter
 
@@ -10,101 +10,101 @@ import (
 	"yqhp/workflow-engine/pkg/types"
 )
 
-// Reporter defines the interface for report output.
+// Reporter 定义了报告输出的接口。
 // Requirements: 9.1.1
 type Reporter interface {
-	// Name returns the reporter name.
+	// Name 返回报告器名称。
 	Name() string
 
-	// Init initializes the reporter with configuration.
+	// Init 使用配置初始化报告器。
 	Init(ctx context.Context, config map[string]any) error
 
-	// Report sends a metrics report.
+	// Report 发送指标报告。
 	Report(ctx context.Context, metrics *types.Metrics) error
 
-	// Flush flushes any buffered data.
+	// Flush 刷新所有缓冲数据。
 	Flush(ctx context.Context) error
 
-	// Close closes the reporter and releases resources.
+	// Close 关闭报告器并释放资源。
 	Close(ctx context.Context) error
 }
 
-// ReporterType defines the type of reporter.
+// ReporterType 定义报告器类型。
 type ReporterType string
 
 const (
-	// ReporterTypeConsole outputs to console.
+	// ReporterTypeConsole 输出到控制台。
 	ReporterTypeConsole ReporterType = "console"
-	// ReporterTypeJSON outputs to JSON file.
+	// ReporterTypeJSON 输出到 JSON 文件。
 	ReporterTypeJSON ReporterType = "json"
-	// ReporterTypeCSV outputs to CSV file.
+	// ReporterTypeCSV 输出到 CSV 文件。
 	ReporterTypeCSV ReporterType = "csv"
-	// ReporterTypePrometheus pushes to Prometheus.
+	// ReporterTypePrometheus 推送到 Prometheus。
 	ReporterTypePrometheus ReporterType = "prometheus"
-	// ReporterTypeInfluxDB writes to InfluxDB.
+	// ReporterTypeInfluxDB 写入 InfluxDB。
 	ReporterTypeInfluxDB ReporterType = "influxdb"
-	// ReporterTypeWebhook sends to webhook URL.
+	// ReporterTypeWebhook 发送到 Webhook URL。
 	ReporterTypeWebhook ReporterType = "webhook"
 )
 
-// ReporterConfig holds configuration for a reporter.
+// ReporterConfig 保存报告器的配置。
 type ReporterConfig struct {
 	Type    ReporterType   `yaml:"type"`
 	Enabled bool           `yaml:"enabled"`
 	Config  map[string]any `yaml:"config,omitempty"`
 }
 
-// ReporterFactory creates reporters of a specific type.
+// ReporterFactory 创建特定类型的报告器。
 type ReporterFactory func(config map[string]any) (Reporter, error)
 
-// Registry manages reporter registration and creation.
+// Registry 管理报告器的注册和创建。
 // Requirements: 9.1.1
 type Registry struct {
 	factories map[ReporterType]ReporterFactory
 	mu        sync.RWMutex
 }
 
-// NewRegistry creates a new reporter registry.
+// NewRegistry 创建一个新的报告器注册表。
 func NewRegistry() *Registry {
 	return &Registry{
 		factories: make(map[ReporterType]ReporterFactory),
 	}
 }
 
-// Register registers a reporter factory for a type.
+// Register 为指定类型注册报告器工厂。
 func (r *Registry) Register(reporterType ReporterType, factory ReporterFactory) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if _, exists := r.factories[reporterType]; exists {
-		return fmt.Errorf("reporter type already registered: %s", reporterType)
+		return fmt.Errorf("报告器类型已注册: %s", reporterType)
 	}
 
 	r.factories[reporterType] = factory
 	return nil
 }
 
-// Unregister removes a reporter factory.
+// Unregister 移除报告器工厂。
 func (r *Registry) Unregister(reporterType ReporterType) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.factories, reporterType)
 }
 
-// Create creates a reporter of the specified type.
+// Create 创建指定类型的报告器。
 func (r *Registry) Create(reporterType ReporterType, config map[string]any) (Reporter, error) {
 	r.mu.RLock()
 	factory, exists := r.factories[reporterType]
 	r.mu.RUnlock()
 
 	if !exists {
-		return nil, fmt.Errorf("unknown reporter type: %s", reporterType)
+		return nil, fmt.Errorf("未知的报告器类型: %s", reporterType)
 	}
 
 	return factory(config)
 }
 
-// ListTypes returns all registered reporter types.
+// ListTypes 返回所有已注册的报告器类型。
 func (r *Registry) ListTypes() []ReporterType {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -116,7 +116,7 @@ func (r *Registry) ListTypes() []ReporterType {
 	return types
 }
 
-// HasType checks if a reporter type is registered.
+// HasType 检查报告器类型是否已注册。
 func (r *Registry) HasType(reporterType ReporterType) bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

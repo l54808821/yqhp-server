@@ -1,4 +1,4 @@
-// Package executor provides the executor framework for workflow step execution.
+// Package executor 提供工作流步骤执行的执行器框架。
 package executor
 
 import (
@@ -8,45 +8,45 @@ import (
 	"yqhp/workflow-engine/pkg/types"
 )
 
-// Executor defines the interface for step executors.
+// Executor 定义步骤执行器的接口。
 type Executor interface {
-	// Type returns the executor type identifier.
+	// Type 返回执行器类型标识符。
 	Type() string
 
-	// Init initializes the executor with configuration.
+	// Init 使用配置初始化执行器。
 	Init(ctx context.Context, config map[string]any) error
 
-	// Execute executes a step and returns the result.
+	// Execute 执行步骤并返回结果。
 	Execute(ctx context.Context, step *types.Step, execCtx *ExecutionContext) (*types.StepResult, error)
 
-	// Cleanup releases resources held by the executor.
+	// Cleanup 释放执行器持有的资源。
 	Cleanup(ctx context.Context) error
 }
 
-// ExecutionContext holds runtime state for step execution.
+// ExecutionContext 保存步骤执行的运行时状态。
 type ExecutionContext struct {
-	// Variables holds variable values accessible during execution.
+	// Variables 保存执行期间可访问的变量值。
 	Variables map[string]any
 
-	// Results holds step execution results keyed by step ID.
+	// Results 保存按步骤 ID 索引的步骤执行结果。
 	Results map[string]*types.StepResult
 
-	// VU is the virtual user executing the workflow.
+	// VU 是执行工作流的虚拟用户。
 	VU *types.VirtualUser
 
-	// Iteration is the current iteration number.
+	// Iteration 是当前迭代次数。
 	Iteration int
 
-	// WorkflowID is the ID of the workflow being executed.
+	// WorkflowID 是正在执行的工作流 ID。
 	WorkflowID string
 
-	// ExecutionID is the unique ID of this execution.
+	// ExecutionID 是此次执行的唯一 ID。
 	ExecutionID string
 
 	mu sync.RWMutex
 }
 
-// NewExecutionContext creates a new ExecutionContext.
+// NewExecutionContext 创建一个新的 ExecutionContext。
 func NewExecutionContext() *ExecutionContext {
 	return &ExecutionContext{
 		Variables: make(map[string]any),
@@ -54,7 +54,7 @@ func NewExecutionContext() *ExecutionContext {
 	}
 }
 
-// WithVariables sets the variables map.
+// WithVariables 设置变量映射。
 func (c *ExecutionContext) WithVariables(vars map[string]any) *ExecutionContext {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -62,7 +62,7 @@ func (c *ExecutionContext) WithVariables(vars map[string]any) *ExecutionContext 
 	return c
 }
 
-// WithVU sets the virtual user.
+// WithVU 设置虚拟用户。
 func (c *ExecutionContext) WithVU(vu *types.VirtualUser) *ExecutionContext {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -70,7 +70,7 @@ func (c *ExecutionContext) WithVU(vu *types.VirtualUser) *ExecutionContext {
 	return c
 }
 
-// WithIteration sets the iteration number.
+// WithIteration 设置迭代次数。
 func (c *ExecutionContext) WithIteration(iteration int) *ExecutionContext {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -78,7 +78,7 @@ func (c *ExecutionContext) WithIteration(iteration int) *ExecutionContext {
 	return c
 }
 
-// WithWorkflowID sets the workflow ID.
+// WithWorkflowID 设置工作流 ID。
 func (c *ExecutionContext) WithWorkflowID(id string) *ExecutionContext {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -86,7 +86,7 @@ func (c *ExecutionContext) WithWorkflowID(id string) *ExecutionContext {
 	return c
 }
 
-// WithExecutionID sets the execution ID.
+// WithExecutionID 设置执行 ID。
 func (c *ExecutionContext) WithExecutionID(id string) *ExecutionContext {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -94,14 +94,14 @@ func (c *ExecutionContext) WithExecutionID(id string) *ExecutionContext {
 	return c
 }
 
-// SetVariable sets a variable value.
+// SetVariable 设置变量值。
 func (c *ExecutionContext) SetVariable(name string, value any) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.Variables[name] = value
 }
 
-// GetVariable gets a variable value.
+// GetVariable 获取变量值。
 func (c *ExecutionContext) GetVariable(name string) (any, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -109,14 +109,14 @@ func (c *ExecutionContext) GetVariable(name string) (any, bool) {
 	return val, ok
 }
 
-// SetResult stores a step result.
+// SetResult 存储步骤结果。
 func (c *ExecutionContext) SetResult(stepID string, result *types.StepResult) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.Results[stepID] = result
 }
 
-// GetResult retrieves a step result.
+// GetResult 获取步骤结果。
 func (c *ExecutionContext) GetResult(stepID string) (*types.StepResult, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -124,7 +124,7 @@ func (c *ExecutionContext) GetResult(stepID string) (*types.StepResult, bool) {
 	return result, ok
 }
 
-// Clone creates a shallow copy of the execution context.
+// Clone 创建执行上下文的浅拷贝。
 func (c *ExecutionContext) Clone() *ExecutionContext {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -148,19 +148,19 @@ func (c *ExecutionContext) Clone() *ExecutionContext {
 	return newCtx
 }
 
-// ToEvaluationContext converts ExecutionContext to expression.EvaluationContext.
+// ToEvaluationContext 将 ExecutionContext 转换为表达式求值上下文。
 func (c *ExecutionContext) ToEvaluationContext() map[string]any {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
 	evalCtx := make(map[string]any)
 
-	// Copy variables
+	// 复制变量
 	for k, v := range c.Variables {
 		evalCtx[k] = v
 	}
 
-	// Convert results to a format suitable for expression evaluation
+	// 将结果转换为适合表达式求值的格式
 	for stepID, result := range c.Results {
 		resultMap := map[string]any{
 			"status":     string(result.Status),

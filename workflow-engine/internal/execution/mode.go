@@ -8,96 +8,96 @@ import (
 	"yqhp/workflow-engine/pkg/types"
 )
 
-// Mode defines the interface for execution modes.
-// Each mode controls how VUs are managed and iterations are executed.
+// Mode 定义执行模式的接口。
+// 每种模式控制 VU 的管理方式和迭代的执行方式。
 type Mode interface {
-	// Name returns the name of the execution mode.
+	// Name 返回执行模式的名称。
 	Name() types.ExecutionMode
 
-	// Run starts the execution mode with the given configuration.
-	// It blocks until execution completes or context is cancelled.
+	// Run 使用给定配置启动执行模式。
+	// 阻塞直到执行完成或上下文被取消。
 	Run(ctx context.Context, config *ModeConfig) error
 
-	// Stop gracefully stops the execution mode.
+	// Stop 优雅地停止执行模式。
 	Stop(ctx context.Context) error
 
-	// GetState returns the current execution state.
+	// GetState 返回当前执行状态。
 	GetState() *ModeState
 }
 
-// ModeConfig contains configuration for execution modes.
+// ModeConfig 包含执行模式的配置。
 type ModeConfig struct {
-	// VUs is the number of virtual users (for VU-based modes).
+	// VUs 是虚拟用户数量（用于基于 VU 的模式）。
 	VUs int
 
-	// Duration is the total execution duration.
+	// Duration 是总执行时长。
 	Duration time.Duration
 
-	// Iterations is the total number of iterations.
+	// Iterations 是总迭代次数。
 	Iterations int
 
-	// Stages defines the execution stages (for ramping modes).
+	// Stages 定义执行阶段（用于递增模式）。
 	Stages []types.Stage
 
-	// Rate is the request rate (for arrival rate modes).
+	// Rate 是请求速率（用于到达率模式）。
 	Rate int
 
-	// TimeUnit is the time unit for rate calculation.
+	// TimeUnit 是速率计算的时间单位。
 	TimeUnit time.Duration
 
-	// PreAllocatedVUs is the number of pre-allocated VUs (for arrival rate modes).
+	// PreAllocatedVUs 是预分配的 VU 数量（用于到达率模式）。
 	PreAllocatedVUs int
 
-	// MaxVUs is the maximum number of VUs (for arrival rate modes).
+	// MaxVUs 是最大 VU 数量（用于到达率模式）。
 	MaxVUs int
 
-	// GracefulStop is the duration to wait for graceful shutdown.
+	// GracefulStop 是等待优雅关闭的时长。
 	GracefulStop time.Duration
 
-	// IterationFunc is the function to execute for each iteration.
+	// IterationFunc 是每次迭代执行的函数。
 	IterationFunc IterationFunc
 
-	// OnVUStart is called when a VU starts.
+	// OnVUStart 在 VU 启动时调用。
 	OnVUStart func(vuID int)
 
-	// OnVUStop is called when a VU stops.
+	// OnVUStop 在 VU 停止时调用。
 	OnVUStop func(vuID int)
 
-	// OnIterationComplete is called when an iteration completes.
+	// OnIterationComplete 在迭代完成时调用。
 	OnIterationComplete func(vuID int, iteration int, duration time.Duration, err error)
 }
 
-// IterationFunc is the function signature for executing a single iteration.
+// IterationFunc 是执行单次迭代的函数签名。
 type IterationFunc func(ctx context.Context, vuID int, iteration int) error
 
-// ModeState represents the current state of an execution mode.
+// ModeState 表示执行模式的当前状态。
 type ModeState struct {
-	// ActiveVUs is the current number of active VUs.
+	// ActiveVUs 是当前活跃的 VU 数量。
 	ActiveVUs int
 
-	// TargetVUs is the target number of VUs.
+	// TargetVUs 是目标 VU 数量。
 	TargetVUs int
 
-	// CompletedIterations is the number of completed iterations.
+	// CompletedIterations 是已完成的迭代次数。
 	CompletedIterations int64
 
-	// CurrentRate is the current request rate (for arrival rate modes).
+	// CurrentRate 是当前请求速率（用于到达率模式）。
 	CurrentRate float64
 
-	// Running indicates if the mode is currently running.
+	// Running 表示模式是否正在运行。
 	Running bool
 
-	// Paused indicates if the mode is paused.
+	// Paused 表示模式是否已暂停。
 	Paused bool
 
-	// StartTime is when the execution started.
+	// StartTime 是执行开始时间。
 	StartTime time.Time
 
-	// ElapsedTime is the elapsed execution time.
+	// ElapsedTime 是已执行时长。
 	ElapsedTime time.Duration
 }
 
-// BaseMode provides common functionality for execution modes.
+// BaseMode 为执行模式提供通用功能。
 type BaseMode struct {
 	name    types.ExecutionMode
 	state   ModeState
@@ -106,7 +106,7 @@ type BaseMode struct {
 	doneCh  chan struct{}
 }
 
-// NewBaseMode creates a new base mode.
+// NewBaseMode 创建一个新的基础模式。
 func NewBaseMode(name types.ExecutionMode) *BaseMode {
 	return &BaseMode{
 		name:   name,
@@ -115,12 +115,12 @@ func NewBaseMode(name types.ExecutionMode) *BaseMode {
 	}
 }
 
-// Name returns the mode name.
+// Name 返回模式名称。
 func (b *BaseMode) Name() types.ExecutionMode {
 	return b.name
 }
 
-// GetState returns the current state.
+// GetState 返回当前状态。
 func (b *BaseMode) GetState() *ModeState {
 	b.stateMu.RLock()
 	defer b.stateMu.RUnlock()
@@ -128,14 +128,14 @@ func (b *BaseMode) GetState() *ModeState {
 	return &state
 }
 
-// SetState updates the state.
+// SetState 更新状态。
 func (b *BaseMode) SetState(fn func(*ModeState)) {
 	b.stateMu.Lock()
 	defer b.stateMu.Unlock()
 	fn(&b.state)
 }
 
-// IsStopped returns true if stop has been requested.
+// IsStopped 如果已请求停止则返回 true。
 func (b *BaseMode) IsStopped() bool {
 	select {
 	case <-b.stopCh:
@@ -145,27 +145,27 @@ func (b *BaseMode) IsStopped() bool {
 	}
 }
 
-// RequestStop signals the mode to stop.
+// RequestStop 发送停止信号。
 func (b *BaseMode) RequestStop() {
 	select {
 	case <-b.stopCh:
-		// Already stopped
+		// 已停止
 	default:
 		close(b.stopCh)
 	}
 }
 
-// SignalDone signals that the mode has completed.
+// SignalDone 发送完成信号。
 func (b *BaseMode) SignalDone() {
 	select {
 	case <-b.doneCh:
-		// Already done
+		// 已完成
 	default:
 		close(b.doneCh)
 	}
 }
 
-// WaitDone waits for the mode to complete.
+// WaitDone 等待模式完成。
 func (b *BaseMode) WaitDone(ctx context.Context) error {
 	select {
 	case <-ctx.Done():

@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// ExecutorError represents an error during executor operations.
+// ExecutorError 表示执行器操作期间的错误。
 type ExecutorError struct {
 	Code    ErrorCode
 	Message string
@@ -13,23 +13,23 @@ type ExecutorError struct {
 	Cause   error
 }
 
-// ErrorCode represents the type of executor error.
+// ErrorCode 表示执行器错误的类型。
 type ErrorCode string
 
 const (
-	// ErrCodeNotFound indicates the executor was not found.
+	// ErrCodeNotFound 表示未找到执行器。
 	ErrCodeNotFound ErrorCode = "EXECUTOR_NOT_FOUND"
-	// ErrCodeExecution indicates an execution error.
+	// ErrCodeExecution 表示执行错误。
 	ErrCodeExecution ErrorCode = "EXECUTION_ERROR"
-	// ErrCodeTimeout indicates a timeout error.
+	// ErrCodeTimeout 表示超时错误。
 	ErrCodeTimeout ErrorCode = "TIMEOUT_ERROR"
-	// ErrCodeConfig indicates a configuration error.
+	// ErrCodeConfig 表示配置错误。
 	ErrCodeConfig ErrorCode = "CONFIG_ERROR"
-	// ErrCodeInit indicates an initialization error.
+	// ErrCodeInit 表示初始化错误。
 	ErrCodeInit ErrorCode = "INIT_ERROR"
 )
 
-// Error implements the error interface.
+// Error 实现 error 接口。
 func (e *ExecutorError) Error() string {
 	if e.Cause != nil {
 		return fmt.Sprintf("[%s] %s: %v", e.Code, e.Message, e.Cause)
@@ -37,12 +37,12 @@ func (e *ExecutorError) Error() string {
 	return fmt.Sprintf("[%s] %s", e.Code, e.Message)
 }
 
-// Unwrap returns the underlying error.
+// Unwrap 返回底层错误。
 func (e *ExecutorError) Unwrap() error {
 	return e.Cause
 }
 
-// NewExecutorError creates a new ExecutorError.
+// NewExecutorError 创建一个新的 ExecutorError。
 func NewExecutorError(code ErrorCode, message string, cause error) *ExecutorError {
 	return &ExecutorError{
 		Code:    code,
@@ -51,7 +51,7 @@ func NewExecutorError(code ErrorCode, message string, cause error) *ExecutorErro
 	}
 }
 
-// NewExecutorNotFoundError creates an error for missing executor.
+// NewExecutorNotFoundError 创建执行器未找到的错误。
 func NewExecutorNotFoundError(execType string) *ExecutorError {
 	return &ExecutorError{
 		Code:    ErrCodeNotFound,
@@ -59,7 +59,7 @@ func NewExecutorNotFoundError(execType string) *ExecutorError {
 	}
 }
 
-// NewExecutionError creates an error for execution failures.
+// NewExecutionError 创建执行失败的错误。
 func NewExecutionError(stepID, message string, cause error) *ExecutorError {
 	return &ExecutorError{
 		Code:    ErrCodeExecution,
@@ -69,7 +69,7 @@ func NewExecutionError(stepID, message string, cause error) *ExecutorError {
 	}
 }
 
-// NewTimeoutError creates an error for timeout.
+// NewTimeoutError 创建超时错误。
 func NewTimeoutError(stepID string, timeout time.Duration) *ExecutorError {
 	return &ExecutorError{
 		Code:    ErrCodeTimeout,
@@ -78,7 +78,7 @@ func NewTimeoutError(stepID string, timeout time.Duration) *ExecutorError {
 	}
 }
 
-// NewConfigError creates an error for configuration issues.
+// NewConfigError 创建配置问题的错误。
 func NewConfigError(message string, cause error) *ExecutorError {
 	return &ExecutorError{
 		Code:    ErrCodeConfig,
@@ -87,7 +87,7 @@ func NewConfigError(message string, cause error) *ExecutorError {
 	}
 }
 
-// NewInitError creates an error for initialization failures.
+// NewInitError 创建初始化失败的错误。
 func NewInitError(execType, message string, cause error) *ExecutorError {
 	return &ExecutorError{
 		Code:    ErrCodeInit,
@@ -96,7 +96,7 @@ func NewInitError(execType, message string, cause error) *ExecutorError {
 	}
 }
 
-// IsNotFoundError checks if the error is an executor not found error.
+// IsNotFoundError 检查错误是否为执行器未找到错误。
 func IsNotFoundError(err error) bool {
 	if execErr, ok := err.(*ExecutorError); ok {
 		return execErr.Code == ErrCodeNotFound
@@ -104,7 +104,7 @@ func IsNotFoundError(err error) bool {
 	return false
 }
 
-// IsTimeoutError checks if the error is a timeout error.
+// IsTimeoutError 检查错误是否为超时错误。
 func IsTimeoutError(err error) bool {
 	if execErr, ok := err.(*ExecutorError); ok {
 		return execErr.Code == ErrCodeTimeout
@@ -112,7 +112,7 @@ func IsTimeoutError(err error) bool {
 	return false
 }
 
-// IsExecutionError checks if the error is an execution error.
+// IsExecutionError 检查错误是否为执行错误。
 func IsExecutionError(err error) bool {
 	if execErr, ok := err.(*ExecutorError); ok {
 		return execErr.Code == ErrCodeExecution

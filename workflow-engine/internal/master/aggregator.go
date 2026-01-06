@@ -11,16 +11,16 @@ import (
 	"yqhp/workflow-engine/pkg/types"
 )
 
-// DefaultMetricsAggregator implements the MetricsAggregator interface.
+// DefaultMetricsAggregator 实现了 MetricsAggregator 接口。
 // Requirements: 5.4, 5.6, 6.6
 type DefaultMetricsAggregator struct{}
 
-// NewDefaultMetricsAggregator creates a new metrics aggregator.
+// NewDefaultMetricsAggregator 创建一个新的指标聚合器。
 func NewDefaultMetricsAggregator() *DefaultMetricsAggregator {
 	return &DefaultMetricsAggregator{}
 }
 
-// Aggregate aggregates metrics from multiple slaves.
+// Aggregate 聚合来自多个 Slave 的指标。
 // Requirements: 5.4, 9.1, 9.2
 func (a *DefaultMetricsAggregator) Aggregate(ctx context.Context, executionID string, slaveMetrics []*types.Metrics) (*types.AggregatedMetrics, error) {
 	if len(slaveMetrics) == 0 {
@@ -35,7 +35,7 @@ func (a *DefaultMetricsAggregator) Aggregate(ctx context.Context, executionID st
 		StepMetrics: make(map[string]*types.StepMetrics),
 	}
 
-	// Collect all step metrics by step ID
+	// 按步骤 ID 收集所有步骤指标
 	stepMetricsMap := make(map[string][]*types.StepMetrics)
 
 	for _, metrics := range slaveMetrics {
@@ -47,12 +47,12 @@ func (a *DefaultMetricsAggregator) Aggregate(ctx context.Context, executionID st
 		}
 	}
 
-	// Aggregate each step's metrics
+	// 聚合每个步骤的指标
 	for stepID, metricsSlice := range stepMetricsMap {
 		aggregated.StepMetrics[stepID] = a.aggregateStepMetrics(stepID, metricsSlice)
 	}
 
-	// Calculate totals
+	// 计算总数
 	for _, stepMetrics := range aggregated.StepMetrics {
 		aggregated.TotalIterations += stepMetrics.Count
 	}
@@ -60,7 +60,7 @@ func (a *DefaultMetricsAggregator) Aggregate(ctx context.Context, executionID st
 	return aggregated, nil
 }
 
-// aggregateStepMetrics aggregates metrics for a single step from multiple sources.
+// aggregateStepMetrics 聚合来自多个来源的单个步骤的指标。
 func (a *DefaultMetricsAggregator) aggregateStepMetrics(stepID string, metricsSlice []*types.StepMetrics) *types.StepMetrics {
 	if len(metricsSlice) == 0 {
 		return &types.StepMetrics{StepID: stepID}
@@ -71,17 +71,17 @@ func (a *DefaultMetricsAggregator) aggregateStepMetrics(stepID string, metricsSl
 		CustomMetrics: make(map[string]float64),
 	}
 
-	// Aggregate counts
+	// 聚合计数
 	for _, m := range metricsSlice {
 		aggregated.Count += m.Count
 		aggregated.SuccessCount += m.SuccessCount
 		aggregated.FailureCount += m.FailureCount
 	}
 
-	// Aggregate duration metrics
+	// 聚合持续时间指标
 	aggregated.Duration = a.aggregateDurationMetrics(metricsSlice)
 
-	// Aggregate custom metrics (sum)
+	// 聚合自定义指标（求和）
 	for _, m := range metricsSlice {
 		if m.CustomMetrics == nil {
 			continue
@@ -94,13 +94,13 @@ func (a *DefaultMetricsAggregator) aggregateStepMetrics(stepID string, metricsSl
 	return aggregated
 }
 
-// aggregateDurationMetrics aggregates duration metrics from multiple sources.
+// aggregateDurationMetrics 聚合来自多个来源的持续时间指标。
 func (a *DefaultMetricsAggregator) aggregateDurationMetrics(metricsSlice []*types.StepMetrics) *types.DurationMetrics {
 	if len(metricsSlice) == 0 {
 		return nil
 	}
 
-	// Collect all duration values for percentile calculation
+	// 收集所有持续时间值用于百分位数计算
 	var allDurations []time.Duration
 	var totalDuration time.Duration
 	var totalCount int64
@@ -112,7 +112,7 @@ func (a *DefaultMetricsAggregator) aggregateDurationMetrics(metricsSlice []*type
 			continue
 		}
 
-		// Track min/max
+		// 跟踪最小/最大值
 		if first || m.Duration.Min < minDuration {
 			minDuration = m.Duration.Min
 		}
@@ -121,12 +121,12 @@ func (a *DefaultMetricsAggregator) aggregateDurationMetrics(metricsSlice []*type
 		}
 		first = false
 
-		// Accumulate for weighted average
+		// 累加用于加权平均
 		totalDuration += m.Duration.Avg * time.Duration(m.Count)
 		totalCount += m.Count
 
-		// For percentiles, we need to estimate from the individual percentiles
-		// This is an approximation since we don't have raw data
+		// 对于百分位数，我们需要从各个百分位数进行估算
+		// 这是一个近似值，因为我们没有原始数据
 		allDurations = append(allDurations, m.Duration.P50, m.Duration.P90, m.Duration.P95, m.Duration.P99)
 	}
 
@@ -134,10 +134,10 @@ func (a *DefaultMetricsAggregator) aggregateDurationMetrics(metricsSlice []*type
 		return nil
 	}
 
-	// Calculate weighted average
+	// 计算加权平均
 	avgDuration := totalDuration / time.Duration(totalCount)
 
-	// Sort durations for percentile estimation
+	// 对持续时间排序用于百分位数估算
 	sort.Slice(allDurations, func(i, j int) bool {
 		return allDurations[i] < allDurations[j]
 	})
@@ -153,7 +153,7 @@ func (a *DefaultMetricsAggregator) aggregateDurationMetrics(metricsSlice []*type
 	}
 }
 
-// estimatePercentile estimates a percentile from a sorted slice.
+// estimatePercentile 从已排序的切片中估算百分位数。
 func (a *DefaultMetricsAggregator) estimatePercentile(sorted []time.Duration, percentile int) time.Duration {
 	if len(sorted) == 0 {
 		return 0
@@ -165,7 +165,7 @@ func (a *DefaultMetricsAggregator) estimatePercentile(sorted []time.Duration, pe
 	return sorted[index]
 }
 
-// EvaluateThresholds evaluates thresholds against aggregated metrics.
+// EvaluateThresholds 根据聚合指标评估阈值。
 // Requirements: 6.6
 func (a *DefaultMetricsAggregator) EvaluateThresholds(ctx context.Context, metrics *types.AggregatedMetrics, thresholds []types.Threshold) ([]types.ThresholdResult, error) {
 	if metrics == nil {
@@ -180,7 +180,7 @@ func (a *DefaultMetricsAggregator) EvaluateThresholds(ctx context.Context, metri
 			Condition: threshold.Condition,
 		}
 
-		// Get the metric value
+		// 获取指标值
 		value, err := a.getMetricValue(metrics, threshold.Metric)
 		if err != nil {
 			result.Passed = false
@@ -190,7 +190,7 @@ func (a *DefaultMetricsAggregator) EvaluateThresholds(ctx context.Context, metri
 
 		result.Value = value
 
-		// Evaluate the condition
+		// 评估条件
 		passed, err := a.evaluateCondition(value, threshold.Condition)
 		if err != nil {
 			result.Passed = false
@@ -204,12 +204,12 @@ func (a *DefaultMetricsAggregator) EvaluateThresholds(ctx context.Context, metri
 	return results, nil
 }
 
-// getMetricValue extracts a metric value from aggregated metrics.
+// getMetricValue 从聚合指标中提取指标值。
 func (a *DefaultMetricsAggregator) getMetricValue(metrics *types.AggregatedMetrics, metricName string) (float64, error) {
-	// Parse metric name (e.g., "http_req_duration", "step_1.duration.p95")
+	// 解析指标名称（例如 "http_req_duration"、"step_1.duration.p95"）
 	parts := strings.Split(metricName, ".")
 
-	// Handle global metrics
+	// 处理全局指标
 	switch metricName {
 	case "total_iterations":
 		return float64(metrics.TotalIterations), nil
@@ -219,7 +219,7 @@ func (a *DefaultMetricsAggregator) getMetricValue(metrics *types.AggregatedMetri
 		return float64(metrics.Duration.Milliseconds()), nil
 	}
 
-	// Handle step-specific metrics
+	// 处理步骤特定指标
 	if len(parts) >= 2 {
 		stepID := parts[0]
 		stepMetrics, ok := metrics.StepMetrics[stepID]
@@ -230,11 +230,11 @@ func (a *DefaultMetricsAggregator) getMetricValue(metrics *types.AggregatedMetri
 		return a.getStepMetricValue(stepMetrics, parts[1:])
 	}
 
-	// Handle aggregated step metrics (e.g., "http_req_duration" -> aggregate all HTTP steps)
+	// 处理聚合步骤指标（例如 "http_req_duration" -> 聚合所有 HTTP 步骤）
 	return a.getAggregatedStepMetricValue(metrics, metricName)
 }
 
-// getStepMetricValue extracts a metric value from step metrics.
+// getStepMetricValue 从步骤指标中提取指标值。
 func (a *DefaultMetricsAggregator) getStepMetricValue(stepMetrics *types.StepMetrics, parts []string) (float64, error) {
 	if len(parts) == 0 {
 		return 0, fmt.Errorf("invalid metric path")
@@ -264,7 +264,7 @@ func (a *DefaultMetricsAggregator) getStepMetricValue(stepMetrics *types.StepMet
 		return a.getDurationMetricValue(stepMetrics.Duration, parts[1])
 	}
 
-	// Check custom metrics
+	// 检查自定义指标
 	if value, ok := stepMetrics.CustomMetrics[parts[0]]; ok {
 		return value, nil
 	}
@@ -272,7 +272,7 @@ func (a *DefaultMetricsAggregator) getStepMetricValue(stepMetrics *types.StepMet
 	return 0, fmt.Errorf("unknown metric: %s", parts[0])
 }
 
-// getDurationMetricValue extracts a duration metric value.
+// getDurationMetricValue 提取持续时间指标值。
 func (a *DefaultMetricsAggregator) getDurationMetricValue(duration *types.DurationMetrics, metric string) (float64, error) {
 	switch metric {
 	case "min":
@@ -294,12 +294,12 @@ func (a *DefaultMetricsAggregator) getDurationMetricValue(duration *types.Durati
 	}
 }
 
-// getAggregatedStepMetricValue gets an aggregated metric value across all steps.
+// getAggregatedStepMetricValue 获取所有步骤的聚合指标值。
 func (a *DefaultMetricsAggregator) getAggregatedStepMetricValue(metrics *types.AggregatedMetrics, metricName string) (float64, error) {
-	// Common metric patterns
+	// 常见指标模式
 	switch {
 	case strings.HasSuffix(metricName, "_duration"):
-		// Aggregate duration across all steps
+		// 聚合所有步骤的持续时间
 		var totalDuration time.Duration
 		var count int64
 		for _, stepMetrics := range metrics.StepMetrics {
@@ -314,7 +314,7 @@ func (a *DefaultMetricsAggregator) getAggregatedStepMetricValue(metrics *types.A
 		return float64((totalDuration / time.Duration(count)).Milliseconds()), nil
 
 	case strings.HasSuffix(metricName, "_failed"):
-		// Calculate failure rate
+		// 计算失败率
 		var totalFailed, totalCount int64
 		for _, stepMetrics := range metrics.StepMetrics {
 			totalFailed += stepMetrics.FailureCount
@@ -329,12 +329,12 @@ func (a *DefaultMetricsAggregator) getAggregatedStepMetricValue(metrics *types.A
 	return 0, fmt.Errorf("unknown metric: %s", metricName)
 }
 
-// evaluateCondition evaluates a threshold condition.
+// evaluateCondition 评估阈值条件。
 func (a *DefaultMetricsAggregator) evaluateCondition(value float64, condition string) (bool, error) {
-	// Parse condition (e.g., "p95 < 500", "rate < 0.01")
+	// 解析条件（例如 "p95 < 500"、"rate < 0.01"）
 	condition = strings.TrimSpace(condition)
 
-	// Extract operator and threshold value
+	// 提取运算符和阈值
 	var op string
 	var threshold float64
 
@@ -358,7 +358,7 @@ func (a *DefaultMetricsAggregator) evaluateCondition(value float64, condition st
 		return false, fmt.Errorf("invalid condition format: %s", condition)
 	}
 
-	// Evaluate
+	// 评估
 	switch op {
 	case "<":
 		return value < threshold, nil
@@ -377,7 +377,7 @@ func (a *DefaultMetricsAggregator) evaluateCondition(value float64, condition st
 	}
 }
 
-// GenerateSummary generates a summary report.
+// GenerateSummary 生成摘要报告。
 // Requirements: 5.6
 func (a *DefaultMetricsAggregator) GenerateSummary(ctx context.Context, metrics *types.AggregatedMetrics) (*ExecutionSummary, error) {
 	if metrics == nil {
@@ -391,7 +391,7 @@ func (a *DefaultMetricsAggregator) GenerateSummary(ctx context.Context, metrics 
 		Duration:        metrics.Duration.String(),
 	}
 
-	// Calculate totals from step metrics
+	// 从步骤指标计算总数
 	var totalRequests, totalSuccess, totalFailure int64
 	var totalDuration time.Duration
 	var p95Durations []time.Duration
@@ -417,7 +417,7 @@ func (a *DefaultMetricsAggregator) GenerateSummary(ctx context.Context, metrics 
 		summary.AvgDuration = (totalDuration / time.Duration(totalRequests)).String()
 	}
 
-	// Calculate max P95 and P99
+	// 计算最大 P95 和 P99
 	if len(p95Durations) > 0 {
 		sort.Slice(p95Durations, func(i, j int) bool {
 			return p95Durations[i] > p95Durations[j]
@@ -432,7 +432,7 @@ func (a *DefaultMetricsAggregator) GenerateSummary(ctx context.Context, metrics 
 		summary.P99Duration = p99Durations[0].String()
 	}
 
-	// Count threshold results
+	// 统计阈值结果
 	for _, result := range metrics.Thresholds {
 		if result.Passed {
 			summary.ThresholdsPassed++

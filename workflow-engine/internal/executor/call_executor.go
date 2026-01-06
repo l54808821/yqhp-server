@@ -11,18 +11,18 @@ import (
 )
 
 const (
-	// CallExecutorType is the type identifier for call executor.
+	// CallExecutorType 是调用执行器的类型标识符。
 	CallExecutorType = "call"
 )
 
-// CallExecutor executes script fragment calls.
+// CallExecutor 执行脚本片段调用。
 type CallExecutor struct {
 	*BaseExecutor
 	registry  *script.Registry
 	callStack *script.CallStack
 }
 
-// NewCallExecutor creates a new call executor.
+// NewCallExecutor 创建一个新的调用执行器。
 func NewCallExecutor() *CallExecutor {
 	return &CallExecutor{
 		BaseExecutor: NewBaseExecutor(CallExecutorType),
@@ -51,12 +51,12 @@ func (e *CallExecutor) GetCallStack() *script.CallStack {
 	return e.callStack
 }
 
-// Init initializes the call executor with configuration.
+// Init 使用配置初始化调用执行器。
 func (e *CallExecutor) Init(ctx context.Context, config map[string]any) error {
 	return e.BaseExecutor.Init(ctx, config)
 }
 
-// Execute executes a script call step.
+// Execute 执行脚本调用步骤。
 func (e *CallExecutor) Execute(ctx context.Context, step *types.Step, execCtx *ExecutionContext) (*types.StepResult, error) {
 	startTime := time.Now()
 
@@ -240,12 +240,12 @@ func (e *CallExecutor) resolveReturnValue(expr string, scriptCtx *ExecutionConte
 	return expr
 }
 
-// Cleanup releases resources held by the call executor.
+// Cleanup 释放调用执行器持有的资源。
 func (e *CallExecutor) Cleanup(ctx context.Context) error {
 	return nil
 }
 
-// init registers the call executor with the default registry.
+// init 在默认注册表中注册调用执行器。
 func init() {
 	MustRegister(NewCallExecutor())
 }

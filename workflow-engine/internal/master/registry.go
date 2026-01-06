@@ -9,22 +9,22 @@ import (
 	"yqhp/workflow-engine/pkg/types"
 )
 
-// InMemorySlaveRegistry implements SlaveRegistry using in-memory storage.
+// InMemorySlaveRegistry 使用内存存储实现 SlaveRegistry。
 // Requirements: 5.2, 12.2, 13.1
 type InMemorySlaveRegistry struct {
-	// Slave storage
+	// Slave 存储
 	slaves map[string]*types.SlaveInfo
 	status map[string]*types.SlaveStatus
 
-	// Event subscribers
+	// 事件订阅者
 	subscribers []chan *types.SlaveEvent
 	subMu       sync.RWMutex
 
-	// Synchronization
+	// 同步
 	mu sync.RWMutex
 }
 
-// NewInMemorySlaveRegistry creates a new in-memory slave registry.
+// NewInMemorySlaveRegistry 创建一个新的内存 Slave 注册表。
 func NewInMemorySlaveRegistry() *InMemorySlaveRegistry {
 	return &InMemorySlaveRegistry{
 		slaves:      make(map[string]*types.SlaveInfo),
@@ -33,7 +33,7 @@ func NewInMemorySlaveRegistry() *InMemorySlaveRegistry {
 	}
 }
 
-// Register registers a new slave.
+// Register 注册一个新的 Slave。
 // Requirements: 5.2, 12.2
 func (r *InMemorySlaveRegistry) Register(ctx context.Context, slave *types.SlaveInfo) error {
 	if slave == nil {
@@ -46,15 +46,15 @@ func (r *InMemorySlaveRegistry) Register(ctx context.Context, slave *types.Slave
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// Check if already registered
+	// 检查是否已注册
 	if _, exists := r.slaves[slave.ID]; exists {
 		return fmt.Errorf("slave already registered: %s", slave.ID)
 	}
 
-	// Store slave info
+	// 存储 Slave 信息
 	r.slaves[slave.ID] = slave
 
-	// Initialize status
+	// 初始化状态
 	r.status[slave.ID] = &types.SlaveStatus{
 		State:       types.SlaveStateOnline,
 		Load:        0,
@@ -62,7 +62,7 @@ func (r *InMemorySlaveRegistry) Register(ctx context.Context, slave *types.Slave
 		LastSeen:    time.Now(),
 	}
 
-	// Notify subscribers
+	// 通知订阅者
 	r.notifyEvent(&types.SlaveEvent{
 		Type:    types.SlaveEventRegistered,
 		SlaveID: slave.ID,
@@ -72,7 +72,7 @@ func (r *InMemorySlaveRegistry) Register(ctx context.Context, slave *types.Slave
 	return nil
 }
 
-// Unregister unregisters a slave.
+// Unregister 注销一个 Slave。
 // Requirements: 5.2
 func (r *InMemorySlaveRegistry) Unregister(ctx context.Context, slaveID string) error {
 	r.mu.Lock()
@@ -86,7 +86,7 @@ func (r *InMemorySlaveRegistry) Unregister(ctx context.Context, slaveID string) 
 	delete(r.slaves, slaveID)
 	delete(r.status, slaveID)
 
-	// Notify subscribers
+	// 通知订阅者
 	r.notifyEvent(&types.SlaveEvent{
 		Type:    types.SlaveEventUnregistered,
 		SlaveID: slaveID,
@@ -96,7 +96,7 @@ func (r *InMemorySlaveRegistry) Unregister(ctx context.Context, slaveID string) 
 	return nil
 }
 
-// UpdateStatus updates a slave's status.
+// UpdateStatus 更新 Slave 的状态。
 // Requirements: 12.2
 func (r *InMemorySlaveRegistry) UpdateStatus(ctx context.Context, slaveID string, status *types.SlaveStatus) error {
 	r.mu.Lock()
@@ -109,7 +109,7 @@ func (r *InMemorySlaveRegistry) UpdateStatus(ctx context.Context, slaveID string
 	oldStatus := r.status[slaveID]
 	r.status[slaveID] = status
 
-	// Check for state changes and notify
+	// 检查状态变化并通知
 	if oldStatus != nil && oldStatus.State != status.State {
 		var eventType types.SlaveEventType
 		switch status.State {
@@ -131,7 +131,7 @@ func (r *InMemorySlaveRegistry) UpdateStatus(ctx context.Context, slaveID string
 	return nil
 }
 
-// GetSlave returns a single slave's information.
+// GetSlave 返回单个 Slave 的信息。
 func (r *InMemorySlaveRegistry) GetSlave(ctx context.Context, slaveID string) (*types.SlaveInfo, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -144,7 +144,7 @@ func (r *InMemorySlaveRegistry) GetSlave(ctx context.Context, slaveID string) (*
 	return slave, nil
 }
 
-// GetSlaveStatus returns a slave's current status.
+// GetSlaveStatus 返回 Slave 的当前状态。
 func (r *InMemorySlaveRegistry) GetSlaveStatus(ctx context.Context, slaveID string) (*types.SlaveStatus, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -157,7 +157,7 @@ func (r *InMemorySlaveRegistry) GetSlaveStatus(ctx context.Context, slaveID stri
 	return status, nil
 }
 
-// ListSlaves lists all slaves matching the filter.
+// ListSlaves 列出所有匹配过滤条件的 Slave。
 // Requirements: 13.1
 func (r *InMemorySlaveRegistry) ListSlaves(ctx context.Context, filter *SlaveFilter) ([]*types.SlaveInfo, error) {
 	r.mu.RLock()
@@ -175,9 +175,9 @@ func (r *InMemorySlaveRegistry) ListSlaves(ctx context.Context, filter *SlaveFil
 	return result, nil
 }
 
-// matchesFilter checks if a slave matches the given filter.
+// matchesFilter 检查 Slave 是否匹配给定的过滤条件。
 func (r *InMemorySlaveRegistry) matchesFilter(slaveID string, slave *types.SlaveInfo, filter *SlaveFilter) bool {
-	// Filter by type
+	// 按类型过滤
 	if len(filter.Types) > 0 {
 		found := false
 		for _, t := range filter.Types {
@@ -191,7 +191,7 @@ func (r *InMemorySlaveRegistry) matchesFilter(slaveID string, slave *types.Slave
 		}
 	}
 
-	// Filter by state
+	// 按状态过滤
 	if len(filter.States) > 0 {
 		status := r.status[slaveID]
 		if status == nil {
@@ -209,7 +209,7 @@ func (r *InMemorySlaveRegistry) matchesFilter(slaveID string, slave *types.Slave
 		}
 	}
 
-	// Filter by labels
+	// 按标签过滤
 	if len(filter.Labels) > 0 {
 		for key, value := range filter.Labels {
 			if slave.Labels == nil {
@@ -221,7 +221,7 @@ func (r *InMemorySlaveRegistry) matchesFilter(slaveID string, slave *types.Slave
 		}
 	}
 
-	// Filter by capabilities
+	// 按能力过滤
 	if len(filter.Capabilities) > 0 {
 		for _, required := range filter.Capabilities {
 			found := false
@@ -240,7 +240,7 @@ func (r *InMemorySlaveRegistry) matchesFilter(slaveID string, slave *types.Slave
 	return true
 }
 
-// GetOnlineSlaves returns all online slaves.
+// GetOnlineSlaves 返回所有在线的 Slave。
 // Requirements: 13.1
 func (r *InMemorySlaveRegistry) GetOnlineSlaves(ctx context.Context) ([]*types.SlaveInfo, error) {
 	return r.ListSlaves(ctx, &SlaveFilter{
@@ -248,7 +248,7 @@ func (r *InMemorySlaveRegistry) GetOnlineSlaves(ctx context.Context) ([]*types.S
 	})
 }
 
-// WatchSlaves watches for slave events.
+// WatchSlaves 监听 Slave 事件。
 // Requirements: 13.1
 func (r *InMemorySlaveRegistry) WatchSlaves(ctx context.Context) (<-chan *types.SlaveEvent, error) {
 	ch := make(chan *types.SlaveEvent, 100)
@@ -257,7 +257,7 @@ func (r *InMemorySlaveRegistry) WatchSlaves(ctx context.Context) (<-chan *types.
 	r.subscribers = append(r.subscribers, ch)
 	r.subMu.Unlock()
 
-	// Clean up when context is done
+	// 上下文结束时清理
 	go func() {
 		<-ctx.Done()
 		r.removeSubscriber(ch)
@@ -267,7 +267,7 @@ func (r *InMemorySlaveRegistry) WatchSlaves(ctx context.Context) (<-chan *types.
 	return ch, nil
 }
 
-// notifyEvent sends an event to all subscribers.
+// notifyEvent 向所有订阅者发送事件。
 func (r *InMemorySlaveRegistry) notifyEvent(event *types.SlaveEvent) {
 	r.subMu.RLock()
 	defer r.subMu.RUnlock()
@@ -276,12 +276,12 @@ func (r *InMemorySlaveRegistry) notifyEvent(event *types.SlaveEvent) {
 		select {
 		case ch <- event:
 		default:
-			// Channel full, skip
+			// 通道已满，跳过
 		}
 	}
 }
 
-// removeSubscriber removes a subscriber channel.
+// removeSubscriber 移除订阅者通道。
 func (r *InMemorySlaveRegistry) removeSubscriber(ch chan *types.SlaveEvent) {
 	r.subMu.Lock()
 	defer r.subMu.Unlock()
@@ -294,14 +294,14 @@ func (r *InMemorySlaveRegistry) removeSubscriber(ch chan *types.SlaveEvent) {
 	}
 }
 
-// Count returns the number of registered slaves.
+// Count 返回已注册 Slave 的数量。
 func (r *InMemorySlaveRegistry) Count() int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return len(r.slaves)
 }
 
-// CountOnline returns the number of online slaves.
+// CountOnline 返回在线 Slave 的数量。
 func (r *InMemorySlaveRegistry) CountOnline() int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -315,7 +315,7 @@ func (r *InMemorySlaveRegistry) CountOnline() int {
 	return count
 }
 
-// UpdateHeartbeat updates the last seen time for a slave.
+// UpdateHeartbeat 更新 Slave 的最后心跳时间。
 func (r *InMemorySlaveRegistry) UpdateHeartbeat(ctx context.Context, slaveID string, metrics *types.SlaveMetrics) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -331,7 +331,7 @@ func (r *InMemorySlaveRegistry) UpdateHeartbeat(ctx context.Context, slaveID str
 		status.Load = metrics.CPUUsage
 	}
 
-	// If slave was offline, mark as online
+	// 如果 Slave 之前离线，标记为在线
 	if status.State == types.SlaveStateOffline {
 		status.State = types.SlaveStateOnline
 		r.notifyEvent(&types.SlaveEvent{
@@ -344,7 +344,7 @@ func (r *InMemorySlaveRegistry) UpdateHeartbeat(ctx context.Context, slaveID str
 	return nil
 }
 
-// MarkOffline marks a slave as offline.
+// MarkOffline 将 Slave 标记为离线。
 func (r *InMemorySlaveRegistry) MarkOffline(ctx context.Context, slaveID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -366,7 +366,7 @@ func (r *InMemorySlaveRegistry) MarkOffline(ctx context.Context, slaveID string)
 	return nil
 }
 
-// DrainSlave marks a slave for draining.
+// DrainSlave 将 Slave 标记为正在排空。
 func (r *InMemorySlaveRegistry) DrainSlave(ctx context.Context, slaveID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

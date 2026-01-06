@@ -14,34 +14,34 @@ import (
 )
 
 const (
-	// ScriptExecutorType is the type identifier for script executor.
+	// ScriptExecutorType 是脚本执行器的类型标识符。
 	ScriptExecutorType = "script"
 
-	// Default timeout for script execution.
+	// 脚本执行的默认超时时间。
 	defaultScriptTimeout = 60 * time.Second
 )
 
-// ScriptExecutor executes script steps.
+// ScriptExecutor 执行脚本步骤。
 type ScriptExecutor struct {
 	*BaseExecutor
 	shell     string
 	shellArgs []string
 }
 
-// NewScriptExecutor creates a new script executor.
+// NewScriptExecutor 创建一个新的脚本执行器。
 func NewScriptExecutor() *ScriptExecutor {
 	return &ScriptExecutor{
 		BaseExecutor: NewBaseExecutor(ScriptExecutorType),
 	}
 }
 
-// Init initializes the script executor with configuration.
+// Init 使用配置初始化脚本执行器。
 func (e *ScriptExecutor) Init(ctx context.Context, config map[string]any) error {
 	if err := e.BaseExecutor.Init(ctx, config); err != nil {
 		return err
 	}
 
-	// Determine shell based on OS
+	// 根据操作系统确定 shell
 	e.shell = e.GetConfigString("shell", "")
 	if e.shell == "" {
 		if runtime.GOOS == "windows" {
@@ -52,7 +52,7 @@ func (e *ScriptExecutor) Init(ctx context.Context, config map[string]any) error 
 			e.shellArgs = []string{"-c"}
 		}
 	} else {
-		// Parse shell args from config
+		// 从配置解析 shell 参数
 		if args, ok := config["shell_args"].([]any); ok {
 			for _, arg := range args {
 				if s, ok := arg.(string); ok {
@@ -60,7 +60,7 @@ func (e *ScriptExecutor) Init(ctx context.Context, config map[string]any) error 
 				}
 			}
 		} else {
-			// Default args for common shells
+			// 常见 shell 的默认参数
 			switch {
 			case strings.Contains(e.shell, "bash"):
 				e.shellArgs = []string{"-c"}
@@ -79,60 +79,60 @@ func (e *ScriptExecutor) Init(ctx context.Context, config map[string]any) error 
 	return nil
 }
 
-// Execute executes a script step.
+// Execute 执行脚本步骤。
 func (e *ScriptExecutor) Execute(ctx context.Context, step *types.Step, execCtx *ExecutionContext) (*types.StepResult, error) {
 	startTime := time.Now()
 
-	// Parse step configuration
+	// 解析步骤配置
 	config, err := e.parseConfig(step.Config)
 	if err != nil {
 		return CreateFailedResult(step.ID, startTime, err), nil
 	}
 
-	// Resolve variables in script
+	// 解析脚本中的变量
 	script := e.resolveVariables(config.Script, execCtx)
 
-	// Apply step timeout if specified
+	// 如果指定了步骤超时则应用
 	timeout := step.Timeout
 	if timeout <= 0 {
 		timeout = e.GetConfigDuration("timeout", defaultScriptTimeout)
 	}
 
-	// Create command context with timeout
+	// 创建带超时的命令上下文
 	cmdCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	// Build command
+	// 构建命令
 	args := append(e.shellArgs, script)
 	cmd := exec.CommandContext(cmdCtx, e.shell, args...)
 
-	// Set environment variables
+	// 设置环境变量
 	cmd.Env = os.Environ()
 	for k, v := range config.Env {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
 	}
 
-	// Add execution context variables to environment
+	// 将执行上下文变量添加到环境变量
 	if execCtx != nil {
 		for k, v := range execCtx.Variables {
 			cmd.Env = append(cmd.Env, fmt.Sprintf("WF_%s=%v", strings.ToUpper(k), v))
 		}
 	}
 
-	// Set working directory
+	// 设置工作目录
 	if config.WorkDir != "" {
 		cmd.Dir = config.WorkDir
 	}
 
-	// Capture output
+	// 捕获输出
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
-	// Execute command
+	// 执行命令
 	err = cmd.Run()
 
-	// Build output
+	// 构建输出
 	output := &ScriptOutput{
 		Stdout:   stdout.String(),
 		Stderr:   stderr.String(),
@@ -140,12 +140,12 @@ func (e *ScriptExecutor) Execute(ctx context.Context, step *types.Step, execCtx 
 	}
 
 	if err != nil {
-		// Check if it was a timeout
+		// 检查是否超时
 		if cmdCtx.Err() == context.DeadlineExceeded {
 			return CreateTimeoutResult(step.ID, startTime, timeout), nil
 		}
 
-		// Get exit code if available
+		// 如果可用则获取退出码
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			output.ExitCode = exitErr.ExitCode()
 		} else {
@@ -157,50 +157,50 @@ func (e *ScriptExecutor) Execute(ctx context.Context, step *types.Step, execCtx 
 		return result, nil
 	}
 
-	// Create success result
+	// 创建成功结果
 	result := CreateSuccessResult(step.ID, startTime, output)
 	result.Metrics["script_exit_code"] = float64(output.ExitCode)
 
 	return result, nil
 }
 
-// Cleanup releases resources held by the script executor.
+// Cleanup 释放脚本执行器持有的资源。
 func (e *ScriptExecutor) Cleanup(ctx context.Context) error {
 	return nil
 }
 
-// ScriptConfig represents the configuration for a script step.
+// ScriptConfig 表示脚本步骤的配置。
 type ScriptConfig struct {
-	Script  string            // Inline script content
-	File    string            // Script file path (alternative to inline)
-	Env     map[string]string // Environment variables
-	WorkDir string            // Working directory
+	Script  string            // 内联脚本内容
+	File    string            // 脚本文件路径（内联的替代方式）
+	Env     map[string]string // 环境变量
+	WorkDir string            // 工作目录
 }
 
-// ScriptOutput represents the output of a script execution.
+// ScriptOutput 表示脚本执行的输出。
 type ScriptOutput struct {
 	Stdout   string `json:"stdout"`
 	Stderr   string `json:"stderr"`
 	ExitCode int    `json:"exit_code"`
 }
 
-// parseConfig parses the step configuration into ScriptConfig.
+// parseConfig 将步骤配置解析为 ScriptConfig。
 func (e *ScriptExecutor) parseConfig(config map[string]any) (*ScriptConfig, error) {
 	scriptConfig := &ScriptConfig{
 		Env: make(map[string]string),
 	}
 
-	// Get inline script
+	// 获取内联脚本
 	if inline, ok := config["inline"].(string); ok {
 		scriptConfig.Script = inline
 	}
 
-	// Get script file
+	// 获取脚本文件
 	if file, ok := config["file"].(string); ok {
 		scriptConfig.File = file
 	}
 
-	// If file is specified, read its content
+	// 如果指定了文件，读取其内容
 	if scriptConfig.File != "" && scriptConfig.Script == "" {
 		content, err := os.ReadFile(scriptConfig.File)
 		if err != nil {
@@ -209,12 +209,12 @@ func (e *ScriptExecutor) parseConfig(config map[string]any) (*ScriptConfig, erro
 		scriptConfig.Script = string(content)
 	}
 
-	// Validate that we have a script
+	// 验证是否有脚本
 	if scriptConfig.Script == "" {
 		return nil, NewConfigError("script step requires 'inline' or 'file' configuration", nil)
 	}
 
-	// Get environment variables
+	// 获取环境变量
 	if env, ok := config["env"].(map[string]any); ok {
 		for k, v := range env {
 			if s, ok := v.(string); ok {
@@ -223,7 +223,7 @@ func (e *ScriptExecutor) parseConfig(config map[string]any) (*ScriptConfig, erro
 		}
 	}
 
-	// Get working directory
+	// 获取工作目录
 	if workDir, ok := config["work_dir"].(string); ok {
 		scriptConfig.WorkDir = workDir
 	}
@@ -231,7 +231,7 @@ func (e *ScriptExecutor) parseConfig(config map[string]any) (*ScriptConfig, erro
 	return scriptConfig, nil
 }
 
-// resolveVariables resolves variable references in the script.
+// resolveVariables 解析脚本中的变量引用。
 func (e *ScriptExecutor) resolveVariables(script string, execCtx *ExecutionContext) string {
 	if execCtx == nil {
 		return script
@@ -246,7 +246,7 @@ func (e *ScriptExecutor) resolveVariables(script string, execCtx *ExecutionConte
 			result = strings.ReplaceAll(result, placeholder, fmt.Sprintf("%v", value))
 		}
 
-		// Handle nested access
+		// 处理嵌套访问
 		if m, ok := value.(map[string]any); ok {
 			for subKey, subValue := range m {
 				nestedPlaceholder := fmt.Sprintf("${%s.%s}", key, subKey)
@@ -260,7 +260,7 @@ func (e *ScriptExecutor) resolveVariables(script string, execCtx *ExecutionConte
 	return result
 }
 
-// init registers the script executor with the default registry.
+// init 在默认注册表中注册脚本执行器。
 func init() {
 	MustRegister(NewScriptExecutor())
 }

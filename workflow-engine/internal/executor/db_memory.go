@@ -24,7 +24,7 @@ type inMemoryTx struct {
 	snapshot map[string][]map[string]any
 }
 
-// NewInMemoryDBAdapter creates a new in-memory DB adapter.
+// NewInMemoryDBAdapter 创建一个新的内存数据库适配器。
 func NewInMemoryDBAdapter() *InMemoryDBAdapter {
 	return &InMemoryDBAdapter{
 		tables:       make(map[string][]map[string]any),
@@ -32,7 +32,7 @@ func NewInMemoryDBAdapter() *InMemoryDBAdapter {
 	}
 }
 
-// Connect connects to the in-memory database.
+// Connect 连接到内存数据库。
 func (a *InMemoryDBAdapter) Connect(ctx context.Context, config *DBConfig) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -42,7 +42,7 @@ func (a *InMemoryDBAdapter) Connect(ctx context.Context, config *DBConfig) error
 	return nil
 }
 
-// Query executes a query and returns results.
+// Query 执行查询并返回结果。
 func (a *InMemoryDBAdapter) Query(ctx context.Context, sql string, params ...any) ([]map[string]any, error) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -71,7 +71,7 @@ func (a *InMemoryDBAdapter) Query(ctx context.Context, sql string, params ...any
 	return result, nil
 }
 
-// Execute executes a statement and returns affected rows.
+// Execute 执行语句并返回影响的行数。
 func (a *InMemoryDBAdapter) Execute(ctx context.Context, sql string, params ...any) (int64, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -95,7 +95,7 @@ func (a *InMemoryDBAdapter) Execute(ctx context.Context, sql string, params ...a
 	return 0, fmt.Errorf("unsupported SQL statement")
 }
 
-// Count executes a count query.
+// Count 执行计数查询。
 func (a *InMemoryDBAdapter) Count(ctx context.Context, sql string, params ...any) (int64, error) {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -118,7 +118,7 @@ func (a *InMemoryDBAdapter) Count(ctx context.Context, sql string, params ...any
 	return int64(len(result)), nil
 }
 
-// Exists checks if any rows match the query.
+// Exists 检查是否有匹配查询的行。
 func (a *InMemoryDBAdapter) Exists(ctx context.Context, sql string, params ...any) (bool, error) {
 	count, err := a.Count(ctx, sql, params...)
 	if err != nil {
@@ -127,7 +127,7 @@ func (a *InMemoryDBAdapter) Exists(ctx context.Context, sql string, params ...an
 	return count > 0, nil
 }
 
-// BeginTx starts a transaction.
+// BeginTx 开始事务。
 func (a *InMemoryDBAdapter) BeginTx(ctx context.Context) (string, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -161,7 +161,7 @@ func (a *InMemoryDBAdapter) BeginTx(ctx context.Context) (string, error) {
 	return txID, nil
 }
 
-// CommitTx commits a transaction.
+// CommitTx 提交事务。
 func (a *InMemoryDBAdapter) CommitTx(ctx context.Context, txID string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -174,7 +174,7 @@ func (a *InMemoryDBAdapter) CommitTx(ctx context.Context, txID string) error {
 	return nil
 }
 
-// RollbackTx rolls back a transaction.
+// RollbackTx 回滚事务。
 func (a *InMemoryDBAdapter) RollbackTx(ctx context.Context, txID string) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -190,7 +190,7 @@ func (a *InMemoryDBAdapter) RollbackTx(ctx context.Context, txID string) error {
 	return nil
 }
 
-// Close closes the connection.
+// Close 关闭连接。
 func (a *InMemoryDBAdapter) Close(ctx context.Context) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -199,28 +199,28 @@ func (a *InMemoryDBAdapter) Close(ctx context.Context) error {
 	return nil
 }
 
-// IsConnected returns whether the adapter is connected.
+// IsConnected 返回适配器是否已连接。
 func (a *InMemoryDBAdapter) IsConnected() bool {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	return a.connected
 }
 
-// InsertRow inserts a row into a table (for testing).
+// InsertRow 向表中插入一行（用于测试）。
 func (a *InMemoryDBAdapter) InsertRow(table string, row map[string]any) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.tables[table] = append(a.tables[table], row)
 }
 
-// GetTable returns all rows in a table (for testing).
+// GetTable 返回表中的所有行（用于测试）。
 func (a *InMemoryDBAdapter) GetTable(table string) []map[string]any {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	return a.tables[table]
 }
 
-// Clear clears all data (for testing).
+// Clear 清除所有数据（用于测试）。
 func (a *InMemoryDBAdapter) Clear() {
 	a.mu.Lock()
 	defer a.mu.Unlock()

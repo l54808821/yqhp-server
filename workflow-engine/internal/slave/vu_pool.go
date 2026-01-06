@@ -7,7 +7,7 @@ import (
 	"yqhp/workflow-engine/pkg/types"
 )
 
-// VUPool manages a pool of virtual users.
+// VUPool 管理虚拟用户池。
 // Requirements: 6.1, 6.3
 type VUPool struct {
 	maxVUs int
@@ -16,7 +16,7 @@ type VUPool struct {
 	mu     sync.Mutex
 }
 
-// NewVUPool creates a new VU pool.
+// NewVUPool 创建一个新的 VU 池。
 func NewVUPool(maxVUs int) *VUPool {
 	return &VUPool{
 		maxVUs: maxVUs,
@@ -25,8 +25,8 @@ func NewVUPool(maxVUs int) *VUPool {
 	}
 }
 
-// Acquire acquires a VU from the pool.
-// Returns nil if the pool is exhausted.
+// Acquire 从池中获取一个 VU。
+// 如果池已耗尽则返回 nil。
 func (p *VUPool) Acquire(id int) *types.VirtualUser {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -56,7 +56,7 @@ func (p *VUPool) Acquire(id int) *types.VirtualUser {
 	return vu
 }
 
-// Release releases a VU back to the pool.
+// Release 将 VU 释放回池中。
 func (p *VUPool) Release(vu *types.VirtualUser) {
 	if vu == nil {
 		return
@@ -68,7 +68,7 @@ func (p *VUPool) Release(vu *types.VirtualUser) {
 	p.inUse[vu.ID] = false
 }
 
-// ActiveCount returns the number of active VUs.
+// ActiveCount 返回活跃 VU 的数量。
 func (p *VUPool) ActiveCount() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -82,7 +82,7 @@ func (p *VUPool) ActiveCount() int {
 	return count
 }
 
-// StopAll marks all VUs as not in use.
+// StopAll 将所有 VU 标记为未使用状态。
 func (p *VUPool) StopAll() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -92,7 +92,7 @@ func (p *VUPool) StopAll() {
 	}
 }
 
-// Reset resets the pool to its initial state.
+// Reset 将池重置为初始状态。
 func (p *VUPool) Reset() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -101,7 +101,7 @@ func (p *VUPool) Reset() {
 	p.inUse = make(map[int]bool)
 }
 
-// GetVU returns a VU by ID without acquiring it.
+// GetVU 根据 ID 获取 VU，但不获取其使用权。
 func (p *VUPool) GetVU(id int) *types.VirtualUser {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -109,7 +109,7 @@ func (p *VUPool) GetVU(id int) *types.VirtualUser {
 	return p.vus[id]
 }
 
-// IsInUse checks if a VU is currently in use.
+// IsInUse 检查指定 VU 是否正在使用中。
 func (p *VUPool) IsInUse(id int) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()

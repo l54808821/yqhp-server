@@ -14,62 +14,62 @@ import (
 	"github.com/google/uuid"
 )
 
-// Master defines the interface for a master node.
+// Master 定义了 Master 节点的接口。
 // Requirements: 5.1, 5.7
 type Master interface {
-	// Start initializes and starts the master node.
+	// Start 初始化并启动 Master 节点。
 	Start(ctx context.Context) error
 
-	// Stop gracefully shuts down the master node.
+	// Stop 优雅地关闭 Master 节点。
 	Stop(ctx context.Context) error
 
-	// SubmitWorkflow submits a workflow for execution.
+	// SubmitWorkflow 提交工作流以执行。
 	SubmitWorkflow(ctx context.Context, workflow *types.Workflow) (string, error)
 
-	// GetExecutionStatus returns the execution status.
+	// GetExecutionStatus 返回执行状态。
 	GetExecutionStatus(ctx context.Context, executionID string) (*types.ExecutionState, error)
 
-	// StopExecution stops a running execution.
+	// StopExecution 停止正在运行的执行。
 	StopExecution(ctx context.Context, executionID string) error
 
-	// PauseExecution pauses a running execution.
+	// PauseExecution 暂停正在运行的执行。
 	PauseExecution(ctx context.Context, executionID string) error
 
-	// ResumeExecution resumes a paused execution.
+	// ResumeExecution 恢复已暂停的执行。
 	ResumeExecution(ctx context.Context, executionID string) error
 
-	// ScaleExecution scales the VU count for an execution.
+	// ScaleExecution 调整执行的 VU 数量。
 	ScaleExecution(ctx context.Context, executionID string, targetVUs int) error
 
-	// GetMetrics returns aggregated metrics for an execution.
+	// GetMetrics 返回执行的聚合指标。
 	GetMetrics(ctx context.Context, executionID string) (*types.AggregatedMetrics, error)
 
-	// GetSlaves returns all registered slaves.
+	// GetSlaves 返回所有已注册的 Slave。
 	GetSlaves(ctx context.Context) ([]*types.SlaveInfo, error)
 }
 
-// Config holds the configuration for a master node.
+// Config 保存 Master 节点的配置。
 type Config struct {
-	// ID is the unique identifier for this master.
+	// ID 是此 Master 的唯一标识符。
 	ID string
 
-	// Address is the address this master listens on.
+	// Address 是此 Master 监听的地址。
 	Address string
 
-	// HeartbeatTimeout is the timeout for slave heartbeats.
+	// HeartbeatTimeout 是 Slave 心跳的超时时间。
 	HeartbeatTimeout time.Duration
 
-	// HealthCheckInterval is the interval for health checks.
+	// HealthCheckInterval 是健康检查的间隔时间。
 	HealthCheckInterval time.Duration
 
-	// StandaloneMode enables single-node execution without slaves.
+	// StandaloneMode 启用无 Slave 的单节点执行模式。
 	StandaloneMode bool
 
-	// MaxConcurrentExecutions is the maximum number of concurrent executions.
+	// MaxConcurrentExecutions 是最大并发执行数。
 	MaxConcurrentExecutions int
 }
 
-// DefaultConfig returns a default master configuration.
+// DefaultConfig 返回默认的 Master 配置。
 func DefaultConfig() *Config {
 	return &Config{
 		ID:                      uuid.New().String(),
@@ -81,54 +81,54 @@ func DefaultConfig() *Config {
 	}
 }
 
-// WorkflowMaster implements the Master interface.
+// WorkflowMaster 实现了 Master 接口。
 // Requirements: 5.1, 5.7
 type WorkflowMaster struct {
 	config *Config
 
-	// Registry for slave management
+	// Slave 管理的注册表
 	registry SlaveRegistry
 
-	// Scheduler for task distribution
+	// 任务分发的调度器
 	scheduler Scheduler
 
-	// Metrics aggregator
+	// 指标聚合器
 	aggregator MetricsAggregator
 
-	// Execution state management
+	// 执行状态管理
 	executions     map[string]*ExecutionInfo
 	executionMu    sync.RWMutex
 	executionCount atomic.Int32
 
-	// State management
+	// 状态管理
 	state    atomic.Value // MasterState
 	started  atomic.Bool
 	stopOnce sync.Once
 	stopped  chan struct{}
 
-	// Health check
+	// 健康检查
 	healthCtx    context.Context
 	healthCancel context.CancelFunc
 
-	// Synchronization
+	// 同步
 	mu sync.RWMutex
 }
 
-// MasterState represents the state of the master node.
+// MasterState 表示 Master 节点的状态。
 type MasterState string
 
 const (
-	// MasterStateStarting indicates the master is starting.
+	// MasterStateStarting 表示 Master 正在启动。
 	MasterStateStarting MasterState = "starting"
-	// MasterStateRunning indicates the master is running.
+	// MasterStateRunning 表示 Master 正在运行。
 	MasterStateRunning MasterState = "running"
-	// MasterStateStopping indicates the master is stopping.
+	// MasterStateStopping 表示 Master 正在停止。
 	MasterStateStopping MasterState = "stopping"
-	// MasterStateStopped indicates the master is stopped.
+	// MasterStateStopped 表示 Master 已停止。
 	MasterStateStopped MasterState = "stopped"
 )
 
-// ExecutionInfo holds information about a workflow execution.
+// ExecutionInfo 保存工作流执行的信息。
 type ExecutionInfo struct {
 	ID        string
 	Workflow  *types.Workflow
@@ -137,16 +137,16 @@ type ExecutionInfo struct {
 	StartTime time.Time
 	EndTime   *time.Time
 
-	// Control channels
+	// 控制通道
 	stopCh   chan struct{}
 	pauseCh  chan struct{}
 	resumeCh chan struct{}
 
-	// Synchronization
+	// 同步
 	mu sync.RWMutex
 }
 
-// NewWorkflowMaster creates a new workflow master.
+// NewWorkflowMaster 创建一个新的工作流 Master。
 func NewWorkflowMaster(config *Config, registry SlaveRegistry, scheduler Scheduler, aggregator MetricsAggregator) *WorkflowMaster {
 	if config == nil {
 		config = DefaultConfig()
@@ -166,7 +166,7 @@ func NewWorkflowMaster(config *Config, registry SlaveRegistry, scheduler Schedul
 	return m
 }
 
-// Start initializes and starts the master node.
+// Start 初始化并启动 Master 节点。
 // Requirements: 5.1
 func (m *WorkflowMaster) Start(ctx context.Context) error {
 	if m.started.Load() {
@@ -178,7 +178,7 @@ func (m *WorkflowMaster) Start(ctx context.Context) error {
 
 	m.state.Store(MasterStateStarting)
 
-	// Start health check goroutine
+	// 启动健康检查协程
 	m.healthCtx, m.healthCancel = context.WithCancel(context.Background())
 	go m.healthCheckLoop()
 
@@ -188,18 +188,18 @@ func (m *WorkflowMaster) Start(ctx context.Context) error {
 	return nil
 }
 
-// Stop gracefully shuts down the master node.
+// Stop 优雅地关闭 Master 节点。
 func (m *WorkflowMaster) Stop(ctx context.Context) error {
 	var err error
 	m.stopOnce.Do(func() {
 		m.state.Store(MasterStateStopping)
 
-		// Stop health check
+		// 停止健康检查
 		if m.healthCancel != nil {
 			m.healthCancel()
 		}
 
-		// Stop all running executions
+		// 停止所有正在运行的执行
 		m.executionMu.Lock()
 		for _, exec := range m.executions {
 			if exec.State.Status == types.ExecutionStatusRunning {
@@ -215,7 +215,7 @@ func (m *WorkflowMaster) Stop(ctx context.Context) error {
 	return err
 }
 
-// SubmitWorkflow submits a workflow for execution.
+// SubmitWorkflow 提交工作流以执行。
 // Requirements: 5.1, 5.3, 5.7
 func (m *WorkflowMaster) SubmitWorkflow(ctx context.Context, workflow *types.Workflow) (string, error) {
 	if workflow == nil {
@@ -226,15 +226,15 @@ func (m *WorkflowMaster) SubmitWorkflow(ctx context.Context, workflow *types.Wor
 		return "", fmt.Errorf("master not started")
 	}
 
-	// Check concurrent execution limit
+	// 检查并发执行限制
 	if int(m.executionCount.Load()) >= m.config.MaxConcurrentExecutions {
 		return "", fmt.Errorf("maximum concurrent executions reached: %d", m.config.MaxConcurrentExecutions)
 	}
 
-	// Generate execution ID
+	// 生成执行 ID
 	executionID := uuid.New().String()
 
-	// Create execution info
+	// 创建执行信息
 	execInfo := &ExecutionInfo{
 		ID:        executionID,
 		Workflow:  workflow,
@@ -253,13 +253,13 @@ func (m *WorkflowMaster) SubmitWorkflow(ctx context.Context, workflow *types.Wor
 		},
 	}
 
-	// Store execution
+	// 存储执行信息
 	m.executionMu.Lock()
 	m.executions[executionID] = execInfo
 	m.executionCount.Add(1)
 	m.executionMu.Unlock()
 
-	// Schedule execution
+	// 调度执行
 	if err := m.scheduleExecution(ctx, execInfo); err != nil {
 		m.executionMu.Lock()
 		execInfo.State.Status = types.ExecutionStatusFailed
@@ -275,17 +275,17 @@ func (m *WorkflowMaster) SubmitWorkflow(ctx context.Context, workflow *types.Wor
 	return executionID, nil
 }
 
-// scheduleExecution schedules a workflow execution across slaves.
+// scheduleExecution 将工作流执行调度到各个 Slave。
 func (m *WorkflowMaster) scheduleExecution(ctx context.Context, execInfo *ExecutionInfo) error {
 	execInfo.mu.Lock()
 	defer execInfo.mu.Unlock()
 
-	// Get available slaves
+	// 获取可用的 Slave
 	var slaves []*types.SlaveInfo
 	var err error
 
 	if m.config.StandaloneMode {
-		// In standalone mode, create a virtual local slave
+		// 在单机模式下，创建一个虚拟的本地 Slave
 		slaves = []*types.SlaveInfo{{
 			ID:           "local",
 			Type:         types.SlaveTypeWorker,
@@ -293,7 +293,7 @@ func (m *WorkflowMaster) scheduleExecution(ctx context.Context, execInfo *Execut
 			Capabilities: []string{"http_executor", "script_executor"},
 		}}
 	} else {
-		// Select slaves based on workflow options
+		// 根据工作流选项选择 Slave
 		selector := execInfo.Workflow.Options.TargetSlaves
 		if selector == nil {
 			selector = &types.SlaveSelector{Mode: types.SelectionModeAuto}
@@ -308,7 +308,7 @@ func (m *WorkflowMaster) scheduleExecution(ctx context.Context, execInfo *Execut
 		return fmt.Errorf("no available slaves for execution")
 	}
 
-	// Create execution plan
+	// 创建执行计划
 	plan, err := m.scheduler.Schedule(ctx, execInfo.Workflow, slaves)
 	if err != nil {
 		return fmt.Errorf("failed to create execution plan: %w", err)
@@ -317,7 +317,7 @@ func (m *WorkflowMaster) scheduleExecution(ctx context.Context, execInfo *Execut
 	plan.ExecutionID = execInfo.ID
 	execInfo.Plan = plan
 
-	// Initialize slave states
+	// 初始化 Slave 状态
 	for _, assignment := range plan.Assignments {
 		execInfo.State.SlaveStates[assignment.SlaveID] = &types.SlaveExecutionState{
 			SlaveID: assignment.SlaveID,
@@ -326,26 +326,26 @@ func (m *WorkflowMaster) scheduleExecution(ctx context.Context, execInfo *Execut
 		}
 	}
 
-	// Update status to running
+	// 更新状态为运行中
 	execInfo.State.Status = types.ExecutionStatusRunning
 
-	// Start execution in background
+	// 在后台启动执行
 	go m.runExecution(ctx, execInfo)
 
 	return nil
 }
 
-// runExecution runs the workflow execution.
+// runExecution 运行工作流执行。
 func (m *WorkflowMaster) runExecution(ctx context.Context, execInfo *ExecutionInfo) {
 	defer func() {
 		m.executionCount.Add(-1)
 	}()
 
-	// Create a context that can be cancelled
+	// 创建一个可取消的上下文
 	execCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	// Monitor for stop signal
+	// 监听停止信号
 	go func() {
 		select {
 		case <-execInfo.stopCh:
@@ -354,22 +354,22 @@ func (m *WorkflowMaster) runExecution(ctx context.Context, execInfo *ExecutionIn
 		}
 	}()
 
-	// In a real implementation, this would distribute tasks to slaves
-	// and collect results. For now, we simulate the execution.
+	// 在实际实现中，这里会将任务分发到 Slave 并收集结果。
+	// 目前，我们模拟执行过程。
 	m.simulateExecution(execCtx, execInfo)
 }
 
-// simulateExecution executes workflow in standalone mode using TaskEngine.
+// simulateExecution 在单机模式下使用 TaskEngine 执行工作流。
 func (m *WorkflowMaster) simulateExecution(ctx context.Context, execInfo *ExecutionInfo) {
 	execInfo.mu.Lock()
 	execInfo.State.Status = types.ExecutionStatusRunning
 	execInfo.mu.Unlock()
 
-	// Create task engine with default executor registry
+	// 使用默认执行器注册表创建任务引擎
 	registry := executor.DefaultRegistry
 	taskEngine := slave.NewTaskEngine(registry, execInfo.Workflow.Options.VUs)
 
-	// Create task for execution
+	// 创建执行任务
 	task := &types.Task{
 		ID:          uuid.New().String(),
 		ExecutionID: execInfo.ID,
@@ -380,7 +380,7 @@ func (m *WorkflowMaster) simulateExecution(ctx context.Context, execInfo *Execut
 		},
 	}
 
-	// Execute in a goroutine so we can handle cancellation
+	// 在协程中执行，以便处理取消操作
 	resultCh := make(chan *types.TaskResult, 1)
 	errCh := make(chan error, 1)
 
@@ -393,7 +393,7 @@ func (m *WorkflowMaster) simulateExecution(ctx context.Context, execInfo *Execut
 		}
 	}()
 
-	// Wait for completion, cancellation, or stop signal
+	// 等待完成、取消或停止信号
 	select {
 	case <-ctx.Done():
 		taskEngine.Stop(context.Background())
@@ -421,9 +421,9 @@ func (m *WorkflowMaster) simulateExecution(ctx context.Context, execInfo *Execut
 		} else {
 			execInfo.State.Status = result.Status
 		}
-		// Store metrics
+		// 存储指标
 		if result.Metrics != nil {
-			// Use actual iterations from result, fallback to workflow config
+			// 使用结果中的实际迭代次数，如果没有则使用工作流配置
 			totalIterations := result.Iterations
 			if totalIterations == 0 {
 				totalIterations = int64(execInfo.Workflow.Options.Iterations)
@@ -434,7 +434,7 @@ func (m *WorkflowMaster) simulateExecution(ctx context.Context, execInfo *Execut
 				TotalVUs:        execInfo.Workflow.Options.VUs,
 				StepMetrics:     make(map[string]*types.StepMetrics),
 			}
-			// Convert task metrics to aggregated metrics
+			// 将任务指标转换为聚合指标
 			for stepID, stepMetrics := range result.Metrics.StepMetrics {
 				execInfo.State.AggregatedMetrics.StepMetrics[stepID] = stepMetrics
 			}
@@ -459,7 +459,7 @@ func (m *WorkflowMaster) simulateExecution(ctx context.Context, execInfo *Execut
 	}
 }
 
-// GetExecutionStatus returns the execution status.
+// GetExecutionStatus 返回执行状态。
 // Requirements: 5.1
 func (m *WorkflowMaster) GetExecutionStatus(ctx context.Context, executionID string) (*types.ExecutionState, error) {
 	m.executionMu.RLock()
@@ -473,12 +473,12 @@ func (m *WorkflowMaster) GetExecutionStatus(ctx context.Context, executionID str
 	execInfo.mu.RLock()
 	defer execInfo.mu.RUnlock()
 
-	// Return a copy of the state
+	// 返回状态的副本
 	state := *execInfo.State
 	return &state, nil
 }
 
-// StopExecution stops a running execution.
+// StopExecution 停止正在运行的执行。
 // Requirements: 5.1
 func (m *WorkflowMaster) StopExecution(ctx context.Context, executionID string) error {
 	m.executionMu.RLock()
@@ -497,10 +497,10 @@ func (m *WorkflowMaster) StopExecution(ctx context.Context, executionID string) 
 		return fmt.Errorf("execution is not running or paused: %s", execInfo.State.Status)
 	}
 
-	// Signal stop
+	// 发送停止信号
 	select {
 	case <-execInfo.stopCh:
-		// Already stopped
+		// 已经停止
 	default:
 		close(execInfo.stopCh)
 	}
@@ -513,7 +513,7 @@ func (m *WorkflowMaster) StopExecution(ctx context.Context, executionID string) 
 	return nil
 }
 
-// PauseExecution pauses a running execution.
+// PauseExecution 暂停正在运行的执行。
 // Requirements: 6.2.5
 func (m *WorkflowMaster) PauseExecution(ctx context.Context, executionID string) error {
 	m.executionMu.RLock()
@@ -531,7 +531,7 @@ func (m *WorkflowMaster) PauseExecution(ctx context.Context, executionID string)
 		return fmt.Errorf("execution is not running: %s", execInfo.State.Status)
 	}
 
-	// Signal pause
+	// 发送暂停信号
 	select {
 	case execInfo.pauseCh <- struct{}{}:
 	default:
@@ -542,7 +542,7 @@ func (m *WorkflowMaster) PauseExecution(ctx context.Context, executionID string)
 	return nil
 }
 
-// ResumeExecution resumes a paused execution.
+// ResumeExecution 恢复已暂停的执行。
 // Requirements: 6.2.6
 func (m *WorkflowMaster) ResumeExecution(ctx context.Context, executionID string) error {
 	m.executionMu.RLock()
@@ -560,7 +560,7 @@ func (m *WorkflowMaster) ResumeExecution(ctx context.Context, executionID string
 		return fmt.Errorf("execution is not paused: %s", execInfo.State.Status)
 	}
 
-	// Signal resume
+	// 发送恢复信号
 	select {
 	case execInfo.resumeCh <- struct{}{}:
 	default:
@@ -571,7 +571,7 @@ func (m *WorkflowMaster) ResumeExecution(ctx context.Context, executionID string
 	return nil
 }
 
-// ScaleExecution scales the VU count for an execution.
+// ScaleExecution 调整执行的 VU 数量。
 // Requirements: 6.2.1, 6.2.2, 6.2.3
 func (m *WorkflowMaster) ScaleExecution(ctx context.Context, executionID string, targetVUs int) error {
 	if targetVUs < 0 {
@@ -593,14 +593,14 @@ func (m *WorkflowMaster) ScaleExecution(ctx context.Context, executionID string,
 		return fmt.Errorf("execution is not running: %s", execInfo.State.Status)
 	}
 
-	// In a real implementation, this would send scale commands to slaves
-	// For now, we just update the workflow options
+	// 在实际实现中，这里会向 Slave 发送扩缩容命令
+	// 目前，我们只更新工作流选项
 	execInfo.Workflow.Options.VUs = targetVUs
 
 	return nil
 }
 
-// GetMetrics returns aggregated metrics for an execution.
+// GetMetrics 返回执行的聚合指标。
 // Requirements: 5.4, 5.6
 func (m *WorkflowMaster) GetMetrics(ctx context.Context, executionID string) (*types.AggregatedMetrics, error) {
 	m.executionMu.RLock()
@@ -614,12 +614,12 @@ func (m *WorkflowMaster) GetMetrics(ctx context.Context, executionID string) (*t
 	execInfo.mu.RLock()
 	defer execInfo.mu.RUnlock()
 
-	// If we have aggregated metrics, return them
+	// 如果有聚合指标，直接返回
 	if execInfo.State.AggregatedMetrics != nil {
 		return execInfo.State.AggregatedMetrics, nil
 	}
 
-	// Otherwise, aggregate from slave states
+	// 否则，从 Slave 状态聚合
 	if m.aggregator != nil {
 		slaveMetrics := make([]*types.Metrics, 0)
 		for _, slaveState := range execInfo.State.SlaveStates {
@@ -636,7 +636,7 @@ func (m *WorkflowMaster) GetMetrics(ctx context.Context, executionID string) (*t
 	}, nil
 }
 
-// GetSlaves returns all registered slaves.
+// GetSlaves 返回所有已注册的 Slave。
 // Requirements: 5.2
 func (m *WorkflowMaster) GetSlaves(ctx context.Context) ([]*types.SlaveInfo, error) {
 	if m.registry == nil {
@@ -645,7 +645,7 @@ func (m *WorkflowMaster) GetSlaves(ctx context.Context) ([]*types.SlaveInfo, err
 	return m.registry.ListSlaves(ctx, nil)
 }
 
-// healthCheckLoop periodically checks slave health.
+// healthCheckLoop 定期检查 Slave 健康状态。
 func (m *WorkflowMaster) healthCheckLoop() {
 	ticker := time.NewTicker(m.config.HealthCheckInterval)
 	defer ticker.Stop()
@@ -660,7 +660,7 @@ func (m *WorkflowMaster) healthCheckLoop() {
 	}
 }
 
-// checkSlaveHealth checks the health of all registered slaves.
+// checkSlaveHealth 检查所有已注册 Slave 的健康状态。
 func (m *WorkflowMaster) checkSlaveHealth() {
 	if m.registry == nil {
 		return
@@ -679,9 +679,9 @@ func (m *WorkflowMaster) checkSlaveHealth() {
 			continue
 		}
 
-		// Check if heartbeat is stale
+		// 检查心跳是否过期
 		if now.Sub(status.LastSeen) > m.config.HeartbeatTimeout {
-			// Mark slave as offline
+			// 将 Slave 标记为离线
 			_ = m.registry.UpdateStatus(ctx, slave.ID, &types.SlaveStatus{
 				State:    types.SlaveStateOffline,
 				LastSeen: status.LastSeen,
@@ -690,22 +690,22 @@ func (m *WorkflowMaster) checkSlaveHealth() {
 	}
 }
 
-// GetState returns the current master state.
+// GetState 返回当前 Master 状态。
 func (m *WorkflowMaster) GetState() MasterState {
 	return m.state.Load().(MasterState)
 }
 
-// IsRunning returns whether the master is running.
+// IsRunning 返回 Master 是否正在运行。
 func (m *WorkflowMaster) IsRunning() bool {
 	return m.started.Load() && m.GetState() == MasterStateRunning
 }
 
-// GetExecutionCount returns the number of active executions.
+// GetExecutionCount 返回活跃执行的数量。
 func (m *WorkflowMaster) GetExecutionCount() int {
 	return int(m.executionCount.Load())
 }
 
-// ListExecutions returns all executions.
+// ListExecutions 返回所有执行。
 func (m *WorkflowMaster) ListExecutions(ctx context.Context) ([]*types.ExecutionState, error) {
 	m.executionMu.RLock()
 	defer m.executionMu.RUnlock()

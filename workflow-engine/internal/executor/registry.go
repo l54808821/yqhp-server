@@ -6,21 +6,21 @@ import (
 	"sync"
 )
 
-// Registry manages executor registration and lookup.
+// Registry 管理执行器的注册和查找。
 type Registry struct {
 	executors map[string]Executor
 	mu        sync.RWMutex
 }
 
-// NewRegistry creates a new executor registry.
+// NewRegistry 创建一个新的执行器注册表。
 func NewRegistry() *Registry {
 	return &Registry{
 		executors: make(map[string]Executor),
 	}
 }
 
-// Register registers an executor for a given type.
-// Returns an error if an executor is already registered for the type.
+// Register 为给定类型注册执行器。
+// 如果该类型已注册执行器，则返回错误。
 func (r *Registry) Register(executor Executor) error {
 	if executor == nil {
 		return fmt.Errorf("cannot register nil executor")
@@ -42,29 +42,29 @@ func (r *Registry) Register(executor Executor) error {
 	return nil
 }
 
-// MustRegister registers an executor and panics on error.
+// MustRegister 注册执行器，如果出错则 panic。
 func (r *Registry) MustRegister(executor Executor) {
 	if err := r.Register(executor); err != nil {
 		panic(err)
 	}
 }
 
-// Unregister removes an executor for a given type.
+// Unregister 移除给定类型的执行器。
 func (r *Registry) Unregister(execType string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.executors, execType)
 }
 
-// Get retrieves an executor by type.
-// Returns nil if no executor is registered for the type.
+// Get 按类型获取执行器。
+// 如果该类型没有注册执行器，则返回 nil。
 func (r *Registry) Get(execType string) Executor {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.executors[execType]
 }
 
-// GetOrError retrieves an executor by type or returns an error.
+// GetOrError 按类型获取执行器，如果不存在则返回错误。
 func (r *Registry) GetOrError(execType string) (Executor, error) {
 	executor := r.Get(execType)
 	if executor == nil {
@@ -73,7 +73,7 @@ func (r *Registry) GetOrError(execType string) (Executor, error) {
 	return executor, nil
 }
 
-// Has checks if an executor is registered for a given type.
+// Has 检查给定类型是否已注册执行器。
 func (r *Registry) Has(execType string) bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -81,7 +81,7 @@ func (r *Registry) Has(execType string) bool {
 	return exists
 }
 
-// Types returns all registered executor types.
+// Types 返回所有已注册的执行器类型。
 func (r *Registry) Types() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -93,14 +93,14 @@ func (r *Registry) Types() []string {
 	return types
 }
 
-// Count returns the number of registered executors.
+// Count 返回已注册执行器的数量。
 func (r *Registry) Count() int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return len(r.executors)
 }
 
-// InitAll initializes all registered executors.
+// InitAll 初始化所有已注册的执行器。
 func (r *Registry) InitAll(ctx context.Context, configs map[string]map[string]any) error {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -117,7 +117,7 @@ func (r *Registry) InitAll(ctx context.Context, configs map[string]map[string]an
 	return nil
 }
 
-// CleanupAll cleans up all registered executors.
+// CleanupAll 清理所有已注册的执行器。
 func (r *Registry) CleanupAll(ctx context.Context) error {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -131,25 +131,25 @@ func (r *Registry) CleanupAll(ctx context.Context) error {
 	return lastErr
 }
 
-// DefaultRegistry is the global default executor registry.
+// DefaultRegistry 是全局默认执行器注册表。
 var DefaultRegistry = NewRegistry()
 
-// Register registers an executor in the default registry.
+// Register 在默认注册表中注册执行器。
 func Register(executor Executor) error {
 	return DefaultRegistry.Register(executor)
 }
 
-// MustRegister registers an executor in the default registry and panics on error.
+// MustRegister 在默认注册表中注册执行器，如果出错则 panic。
 func MustRegister(executor Executor) {
 	DefaultRegistry.MustRegister(executor)
 }
 
-// Get retrieves an executor from the default registry.
+// Get 从默认注册表获取执行器。
 func Get(execType string) Executor {
 	return DefaultRegistry.Get(execType)
 }
 
-// GetOrError retrieves an executor from the default registry or returns an error.
+// GetOrError 从默认注册表获取执行器，如果不存在则返回错误。
 func GetOrError(execType string) (Executor, error) {
 	return DefaultRegistry.GetOrError(execType)
 }

@@ -4,31 +4,31 @@ import (
 	"fmt"
 )
 
-// ParseError represents a parsing error with location information.
+// ParseError 表示带有位置信息的解析错误。
 type ParseError struct {
-	Line    int    // Line number where the error occurred (1-based)
-	Column  int    // Column number where the error occurred (1-based)
-	Message string // Error message
-	Cause   error  // Underlying error
+	Line    int    // 错误发生的行号（从 1 开始）
+	Column  int    // 错误发生的列号（从 1 开始）
+	Message string // 错误消息
+	Cause   error  // 底层错误
 }
 
-// Error implements the error interface.
+// Error 实现 error 接口。
 func (e *ParseError) Error() string {
 	if e.Line > 0 && e.Column > 0 {
-		return fmt.Sprintf("parse error at line %d, column %d: %s", e.Line, e.Column, e.Message)
+		return fmt.Sprintf("解析错误，位于第 %d 行第 %d 列: %s", e.Line, e.Column, e.Message)
 	}
 	if e.Line > 0 {
-		return fmt.Sprintf("parse error at line %d: %s", e.Line, e.Message)
+		return fmt.Sprintf("解析错误，位于第 %d 行: %s", e.Line, e.Message)
 	}
-	return fmt.Sprintf("parse error: %s", e.Message)
+	return fmt.Sprintf("解析错误: %s", e.Message)
 }
 
-// Unwrap returns the underlying error.
+// Unwrap 返回底层错误。
 func (e *ParseError) Unwrap() error {
 	return e.Cause
 }
 
-// NewParseError creates a new ParseError.
+// NewParseError 创建一个新的 ParseError。
 func NewParseError(line, column int, message string, cause error) *ParseError {
 	return &ParseError{
 		Line:    line,
@@ -38,21 +38,21 @@ func NewParseError(line, column int, message string, cause error) *ParseError {
 	}
 }
 
-// ValidationError represents a validation error for workflow definitions.
+// ValidationError 表示工作流定义的验证错误。
 type ValidationError struct {
-	Field   string // Field that failed validation
-	Message string // Error message
+	Field   string // 验证失败的字段
+	Message string // 错误消息
 }
 
-// Error implements the error interface.
+// Error 实现 error 接口。
 func (e *ValidationError) Error() string {
 	if e.Field != "" {
-		return fmt.Sprintf("validation error for field '%s': %s", e.Field, e.Message)
+		return fmt.Sprintf("字段 '%s' 验证错误: %s", e.Field, e.Message)
 	}
-	return fmt.Sprintf("validation error: %s", e.Message)
+	return fmt.Sprintf("验证错误: %s", e.Message)
 }
 
-// NewValidationError creates a new ValidationError.
+// NewValidationError 创建一个新的 ValidationError。
 func NewValidationError(field, message string) *ValidationError {
 	return &ValidationError{
 		Field:   field,
@@ -60,24 +60,24 @@ func NewValidationError(field, message string) *ValidationError {
 	}
 }
 
-// VariableResolutionError represents an error resolving a variable reference.
+// VariableResolutionError 表示解析变量引用时的错误。
 type VariableResolutionError struct {
-	Reference string // The variable reference that failed
-	Message   string // Error message
-	Cause     error  // Underlying error
+	Reference string // 解析失败的变量引用
+	Message   string // 错误消息
+	Cause     error  // 底层错误
 }
 
-// Error implements the error interface.
+// Error 实现 error 接口。
 func (e *VariableResolutionError) Error() string {
-	return fmt.Sprintf("failed to resolve variable '%s': %s", e.Reference, e.Message)
+	return fmt.Sprintf("解析变量 '%s' 失败: %s", e.Reference, e.Message)
 }
 
-// Unwrap returns the underlying error.
+// Unwrap 返回底层错误。
 func (e *VariableResolutionError) Unwrap() error {
 	return e.Cause
 }
 
-// NewVariableResolutionError creates a new VariableResolutionError.
+// NewVariableResolutionError 创建一个新的 VariableResolutionError。
 func NewVariableResolutionError(ref, message string, cause error) *VariableResolutionError {
 	return &VariableResolutionError{
 		Reference: ref,

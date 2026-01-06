@@ -1,28 +1,27 @@
-// Package reporter provides the reporting framework for the workflow execution engine.
+// Package reporter 提供工作流执行引擎的报告框架。
 //
-// The reporter package implements a pluggable reporting system that supports
-// multiple concurrent reporters for outputting execution metrics to various
-// destinations such as console, files, Prometheus, InfluxDB, and webhooks.
+// reporter 包实现了一个可插拔的报告系统，支持多个并发报告器，
+// 用于将执行指标输出到各种目标，如控制台、文件、Prometheus、InfluxDB 和 Webhook。
 //
-// # Architecture
+// # 架构
 //
-// The package consists of three main components:
+// 该包由三个主要组件组成：
 //
-//   - Reporter: The interface that all reporters must implement
-//   - Registry: Manages reporter type registration and factory functions
-//   - Manager: Coordinates multiple reporters for an execution
+//   - Reporter: 所有报告器必须实现的接口
+//   - Registry: 管理报告器类型注册和工厂函数
+//   - Manager: 协调执行的多个报告器
 //
-// # Usage
+// # 使用方法
 //
-// To use the reporter system:
+// 使用报告系统：
 //
-//  1. Create a Registry and register reporter factories
-//  2. Create a Manager with the registry
-//  3. Add reporters via configuration or directly
-//  4. Call Report() to send metrics to all reporters
-//  5. Call Close() when done to release resources
+//  1. 创建 Registry 并注册报告器工厂
+//  2. 使用 registry 创建 Manager
+//  3. 通过配置或直接添加报告器
+//  4. 调用 Report() 将指标发送到所有报告器
+//  5. 完成后调用 Close() 释放资源
 //
-// Example:
+// 示例：
 //
 //	registry := reporter.NewRegistry()
 //	registry.Register(reporter.ReporterTypeConsole, console.NewFactory())

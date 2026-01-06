@@ -1,5 +1,4 @@
-// Package slave provides CLI commands for managing slave nodes.
-// Requirements: 8.1
+// Package slave 提供管理 Slave 节点的 CLI 命令
 package slave
 
 import (
@@ -11,14 +10,15 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/google/uuid"
 	"yqhp/workflow-engine/internal/config"
 	"yqhp/workflow-engine/internal/executor"
 	"yqhp/workflow-engine/internal/slave"
 	"yqhp/workflow-engine/pkg/types"
+
+	"github.com/google/uuid"
 )
 
-// Execute executes the slave command with the given arguments.
+// Execute 执行 slave 命令
 func Execute(args []string) error {
 	if len(args) < 1 {
 		printUsage()
@@ -37,45 +37,44 @@ func Execute(args []string) error {
 		printUsage()
 		return nil
 	default:
-		return fmt.Errorf("unknown slave subcommand: %s", subcommand)
+		return fmt.Errorf("未知的 slave 子命令: %s", subcommand)
 	}
 }
 
 func printUsage() {
-	fmt.Println(`workflow-engine slave - Manage slave nodes
+	fmt.Println(`workflow-engine slave - 管理 Slave 节点
 
-Usage:
-  workflow-engine slave <subcommand> [options]
+用法:
+  workflow-engine slave <子命令> [选项]
 
-Subcommands:
-  start     Start a slave node
-  status    Show slave node status
+子命令:
+  start     启动 Slave 节点
+  status    查看 Slave 节点状态
 
-Use "workflow-engine slave <subcommand> --help" for more information.`)
+使用 "workflow-engine slave <子命令> --help" 获取更多信息。`)
 }
 
-// executeStart starts a slave node.
-// Requirements: 8.1
+// executeStart 启动 Slave 节点
 func executeStart(args []string) error {
 	fs := flag.NewFlagSet("slave start", flag.ExitOnError)
 
-	// Configuration flags
-	configPath := fs.String("config", "", "Path to configuration file")
-	slaveID := fs.String("id", "", "Slave ID (auto-generated if not specified)")
-	slaveType := fs.String("type", "worker", "Slave type (worker, gateway, aggregator)")
-	address := fs.String("address", ":9091", "Slave listen address")
-	masterAddr := fs.String("master", "localhost:9090", "Master node address")
-	maxVUs := fs.Int("max-vus", 100, "Maximum virtual users")
-	capabilities := fs.String("capabilities", "http_executor,script_executor", "Comma-separated list of capabilities")
-	labels := fs.String("labels", "", "Comma-separated key=value labels (e.g., region=us-east,env=prod)")
+	// 配置选项
+	configPath := fs.String("config", "", "配置文件路径")
+	slaveID := fs.String("id", "", "Slave ID（不指定则自动生成）")
+	slaveType := fs.String("type", "worker", "Slave 类型 (worker, gateway, aggregator)")
+	address := fs.String("address", ":9091", "Slave 监听地址")
+	masterAddr := fs.String("master", "localhost:9090", "Master 节点地址")
+	maxVUs := fs.Int("max-vus", 100, "最大虚拟用户数")
+	capabilities := fs.String("capabilities", "http_executor,script_executor", "能力列表，逗号分隔")
+	labels := fs.String("labels", "", "标签，key=value 格式，逗号分隔 (如 region=cn-east,env=prod)")
 
 	fs.Usage = func() {
-		fmt.Println(`workflow-engine slave start - Start a slave node
+		fmt.Println(`workflow-engine slave start - 启动 Slave 节点
 
-Usage:
-  workflow-engine slave start [options]
+用法:
+  workflow-engine slave start [选项]
 
-Options:`)
+选项:`)
 		fs.PrintDefaults()
 	}
 
@@ -83,7 +82,7 @@ Options:`)
 		return err
 	}
 
-	// Load configuration
+	// 加载配置
 	loader := config.NewLoader()
 	if *configPath != "" {
 		loader = loader.WithConfigPath(*configPath)
@@ -91,16 +90,16 @@ Options:`)
 
 	cfg, err := loader.Load()
 	if err != nil {
-		return fmt.Errorf("failed to load configuration: %w", err)
+		return fmt.Errorf("加载配置失败: %w", err)
 	}
 
-	// Generate slave ID if not specified
+	// 如果未指定则生成 Slave ID
 	id := *slaveID
 	if id == "" {
 		id = fmt.Sprintf("slave-%s", uuid.New().String()[:8])
 	}
 
-	// Parse slave type
+	// 解析 Slave 类型
 	var sType types.SlaveType
 	switch *slaveType {
 	case "worker":
@@ -110,16 +109,16 @@ Options:`)
 	case "aggregator":
 		sType = types.SlaveTypeAggregator
 	default:
-		return fmt.Errorf("invalid slave type: %s", *slaveType)
+		return fmt.Errorf("无效的 Slave 类型: %s", *slaveType)
 	}
 
-	// Parse capabilities
+	// 解析能力列表
 	caps := parseCommaSeparated(*capabilities)
 
-	// Parse labels
+	// 解析标签
 	lbls := parseLabels(*labels)
 
-	// Apply command-line overrides
+	// 应用命令行参数覆盖
 	if *masterAddr != "localhost:9090" {
 		cfg.Slave.MasterAddr = *masterAddr
 	}
@@ -127,7 +126,7 @@ Options:`)
 		cfg.Slave.MaxVUs = *maxVUs
 	}
 
-	// Create slave configuration
+	// 创建 Slave 配置
 	slaveCfg := &slave.Config{
 		ID:                id,
 		Type:              sType,
@@ -138,85 +137,84 @@ Options:`)
 		HeartbeatInterval: 5 * time.Second,
 		HeartbeatTimeout:  10 * time.Second,
 		MaxVUs:            cfg.Slave.MaxVUs,
-		CPUCores:          4,    // Could be detected from runtime
-		MemoryMB:          4096, // Could be detected from runtime
+		CPUCores:          4,    // 可从运行时检测
+		MemoryMB:          4096, // 可从运行时检测
 	}
 
-	// Create executor registry
+	// 创建执行器注册中心
 	registry := executor.NewRegistry()
 
-	// Create and start slave
+	// 创建并启动 Slave
 	s := slave.NewWorkerSlave(slaveCfg, registry)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Handle shutdown signals
+	// 处理关闭信号
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
 		<-sigCh
-		fmt.Println("\nShutting down slave...")
+		fmt.Println("\n正在关闭 Slave...")
 		cancel()
 	}()
 
-	fmt.Printf("Starting slave node...\n")
+	fmt.Printf("正在启动 Slave 节点...\n")
 	fmt.Printf("  ID: %s\n", id)
-	fmt.Printf("  Type: %s\n", sType)
-	fmt.Printf("  Address: %s\n", *address)
+	fmt.Printf("  类型: %s\n", sType)
+	fmt.Printf("  地址: %s\n", *address)
 	fmt.Printf("  Master: %s\n", cfg.Slave.MasterAddr)
-	fmt.Printf("  Max VUs: %d\n", cfg.Slave.MaxVUs)
-	fmt.Printf("  Capabilities: %v\n", caps)
+	fmt.Printf("  最大 VU 数: %d\n", cfg.Slave.MaxVUs)
+	fmt.Printf("  能力: %v\n", caps)
 	if len(lbls) > 0 {
-		fmt.Printf("  Labels: %v\n", lbls)
+		fmt.Printf("  标签: %v\n", lbls)
 	}
 	fmt.Println()
 
 	if err := s.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start slave: %w", err)
+		return fmt.Errorf("启动 Slave 失败: %w", err)
 	}
 
-	// Connect to master
-	fmt.Printf("Connecting to master at %s...\n", cfg.Slave.MasterAddr)
+	// 连接到 Master
+	fmt.Printf("正在连接 Master: %s...\n", cfg.Slave.MasterAddr)
 	if err := s.Connect(ctx, cfg.Slave.MasterAddr); err != nil {
-		fmt.Printf("Warning: Failed to connect to master: %v\n", err)
-		fmt.Println("Slave will continue running and retry connection...")
+		fmt.Printf("警告: 连接 Master 失败: %v\n", err)
+		fmt.Println("Slave 将继续运行并重试连接...")
 	} else {
-		fmt.Println("Connected to master successfully.")
+		fmt.Println("已成功连接到 Master。")
 	}
 
-	fmt.Println("Slave node started. Press Ctrl+C to stop.")
+	fmt.Println("Slave 节点已启动。按 Ctrl+C 停止。")
 
-	// Wait for context cancellation
+	// 等待上下文取消
 	<-ctx.Done()
 
-	// Graceful shutdown
+	// 优雅关闭
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
 
 	if err := s.Stop(shutdownCtx); err != nil {
-		return fmt.Errorf("failed to stop slave: %w", err)
+		return fmt.Errorf("停止 Slave 失败: %w", err)
 	}
 
-	fmt.Println("Slave node stopped.")
+	fmt.Println("Slave 节点已停止。")
 	return nil
 }
 
-// executeStatus shows the slave node status.
-// Requirements: 8.1
+// executeStatus 查看 Slave 节点状态
 func executeStatus(args []string) error {
 	fs := flag.NewFlagSet("slave status", flag.ExitOnError)
 
-	address := fs.String("address", "http://localhost:9091", "Slave node address")
+	address := fs.String("address", "http://localhost:9091", "Slave 节点地址")
 
 	fs.Usage = func() {
-		fmt.Println(`workflow-engine slave status - Show slave node status
+		fmt.Println(`workflow-engine slave status - 查看 Slave 节点状态
 
-Usage:
-  workflow-engine slave status [options]
+用法:
+  workflow-engine slave status [选项]
 
-Options:`)
+选项:`)
 		fs.PrintDefaults()
 	}
 
@@ -224,21 +222,19 @@ Options:`)
 		return err
 	}
 
-	fmt.Printf("Checking slave status at %s...\n", *address)
+	fmt.Printf("正在检查 Slave 状态: %s...\n", *address)
 
-	// In a real implementation, this would make an HTTP request to the slave
-	// For now, we'll just print a placeholder message
 	fmt.Println()
-	fmt.Println("Slave Status:")
-	fmt.Println("  State: unknown (not connected)")
+	fmt.Println("Slave 状态:")
+	fmt.Println("  状态: 未知 (未连接)")
 	fmt.Println()
-	fmt.Println("Note: To get actual status, ensure the slave is running and accessible.")
-	fmt.Printf("      Try: curl %s/status\n", *address)
+	fmt.Println("提示: 请确保 Slave 正在运行且可访问。")
+	fmt.Printf("      尝试: curl %s/status\n", *address)
 
 	return nil
 }
 
-// parseCommaSeparated parses a comma-separated string into a slice.
+// parseCommaSeparated 解析逗号分隔的字符串为切片
 func parseCommaSeparated(s string) []string {
 	if s == "" {
 		return []string{}
@@ -252,7 +248,7 @@ func parseCommaSeparated(s string) []string {
 	return result
 }
 
-// parseLabels parses a comma-separated key=value string into a map.
+// parseLabels 解析逗号分隔的 key=value 字符串为 map
 func parseLabels(s string) map[string]string {
 	if s == "" {
 		return map[string]string{}
@@ -267,7 +263,7 @@ func parseLabels(s string) map[string]string {
 	return result
 }
 
-// splitAndTrim splits a string and trims whitespace from each part.
+// splitAndTrim 分割字符串并去除每部分的空白
 func splitAndTrim(s, sep string) []string {
 	parts := []string{}
 	for _, part := range split(s, sep) {
@@ -279,7 +275,7 @@ func splitAndTrim(s, sep string) []string {
 	return parts
 }
 
-// split splits a string by separator.
+// split 按分隔符分割字符串
 func split(s, sep string) []string {
 	result := []string{}
 	start := 0
@@ -294,7 +290,7 @@ func split(s, sep string) []string {
 	return result
 }
 
-// trim trims whitespace from a string.
+// trim 去除字符串首尾空白
 func trim(s string) string {
 	start := 0
 	end := len(s)

@@ -1,4 +1,4 @@
-// Package executor provides script hooks execution for workflow steps.
+// Package executor 提供工作流步骤的脚本钩子执行功能。
 package executor
 
 import (

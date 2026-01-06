@@ -14,21 +14,21 @@ import (
 )
 
 const (
-	// HTTPExecutorType is the type identifier for HTTP executor.
+	// HTTPExecutorType 是 HTTP 执行器的类型标识符。
 	HTTPExecutorType = "http"
 
-	// Default timeout for HTTP requests.
+	// HTTP 请求的默认超时时间。
 	defaultHTTPTimeout = 30 * time.Second
 )
 
-// HTTPExecutor executes HTTP request steps.
+// HTTPExecutor 执行 HTTP 请求步骤。
 type HTTPExecutor struct {
 	*BaseExecutor
 	client       *http.Client
 	globalConfig *HTTPGlobalConfig // 全局配置
 }
 
-// NewHTTPExecutor creates a new HTTP executor.
+// NewHTTPExecutor 创建一个新的 HTTP 执行器。
 func NewHTTPExecutor() *HTTPExecutor {
 	return &HTTPExecutor{
 		BaseExecutor: NewBaseExecutor(HTTPExecutorType),
@@ -36,7 +36,7 @@ func NewHTTPExecutor() *HTTPExecutor {
 	}
 }
 
-// NewHTTPExecutorWithConfig creates a new HTTP executor with global config.
+// NewHTTPExecutorWithConfig 使用全局配置创建一个新的 HTTP 执行器。
 func NewHTTPExecutorWithConfig(globalConfig *HTTPGlobalConfig) *HTTPExecutor {
 	if globalConfig == nil {
 		globalConfig = DefaultHTTPGlobalConfig()
@@ -47,19 +47,19 @@ func NewHTTPExecutorWithConfig(globalConfig *HTTPGlobalConfig) *HTTPExecutor {
 	}
 }
 
-// SetGlobalConfig sets the global HTTP configuration.
+// SetGlobalConfig 设置全局 HTTP 配置。
 func (e *HTTPExecutor) SetGlobalConfig(config *HTTPGlobalConfig) {
 	if config != nil {
 		e.globalConfig = config
 	}
 }
 
-// GetGlobalConfig returns the global HTTP configuration.
+// GetGlobalConfig 返回全局 HTTP 配置。
 func (e *HTTPExecutor) GetGlobalConfig() *HTTPGlobalConfig {
 	return e.globalConfig
 }
 
-// Init initializes the HTTP executor with configuration.
+// Init 使用配置初始化 HTTP 执行器。
 func (e *HTTPExecutor) Init(ctx context.Context, config map[string]any) error {
 	if err := e.BaseExecutor.Init(ctx, config); err != nil {
 		return err
@@ -167,7 +167,7 @@ func (e *HTTPExecutor) buildClient() error {
 	return nil
 }
 
-// Execute executes an HTTP request step.
+// Execute 执行 HTTP 请求步骤。
 func (e *HTTPExecutor) Execute(ctx context.Context, step *types.Step, execCtx *ExecutionContext) (*types.StepResult, error) {
 	startTime := time.Now()
 
@@ -178,7 +178,7 @@ func (e *HTTPExecutor) Execute(ctx context.Context, step *types.Step, execCtx *E
 		}
 	}
 
-	// Parse step configuration
+	// 解析步骤配置
 	config, err := e.parseConfig(step.Config)
 	if err != nil {
 		return CreateFailedResult(step.ID, startTime, err), nil
@@ -187,19 +187,19 @@ func (e *HTTPExecutor) Execute(ctx context.Context, step *types.Step, execCtx *E
 	// 合并步骤级配置
 	stepConfig := e.mergeStepConfig(config)
 
-	// Resolve variables in config
+	// 解析配置中的变量
 	config = e.resolveVariables(config, execCtx)
 
 	// 解析 URL（支持多域名）
 	config.URL = e.globalConfig.ResolveURL(config.URL, config.Domain)
 
-	// Create HTTP request
+	// 创建 HTTP 请求
 	req, err := e.createRequest(ctx, config, stepConfig)
 	if err != nil {
 		return CreateFailedResult(step.ID, startTime, err), nil
 	}
 
-	// Apply step timeout if specified
+	// 如果指定了步骤超时则应用
 	timeout := step.Timeout
 	if timeout <= 0 {
 		timeout = stepConfig.Timeout.Request
@@ -208,7 +208,7 @@ func (e *HTTPExecutor) Execute(ctx context.Context, step *types.Step, execCtx *E
 		}
 	}
 
-	// Execute with timeout
+	// 带超时执行
 	var resp *http.Response
 	err = ExecuteWithTimeout(ctx, timeout, func(ctx context.Context) error {
 		req = req.WithContext(ctx)
@@ -225,19 +225,19 @@ func (e *HTTPExecutor) Execute(ctx context.Context, step *types.Step, execCtx *E
 	}
 	defer resp.Body.Close()
 
-	// Read response body
+	// 读取响应体
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "failed to read response body", err)), nil
 	}
 
-	// Build response output
+	// 构建响应输出
 	output := e.buildOutput(resp, body)
 
-	// Create result
+	// 创建结果
 	result := CreateSuccessResult(step.ID, startTime, output)
 
-	// Add HTTP-specific metrics
+	// 添加 HTTP 特定指标
 	result.Metrics["http_status"] = float64(resp.StatusCode)
 	result.Metrics["http_response_size"] = float64(len(body))
 
@@ -270,7 +270,7 @@ func (e *HTTPExecutor) mergeStepConfig(config *HTTPConfig) *HTTPGlobalConfig {
 	return e.globalConfig.Merge(stepConfig)
 }
 
-// Cleanup releases resources held by the HTTP executor.
+// Cleanup 释放 HTTP 执行器持有的资源。
 func (e *HTTPExecutor) Cleanup(ctx context.Context) error {
 	if e.client != nil {
 		e.client.CloseIdleConnections()
@@ -278,7 +278,7 @@ func (e *HTTPExecutor) Cleanup(ctx context.Context) error {
 	return nil
 }
 
-// HTTPConfig represents the configuration for an HTTP step.
+// HTTPConfig 表示 HTTP 步骤的配置。
 type HTTPConfig struct {
 	Method   string            `json:"method"`
 	URL      string            `json:"url"`
@@ -291,7 +291,7 @@ type HTTPConfig struct {
 	Timeout  *TimeoutConfig    `json:"timeout,omitempty"`  // 步骤级超时配置
 }
 
-// parseConfig parses the step configuration into HTTPConfig.
+// parseConfig 将步骤配置解析为 HTTPConfig。
 func (e *HTTPExecutor) parseConfig(config map[string]any) (*HTTPConfig, error) {
 	httpConfig := &HTTPConfig{
 		Method:  "GET",
@@ -388,7 +388,7 @@ func (e *HTTPExecutor) parseConfig(config map[string]any) (*HTTPConfig, error) {
 	return httpConfig, nil
 }
 
-// resolveVariables resolves variable references in the config.
+// resolveVariables 解析配置中的变量引用。
 func (e *HTTPExecutor) resolveVariables(config *HTTPConfig, execCtx *ExecutionContext) *HTTPConfig {
 	if execCtx == nil {
 		return config
@@ -396,20 +396,20 @@ func (e *HTTPExecutor) resolveVariables(config *HTTPConfig, execCtx *ExecutionCo
 
 	evalCtx := execCtx.ToEvaluationContext()
 
-	// Resolve URL
+	// 解析 URL
 	config.URL = resolveString(config.URL, evalCtx)
 
-	// Resolve headers
+	// 解析 headers
 	for k, v := range config.Headers {
 		config.Headers[k] = resolveString(v, evalCtx)
 	}
 
-	// Resolve params
+	// 解析 params
 	for k, v := range config.Params {
 		config.Params[k] = resolveString(v, evalCtx)
 	}
 
-	// Resolve body if it's a string
+	// 如果 body 是字符串则解析
 	if bodyStr, ok := config.Body.(string); ok {
 		config.Body = resolveString(bodyStr, evalCtx)
 	}
@@ -417,7 +417,7 @@ func (e *HTTPExecutor) resolveVariables(config *HTTPConfig, execCtx *ExecutionCo
 	return config
 }
 
-// resolveString resolves variable references in a string.
+// resolveString 解析字符串中的变量引用。
 func resolveString(s string, ctx map[string]any) string {
 	result := s
 	for key, value := range ctx {
@@ -426,7 +426,7 @@ func resolveString(s string, ctx map[string]any) string {
 			result = strings.ReplaceAll(result, placeholder, fmt.Sprintf("%v", value))
 		}
 
-		// Also handle nested access like ${login.token}
+		// 同时处理嵌套访问，如 ${login.token}
 		if m, ok := value.(map[string]any); ok {
 			for subKey, subValue := range m {
 				nestedPlaceholder := fmt.Sprintf("${%s.%s}", key, subKey)
@@ -439,9 +439,9 @@ func resolveString(s string, ctx map[string]any) string {
 	return result
 }
 
-// createRequest creates an HTTP request from the config.
+// createRequest 从配置创建 HTTP 请求。
 func (e *HTTPExecutor) createRequest(ctx context.Context, config *HTTPConfig, mergedConfig *HTTPGlobalConfig) (*http.Request, error) {
-	// Build URL with query params
+	// 构建带查询参数的 URL
 	url := config.URL
 	if len(config.Params) > 0 {
 		params := make([]string, 0, len(config.Params))
@@ -455,7 +455,7 @@ func (e *HTTPExecutor) createRequest(ctx context.Context, config *HTTPConfig, me
 		}
 	}
 
-	// Prepare body
+	// 准备请求体
 	var bodyReader io.Reader
 	if config.Body != nil {
 		switch body := config.Body.(type) {
@@ -464,7 +464,7 @@ func (e *HTTPExecutor) createRequest(ctx context.Context, config *HTTPConfig, me
 		case []byte:
 			bodyReader = bytes.NewReader(body)
 		default:
-			// Marshal as JSON
+			// 序列化为 JSON
 			jsonBody, err := json.Marshal(body)
 			if err != nil {
 				return nil, NewConfigError("failed to marshal request body", err)
@@ -473,7 +473,7 @@ func (e *HTTPExecutor) createRequest(ctx context.Context, config *HTTPConfig, me
 		}
 	}
 
-	// Create request
+	// 创建请求
 	req, err := http.NewRequestWithContext(ctx, config.Method, url, bodyReader)
 	if err != nil {
 		return nil, NewConfigError("failed to create HTTP request", err)
@@ -489,7 +489,7 @@ func (e *HTTPExecutor) createRequest(ctx context.Context, config *HTTPConfig, me
 		req.Header.Set(k, v)
 	}
 
-	// Set default Content-Type for JSON body if not specified
+	// 如果未指定 Content-Type 且有 JSON body，则设置默认值
 	if config.Body != nil && req.Header.Get("Content-Type") == "" {
 		req.Header.Set("Content-Type", "application/json")
 	}
@@ -497,7 +497,7 @@ func (e *HTTPExecutor) createRequest(ctx context.Context, config *HTTPConfig, me
 	return req, nil
 }
 
-// HTTPResponse represents the output of an HTTP step.
+// HTTPResponse 表示 HTTP 步骤的输出。
 type HTTPResponse struct {
 	Status     string              `json:"status"`
 	StatusCode int                 `json:"status_code"`
@@ -506,7 +506,7 @@ type HTTPResponse struct {
 	BodyRaw    string              `json:"body_raw"`
 }
 
-// buildOutput builds the response output.
+// buildOutput 构建响应输出。
 func (e *HTTPExecutor) buildOutput(resp *http.Response, body []byte) *HTTPResponse {
 	output := &HTTPResponse{
 		Status:     resp.Status,
@@ -515,7 +515,7 @@ func (e *HTTPExecutor) buildOutput(resp *http.Response, body []byte) *HTTPRespon
 		BodyRaw:    string(body),
 	}
 
-	// Try to parse body as JSON
+	// 尝试将 body 解析为 JSON
 	var jsonBody any
 	if err := json.Unmarshal(body, &jsonBody); err == nil {
 		output.Body = jsonBody
@@ -526,7 +526,7 @@ func (e *HTTPExecutor) buildOutput(resp *http.Response, body []byte) *HTTPRespon
 	return output
 }
 
-// init registers the HTTP executor with the default registry.
+// init 在默认注册表中注册 HTTP 执行器。
 func init() {
 	MustRegister(NewHTTPExecutor())
 }

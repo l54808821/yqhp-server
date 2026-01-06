@@ -8,20 +8,20 @@ import (
 	"yqhp/workflow-engine/pkg/types"
 )
 
-// Runner manages hook execution for workflows and steps.
+// Runner 管理工作流和步骤的钩子执行。
 type Runner struct {
 	hookExecutor *HookExecutor
 }
 
-// NewRunner creates a new hook Runner.
+// NewRunner 创建一个新的钩子 Runner。
 func NewRunner(registry *executor.Registry) *Runner {
 	return &Runner{
 		hookExecutor: NewHookExecutor(registry),
 	}
 }
 
-// ExecuteWorkflowPreHook executes the workflow-level pre-hook.
-// Returns an error if the pre-hook fails, indicating the workflow should be skipped.
+// ExecuteWorkflowPreHook 执行工作流级前置钩子。
+// 如果前置钩子失败则返回错误，表示应跳过工作流。
 // Requirements: 4.1, 4.5
 func (r *Runner) ExecuteWorkflowPreHook(
 	ctx context.Context,
@@ -42,14 +42,14 @@ func (r *Runner) ExecuteWorkflowPreHook(
 	)
 
 	if err != nil {
-		return result, fmt.Errorf("workflow pre-hook failed: %w", err)
+		return result, fmt.Errorf("工作流前置钩子失败: %w", err)
 	}
 
 	return result, nil
 }
 
-// ExecuteWorkflowPostHook executes the workflow-level post-hook.
-// This hook is always executed regardless of workflow success or failure.
+// ExecuteWorkflowPostHook 执行工作流级后置钩子。
+// 无论工作流成功或失败，此钩子都会执行。
 // Requirements: 4.2, 4.6
 func (r *Runner) ExecuteWorkflowPostHook(
 	ctx context.Context,
@@ -61,7 +61,7 @@ func (r *Runner) ExecuteWorkflowPostHook(
 		return nil, nil
 	}
 
-	// Add workflow error to context if present
+	// 如果存在工作流错误，将其添加到上下文
 	if workflowErr != nil {
 		execCtx.SetVariable("__workflow_error", workflowErr.Error())
 	}
@@ -75,13 +75,13 @@ func (r *Runner) ExecuteWorkflowPostHook(
 		execCtx,
 	)
 
-	// Post-hook errors are recorded but don't affect the workflow result
-	// The post-hook is always executed regardless of workflow success/failure
+	// 后置钩子错误会被记录，但不影响工作流结果
+	// 无论工作流成功/失败，后置钩子都会执行
 	return result, err
 }
 
-// ExecuteStepPreHook executes the step-level pre-hook.
-// Returns an error if the pre-hook fails, indicating the step should be skipped.
+// ExecuteStepPreHook 执行步骤级前置钩子。
+// 如果前置钩子失败则返回错误，表示应跳过该步骤。
 // Requirements: 4.3, 4.5
 func (r *Runner) ExecuteStepPreHook(
 	ctx context.Context,
@@ -102,14 +102,14 @@ func (r *Runner) ExecuteStepPreHook(
 	)
 
 	if err != nil {
-		return result, fmt.Errorf("step pre-hook failed for step %s: %w", step.ID, err)
+		return result, fmt.Errorf("步骤 %s 的前置钩子失败: %w", step.ID, err)
 	}
 
 	return result, nil
 }
 
-// ExecuteStepPostHook executes the step-level post-hook.
-// This hook is always executed regardless of step success or failure.
+// ExecuteStepPostHook 执行步骤级后置钩子。
+// 无论步骤成功或失败，此钩子都会执行。
 // Requirements: 4.4, 4.6
 func (r *Runner) ExecuteStepPostHook(
 	ctx context.Context,
@@ -121,7 +121,7 @@ func (r *Runner) ExecuteStepPostHook(
 		return nil, nil
 	}
 
-	// Add step result to context
+	// 将步骤结果添加到上下文
 	if stepResult != nil {
 		execCtx.SetVariable("__step_result", map[string]any{
 			"status":   string(stepResult.Status),
@@ -142,12 +142,12 @@ func (r *Runner) ExecuteStepPostHook(
 		execCtx,
 	)
 
-	// Post-hook errors are recorded but don't affect the step result
-	// The post-hook is always executed regardless of step success/failure
+	// 后置钩子错误会被记录，但不影响步骤结果
+	// 无论步骤成功/失败，后置钩子都会执行
 	return result, err
 }
 
-// StepExecutionResult contains the complete result of executing a step with hooks.
+// StepExecutionResult 包含带钩子执行步骤的完整结果。
 type StepExecutionResult struct {
 	PreHookResult  *HookResult
 	StepResult     *types.StepResult
@@ -156,7 +156,7 @@ type StepExecutionResult struct {
 	Error          error
 }
 
-// ExecuteStepWithHooks executes a step with its pre and post hooks.
+// ExecuteStepWithHooks 执行带有前置和后置钩子的步骤。
 // Requirements: 4.3, 4.4, 4.5, 4.6
 func (r *Runner) ExecuteStepWithHooks(
 	ctx context.Context,
@@ -166,38 +166,38 @@ func (r *Runner) ExecuteStepWithHooks(
 ) *StepExecutionResult {
 	result := &StepExecutionResult{}
 
-	// Execute pre-hook
+	// 执行前置钩子
 	preHookResult, preHookErr := r.ExecuteStepPreHook(ctx, step, execCtx)
 	result.PreHookResult = preHookResult
 
-	// If pre-hook fails, skip the step but still execute post-hook
+	// 如果前置钩子失败，跳过步骤但仍执行后置钩子
 	if preHookErr != nil {
 		result.Skipped = true
 		result.Error = preHookErr
 		result.StepResult = executor.CreateSkippedResult(step.ID)
 
-		// Execute post-hook even if pre-hook failed (requirement 4.6)
+		// 即使前置钩子失败也执行后置钩子（需求 4.6）
 		postHookResult, _ := r.ExecuteStepPostHook(ctx, step, execCtx, result.StepResult)
 		result.PostHookResult = postHookResult
 
 		return result
 	}
 
-	// Execute the step
+	// 执行步骤
 	stepResult, stepErr := stepExecutor(ctx, step, execCtx)
 	result.StepResult = stepResult
 	if stepErr != nil {
 		result.Error = stepErr
 	}
 
-	// Execute post-hook regardless of step success/failure (requirement 4.6)
+	// 无论步骤成功/失败都执行后置钩子（需求 4.6）
 	postHookResult, _ := r.ExecuteStepPostHook(ctx, step, execCtx, stepResult)
 	result.PostHookResult = postHookResult
 
 	return result
 }
 
-// WorkflowExecutionResult contains the complete result of executing a workflow with hooks.
+// WorkflowExecutionResult 包含带钩子执行工作流的完整结果。
 type WorkflowExecutionResult struct {
 	PreHookResult  *HookResult
 	StepResults    []*StepExecutionResult
@@ -206,7 +206,7 @@ type WorkflowExecutionResult struct {
 	Error          error
 }
 
-// ExecuteWorkflowWithHooks executes a workflow with its pre and post hooks.
+// ExecuteWorkflowWithHooks 执行带有前置和后置钩子的工作流。
 // Requirements: 4.1, 4.2, 4.5, 4.6
 func (r *Runner) ExecuteWorkflowWithHooks(
 	ctx context.Context,
@@ -216,30 +216,30 @@ func (r *Runner) ExecuteWorkflowWithHooks(
 ) *WorkflowExecutionResult {
 	result := &WorkflowExecutionResult{}
 
-	// Execute workflow pre-hook
+	// 执行工作流前置钩子
 	preHookResult, preHookErr := r.ExecuteWorkflowPreHook(ctx, workflow, execCtx)
 	result.PreHookResult = preHookResult
 
-	// If pre-hook fails, skip the workflow but still execute post-hook
+	// 如果前置钩子失败，跳过工作流但仍执行后置钩子
 	if preHookErr != nil {
 		result.Skipped = true
 		result.Error = preHookErr
 
-		// Execute post-hook even if pre-hook failed (requirement 4.6)
+		// 即使前置钩子失败也执行后置钩子（需求 4.6）
 		postHookResult, _ := r.ExecuteWorkflowPostHook(ctx, workflow, execCtx, preHookErr)
 		result.PostHookResult = postHookResult
 
 		return result
 	}
 
-	// Execute the workflow steps
+	// 执行工作流步骤
 	stepResults, workflowErr := workflowExecutor(ctx, workflow, execCtx)
 	result.StepResults = stepResults
 	if workflowErr != nil {
 		result.Error = workflowErr
 	}
 
-	// Execute post-hook regardless of workflow success/failure (requirement 4.6)
+	// 无论工作流成功/失败都执行后置钩子（需求 4.6）
 	postHookResult, _ := r.ExecuteWorkflowPostHook(ctx, workflow, execCtx, workflowErr)
 	result.PostHookResult = postHookResult
 

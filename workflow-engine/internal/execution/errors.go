@@ -3,30 +3,30 @@ package execution
 import "errors"
 
 var (
-	// ErrNilConfig is returned when the configuration is nil.
-	ErrNilConfig = errors.New("execution mode config is nil")
+	// ErrNilConfig 当配置为 nil 时返回。
+	ErrNilConfig = errors.New("执行模式配置为 nil")
 
-	// ErrNilIterationFunc is returned when the iteration function is nil.
-	ErrNilIterationFunc = errors.New("iteration function is nil")
+	// ErrNilIterationFunc 当迭代函数为 nil 时返回。
+	ErrNilIterationFunc = errors.New("迭代函数为 nil")
 
-	// ErrNoStages is returned when no stages are defined for ramping modes.
-	ErrNoStages = errors.New("no stages defined for ramping mode")
+	// ErrNoStages 当递增模式没有定义阶段时返回。
+	ErrNoStages = errors.New("递增模式未定义阶段")
 
-	// ErrInvalidRate is returned when the rate is invalid.
-	ErrInvalidRate = errors.New("invalid rate: must be positive")
+	// ErrInvalidRate 当速率无效时返回。
+	ErrInvalidRate = errors.New("无效的速率: 必须为正数")
 
-	// ErrInvalidTimeUnit is returned when the time unit is invalid.
-	ErrInvalidTimeUnit = errors.New("invalid time unit: must be positive")
+	// ErrInvalidTimeUnit 当时间单位无效时返回。
+	ErrInvalidTimeUnit = errors.New("无效的时间单位: 必须为正数")
 
-	// ErrModeNotRunning is returned when trying to control a mode that is not running.
-	ErrModeNotRunning = errors.New("execution mode is not running")
+	// ErrModeNotRunning 当尝试控制未运行的模式时返回。
+	ErrModeNotRunning = errors.New("执行模式未运行")
 
-	// ErrModeAlreadyRunning is returned when trying to start a mode that is already running.
-	ErrModeAlreadyRunning = errors.New("execution mode is already running")
+	// ErrModeAlreadyRunning 当尝试启动已运行的模式时返回。
+	ErrModeAlreadyRunning = errors.New("执行模式已在运行")
 
-	// ErrScaleNotSupported is returned when scaling is not supported by the mode.
-	ErrScaleNotSupported = errors.New("scaling is not supported by this execution mode")
+	// ErrScaleNotSupported 当模式不支持扩缩容时返回。
+	ErrScaleNotSupported = errors.New("此执行模式不支持扩缩容")
 
-	// ErrPauseNotSupported is returned when pausing is not supported by the mode.
-	ErrPauseNotSupported = errors.New("pausing is not supported by this execution mode")
+	// ErrPauseNotSupported 当模式不支持暂停时返回。
+	ErrPauseNotSupported = errors.New("此执行模式不支持暂停")
 )

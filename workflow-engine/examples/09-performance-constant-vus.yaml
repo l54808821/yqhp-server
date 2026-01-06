@@ -28,5 +28,5 @@ steps:
     type: http
     config:
       method: GET
-      url: "https://www.baidu.com"
+      url: "http://www.baidu.com/"
     timeout: 30s

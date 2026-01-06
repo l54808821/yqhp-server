@@ -16,7 +16,7 @@ type InMemoryMQAdapter struct {
 	msgID     int64
 }
 
-// NewInMemoryMQAdapter creates a new in-memory MQ adapter.
+// NewInMemoryMQAdapter 创建一个新的内存消息队列适配器。
 func NewInMemoryMQAdapter() *InMemoryMQAdapter {
 	return &InMemoryMQAdapter{
 		topics: make(map[string][]MQMessage),
@@ -24,7 +24,7 @@ func NewInMemoryMQAdapter() *InMemoryMQAdapter {
 	}
 }
 
-// Connect connects to the in-memory MQ.
+// Connect 连接到内存消息队列。
 func (a *InMemoryMQAdapter) Connect(ctx context.Context, config *MQConfig) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -34,7 +34,7 @@ func (a *InMemoryMQAdapter) Connect(ctx context.Context, config *MQConfig) error
 	return nil
 }
 
-// Publish publishes a message to a topic or queue.
+// Publish 发布消息到主题或队列。
 func (a *InMemoryMQAdapter) Publish(ctx context.Context, op *MQOperation) (*MQResult, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -73,7 +73,7 @@ func (a *InMemoryMQAdapter) Publish(ctx context.Context, op *MQOperation) (*MQRe
 	}, nil
 }
 
-// Consume consumes messages from a topic or queue.
+// Consume 从主题或队列消费消息。
 func (a *InMemoryMQAdapter) Consume(ctx context.Context, op *MQOperation) (*MQResult, error) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -120,7 +120,7 @@ func (a *InMemoryMQAdapter) Consume(ctx context.Context, op *MQOperation) (*MQRe
 	}, nil
 }
 
-// Close closes the connection.
+// Close 关闭连接。
 func (a *InMemoryMQAdapter) Close(ctx context.Context) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -129,28 +129,28 @@ func (a *InMemoryMQAdapter) Close(ctx context.Context) error {
 	return nil
 }
 
-// IsConnected returns whether the adapter is connected.
+// IsConnected 返回适配器是否已连接。
 func (a *InMemoryMQAdapter) IsConnected() bool {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	return a.connected
 }
 
-// GetTopicMessages returns messages in a topic (for testing).
+// GetTopicMessages 返回主题中的消息（用于测试）。
 func (a *InMemoryMQAdapter) GetTopicMessages(topic string) []MQMessage {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	return a.topics[topic]
 }
 
-// GetQueueMessages returns messages in a queue (for testing).
+// GetQueueMessages 返回队列中的消息（用于测试）。
 func (a *InMemoryMQAdapter) GetQueueMessages(queue string) []MQMessage {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	return a.queues[queue]
 }
 
-// Clear clears all messages (for testing).
+// Clear 清除所有消息（用于测试）。
 func (a *InMemoryMQAdapter) Clear() {
 	a.mu.Lock()
 	defer a.mu.Unlock()

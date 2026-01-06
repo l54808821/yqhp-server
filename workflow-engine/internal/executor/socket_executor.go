@@ -15,13 +15,13 @@ import (
 )
 
 const (
-	// SocketExecutorType is the type identifier for Socket executor.
+	// SocketExecutorType 是 Socket 执行器的类型标识符。
 	SocketExecutorType = "socket"
 
-	// Default buffer size for socket operations.
+	// Socket 操作的默认缓冲区大小。
 	defaultBufferSize = 4096
 
-	// Default timeout for socket operations.
+	// Socket 操作的默认超时时间。
 	defaultSocketTimeout = 30 * time.Second
 )
 
@@ -44,7 +44,7 @@ type SocketOperation struct {
 	Length    int    `yaml:"length,omitempty" json:"length,omitempty"`       // 固定长度接收
 }
 
-// SocketExecutor executes Socket operations.
+// SocketExecutor 执行 Socket 操作。
 type SocketExecutor struct {
 	*BaseExecutor
 	config *SocketConfig
@@ -53,14 +53,14 @@ type SocketExecutor struct {
 	reader *bufio.Reader
 }
 
-// NewSocketExecutor creates a new Socket executor.
+// NewSocketExecutor 创建一个新的 Socket 执行器。
 func NewSocketExecutor() *SocketExecutor {
 	return &SocketExecutor{
 		BaseExecutor: NewBaseExecutor(SocketExecutorType),
 	}
 }
 
-// Init initializes the Socket executor with configuration.
+// Init 使用配置初始化 Socket 执行器。
 func (e *SocketExecutor) Init(ctx context.Context, config map[string]any) error {
 	if err := e.BaseExecutor.Init(ctx, config); err != nil {
 		return err
@@ -97,7 +97,7 @@ func (e *SocketExecutor) Init(ctx context.Context, config map[string]any) error 
 	return nil
 }
 
-// Execute executes a Socket operation step.
+// Execute 执行 Socket 操作步骤。
 func (e *SocketExecutor) Execute(ctx context.Context, step *types.Step, execCtx *ExecutionContext) (*types.StepResult, error) {
 	startTime := time.Now()
 
@@ -352,7 +352,7 @@ func (e *SocketExecutor) close(ctx context.Context) (map[string]any, error) {
 	}, nil
 }
 
-// Cleanup releases resources held by the Socket executor.
+// Cleanup 释放 Socket 执行器持有的资源。
 func (e *SocketExecutor) Cleanup(ctx context.Context) error {
 	e.connMu.Lock()
 	defer e.connMu.Unlock()
@@ -365,14 +365,14 @@ func (e *SocketExecutor) Cleanup(ctx context.Context) error {
 	return nil
 }
 
-// IsConnected returns whether the socket is connected.
+// IsConnected 返回 Socket 是否已连接。
 func (e *SocketExecutor) IsConnected() bool {
 	e.connMu.Lock()
 	defer e.connMu.Unlock()
 	return e.conn != nil
 }
 
-// init registers the Socket executor with the default registry.
+// init 在默认注册表中注册 Socket 执行器。
 func init() {
 	MustRegister(NewSocketExecutor())
 }

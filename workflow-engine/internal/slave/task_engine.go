@@ -12,27 +12,27 @@ import (
 	"yqhp/workflow-engine/pkg/types"
 )
 
-// TaskEngine handles workflow task execution.
+// TaskEngine 处理工作流任务执行。
 // Requirements: 6.1, 6.3, 6.4
 type TaskEngine struct {
 	registry   *executor.Registry
 	hookRunner *hook.Runner
 	maxVUs     int
 
-	// VU management
+	// VU 管理
 	vuPool     *VUPool
 	activeVUs  atomic.Int32
 	iterations atomic.Int64
 
-	// Metrics collection
+	// 指标收集
 	collector *MetricsCollector
 
-	// State
+	// 状态
 	running atomic.Bool
 	mu      sync.RWMutex
 }
 
-// NewTaskEngine creates a new task engine.
+// NewTaskEngine 创建一个新的任务引擎。
 func NewTaskEngine(registry *executor.Registry, maxVUs int) *TaskEngine {
 	return &TaskEngine{
 		registry:   registry,
@@ -43,7 +43,7 @@ func NewTaskEngine(registry *executor.Registry, maxVUs int) *TaskEngine {
 	}
 }
 
-// Execute executes a task and returns the result.
+// Execute 执行任务并返回结果。
 // Requirements: 6.1, 6.3, 6.4
 func (e *TaskEngine) Execute(ctx context.Context, task *types.Task) (*types.TaskResult, error) {
 	if task == nil || task.Workflow == nil {
@@ -60,13 +60,13 @@ func (e *TaskEngine) Execute(ctx context.Context, task *types.Task) (*types.Task
 		Errors:      make([]types.ExecutionError, 0),
 	}
 
-	// Determine execution parameters based on workflow options
+	// 根据工作流选项确定执行参数
 	opts := task.Workflow.Options
 	vus := e.calculateVUs(opts, task.Segment)
 	iterations := e.calculateIterations(opts, task.Segment)
 	duration := opts.Duration
 
-	// Execute based on mode
+	// 根据模式执行
 	var execErr error
 	switch opts.ExecutionMode {
 	case types.ModeConstantVUs, "":
@@ -92,23 +92,23 @@ func (e *TaskEngine) Execute(ctx context.Context, task *types.Task) (*types.Task
 		result.Status = types.ExecutionStatusCompleted
 	}
 
-	// Collect final metrics
+	// 收集最终指标
 	result.Metrics = e.collector.GetMetrics()
 
-	// Set iterations count
+	// 设置迭代次数
 	result.Iterations = e.iterations.Load()
 
 	return result, execErr
 }
 
-// Stop stops the task engine.
+// Stop 停止任务引擎。
 func (e *TaskEngine) Stop(ctx context.Context) error {
 	e.running.Store(false)
 	e.vuPool.StopAll()
 	return nil
 }
 
-// GetMetrics returns the current metrics.
+// GetMetrics 返回当前指标。
 func (e *TaskEngine) GetMetrics() *types.SlaveMetrics {
 	return &types.SlaveMetrics{
 		ActiveVUs:  int(e.activeVUs.Load()),
@@ -116,21 +116,21 @@ func (e *TaskEngine) GetMetrics() *types.SlaveMetrics {
 	}
 }
 
-// calculateVUs calculates the number of VUs for this segment.
+// calculateVUs 计算此分段的 VU 数量。
 func (e *TaskEngine) calculateVUs(opts types.ExecutionOptions, segment types.ExecutionSegment) int {
 	totalVUs := opts.VUs
 	if totalVUs <= 0 {
 		totalVUs = 1
 	}
 
-	// Calculate VUs for this segment
+	// 计算此分段的 VU 数量
 	segmentSize := segment.End - segment.Start
 	vus := int(float64(totalVUs) * segmentSize)
 	if vus < 1 {
 		vus = 1
 	}
 
-	// Cap at max VUs
+	// 限制在最大 VU 数以内
 	if vus > e.maxVUs {
 		vus = e.maxVUs
 	}
@@ -138,14 +138,14 @@ func (e *TaskEngine) calculateVUs(opts types.ExecutionOptions, segment types.Exe
 	return vus
 }
 
-// calculateIterations calculates the number of iterations for this segment.
+// calculateIterations 计算此分段的迭代次数。
 func (e *TaskEngine) calculateIterations(opts types.ExecutionOptions, segment types.ExecutionSegment) int {
 	totalIterations := opts.Iterations
 	if totalIterations <= 0 {
-		return 0 // Duration-based execution
+		return 0 // 基于时长的执行
 	}
 
-	// Calculate iterations for this segment
+	// 计算此分段的迭代次数
 	segmentSize := segment.End - segment.Start
 	iterations := int(float64(totalIterations) * segmentSize)
 	if iterations < 1 {
@@ -155,13 +155,13 @@ func (e *TaskEngine) calculateIterations(opts types.ExecutionOptions, segment ty
 	return iterations
 }
 
-// executeConstantVUs executes with a constant number of VUs.
+// executeConstantVUs 使用固定数量的 VU 执行。
 // Requirements: 6.1.1
 func (e *TaskEngine) executeConstantVUs(ctx context.Context, task *types.Task, vus int, duration time.Duration, iterations int) error {
 	var wg sync.WaitGroup
 	errChan := make(chan error, vus)
 
-	// Create a context with timeout if duration is specified
+	// 如果指定了时长，创建带超时的上下文
 	execCtx := ctx
 	var cancel context.CancelFunc
 	if duration > 0 {
@@ -169,7 +169,7 @@ func (e *TaskEngine) executeConstantVUs(ctx context.Context, task *types.Task, v
 		defer cancel()
 	}
 
-	// Start VUs
+	// 启动 VU
 	for i := 0; i < vus; i++ {
 		vu := e.vuPool.Acquire(i)
 		if vu == nil {
@@ -191,11 +191,11 @@ func (e *TaskEngine) executeConstantVUs(ctx context.Context, task *types.Task, v
 		}(vu)
 	}
 
-	// Wait for all VUs to complete
+	// 等待所有 VU 完成
 	wg.Wait()
 	close(errChan)
 
-	// Collect errors
+	// 收集错误
 	var firstErr error
 	for err := range errChan {
 		if firstErr == nil {
@@ -206,7 +206,7 @@ func (e *TaskEngine) executeConstantVUs(ctx context.Context, task *types.Task, v
 	return firstErr
 }
 
-// executeRampingVUs executes with ramping VU count.
+// executeRampingVUs 使用递增/递减的 VU 数量执行。
 // Requirements: 6.1.2
 func (e *TaskEngine) executeRampingVUs(ctx context.Context, task *types.Task, stages []types.Stage) error {
 	if len(stages) == 0 {
@@ -225,14 +225,14 @@ func (e *TaskEngine) executeRampingVUs(ctx context.Context, task *types.Task, st
 			targetVUs = e.maxVUs
 		}
 
-		// Calculate ramp rate
+		// 计算递增速率
 		stageStart := time.Now()
 		stageDuration := stage.Duration
 		if stageDuration <= 0 {
 			stageDuration = time.Second
 		}
 
-		// Ramp VUs during this stage
+		// 在此阶段内递增 VU
 		ticker := time.NewTicker(100 * time.Millisecond)
 		defer ticker.Stop()
 
@@ -247,12 +247,12 @@ func (e *TaskEngine) executeRampingVUs(ctx context.Context, task *types.Task, st
 					break stageLoop
 				}
 
-				// Calculate target VUs at this point
+				// 计算当前时间点的目标 VU 数
 				progress := float64(elapsed) / float64(stageDuration)
 				targetAtPoint := currentVUs + int(float64(targetVUs-currentVUs)*progress)
 
 				vuMu.Lock()
-				// Scale up
+				// 扩容
 				for i := len(vuCtxs); i < targetAtPoint; i++ {
 					vu := e.vuPool.Acquire(i)
 					if vu == nil {
@@ -274,7 +274,7 @@ func (e *TaskEngine) executeRampingVUs(ctx context.Context, task *types.Task, st
 					}(vu, vuCtx)
 				}
 
-				// Scale down
+				// 缩容
 				for i := len(vuCtxs) - 1; i >= targetAtPoint; i-- {
 					if cancel, ok := vuCtxs[i]; ok {
 						cancel()
@@ -288,7 +288,7 @@ func (e *TaskEngine) executeRampingVUs(ctx context.Context, task *types.Task, st
 		currentVUs = targetVUs
 	}
 
-	// Cancel all remaining VUs
+	// 取消所有剩余的 VU
 	vuMu.Lock()
 	for _, cancel := range vuCtxs {
 		cancel()
@@ -299,7 +299,7 @@ func (e *TaskEngine) executeRampingVUs(ctx context.Context, task *types.Task, st
 	return nil
 }
 
-// executePerVUIterations executes a fixed number of iterations per VU.
+// executePerVUIterations 每个 VU 执行固定次数的迭代。
 // Requirements: 6.1.5
 func (e *TaskEngine) executePerVUIterations(ctx context.Context, task *types.Task, vus int, iterationsPerVU int) error {
 	if iterationsPerVU <= 0 {
@@ -343,7 +343,7 @@ func (e *TaskEngine) executePerVUIterations(ctx context.Context, task *types.Tas
 	return firstErr
 }
 
-// executeSharedIterations distributes iterations across all VUs.
+// executeSharedIterations 在所有 VU 之间分配迭代次数。
 // Requirements: 6.1.6
 func (e *TaskEngine) executeSharedIterations(ctx context.Context, task *types.Task, vus int, totalIterations int) error {
 	if totalIterations <= 0 {
@@ -354,7 +354,7 @@ func (e *TaskEngine) executeSharedIterations(ctx context.Context, task *types.Ta
 	errChan := make(chan error, vus)
 	iterChan := make(chan int, totalIterations)
 
-	// Fill iteration channel
+	// 填充迭代通道
 	for i := 0; i < totalIterations; i++ {
 		iterChan <- i
 	}
@@ -402,7 +402,7 @@ func (e *TaskEngine) executeSharedIterations(ctx context.Context, task *types.Ta
 	return firstErr
 }
 
-// runVU runs a virtual user until context is cancelled or iterations complete.
+// runVU 运行虚拟用户，直到上下文取消或迭代完成。
 func (e *TaskEngine) runVU(ctx context.Context, task *types.Task, vu *types.VirtualUser, maxIterations int) error {
 	iteration := 0
 	for {
@@ -426,25 +426,25 @@ func (e *TaskEngine) runVU(ctx context.Context, task *types.Task, vu *types.Virt
 	}
 }
 
-// executeWorkflowIteration executes a single workflow iteration.
+// executeWorkflowIteration 执行单次工作流迭代。
 func (e *TaskEngine) executeWorkflowIteration(ctx context.Context, task *types.Task, vu *types.VirtualUser) error {
 	workflow := task.Workflow
 
-	// Create execution context
+	// 创建执行上下文
 	execCtx := executor.NewExecutionContext().
 		WithVU(vu).
 		WithIteration(vu.Iteration).
 		WithWorkflowID(workflow.ID).
 		WithExecutionID(task.ExecutionID)
 
-	// Copy workflow variables
+	// 复制工作流变量
 	if workflow.Variables != nil {
 		for k, v := range workflow.Variables {
 			execCtx.SetVariable(k, v)
 		}
 	}
 
-	// Execute workflow with hooks
+	// 使用钩子执行工作流
 	result := e.hookRunner.ExecuteWorkflowWithHooks(
 		ctx,
 		workflow,
@@ -454,13 +454,13 @@ func (e *TaskEngine) executeWorkflowIteration(ctx context.Context, task *types.T
 		},
 	)
 
-	// Record metrics
+	// 记录指标
 	e.recordWorkflowMetrics(result)
 
 	return result.Error
 }
 
-// executeSteps executes a list of steps.
+// executeSteps 执行步骤列表。
 func (e *TaskEngine) executeSteps(ctx context.Context, steps []types.Step, execCtx *executor.ExecutionContext) ([]*hook.StepExecutionResult, error) {
 	results := make([]*hook.StepExecutionResult, 0, len(steps))
 
@@ -473,13 +473,13 @@ func (e *TaskEngine) executeSteps(ctx context.Context, steps []types.Step, execC
 		default:
 		}
 
-		// Get executor for this step type
+		// 获取此步骤类型的执行器
 		exec, err := e.registry.GetOrError(step.Type)
 		if err != nil {
 			return results, err
 		}
 
-		// Execute step with hooks
+		// 使用钩子执行步骤
 		result := e.hookRunner.ExecuteStepWithHooks(
 			ctx,
 			step,
@@ -491,12 +491,12 @@ func (e *TaskEngine) executeSteps(ctx context.Context, steps []types.Step, execC
 
 		results = append(results, result)
 
-		// Store result in context
+		// 将结果存储到上下文中
 		if result.StepResult != nil {
 			execCtx.SetResult(step.ID, result.StepResult)
 		}
 
-		// Handle error strategy
+		// 处理错误策略
 		if result.Error != nil {
 			switch step.OnError {
 			case types.ErrorStrategyAbort:
@@ -512,11 +512,11 @@ func (e *TaskEngine) executeSteps(ctx context.Context, steps []types.Step, execC
 	return results, nil
 }
 
-// executeStep executes a single step.
+// executeStep 执行单个步骤。
 func (e *TaskEngine) executeStep(ctx context.Context, exec executor.Executor, step *types.Step, execCtx *executor.ExecutionContext) (*types.StepResult, error) {
 	startTime := time.Now()
 
-	// Apply timeout if configured
+	// 如果配置了超时，应用超时设置
 	stepCtx := ctx
 	var cancel context.CancelFunc
 	if step.Timeout > 0 {
@@ -524,10 +524,10 @@ func (e *TaskEngine) executeStep(ctx context.Context, exec executor.Executor, st
 		defer cancel()
 	}
 
-	// Execute the step
+	// 执行步骤
 	result, err := exec.Execute(stepCtx, step, execCtx)
 
-	// Record step metrics
+	// 记录步骤指标
 	if result != nil {
 		e.collector.RecordStep(step.ID, result)
 	} else if err != nil {
@@ -538,9 +538,9 @@ func (e *TaskEngine) executeStep(ctx context.Context, exec executor.Executor, st
 	return result, err
 }
 
-// recordWorkflowMetrics records metrics for a workflow execution.
-// Note: Step metrics are already recorded in executeStep, so this function
-// is kept for potential future use (e.g., recording workflow-level metrics).
+// recordWorkflowMetrics 记录工作流执行的指标。
+// 注意：步骤指标已在 executeStep 中记录，此函数保留用于
+// 将来可能的用途（例如记录工作流级别的指标）。
 func (e *TaskEngine) recordWorkflowMetrics(result *hook.WorkflowExecutionResult) {
-	// Step metrics are already recorded in executeStep, no need to record again
+	// 步骤指标已在 executeStep 中记录，无需重复记录
 }

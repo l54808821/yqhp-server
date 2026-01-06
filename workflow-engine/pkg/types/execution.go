@@ -13,7 +13,18 @@ type ExecutionOptions struct {
 	TargetSlaves  *SlaveSelector `yaml:"target_slaves,omitempty"`
 	ExecutionMode ExecutionMode  `yaml:"mode,omitempty"`
 	Stages        []Stage        `yaml:"stages,omitempty"`
+	HTTPEngine    HTTPEngineType `yaml:"http_engine,omitempty"` // HTTP 引擎类型：fasthttp（默认）或 standard
 }
+
+// HTTPEngineType 定义 HTTP 引擎类型
+type HTTPEngineType string
+
+const (
+	// HTTPEngineFastHTTP 使用 FastHTTP 库（默认，性能更好）
+	HTTPEngineFastHTTP HTTPEngineType = "fasthttp"
+	// HTTPEngineStandard 使用 Go 标准库 net/http
+	HTTPEngineStandard HTTPEngineType = "standard"
+)
 
 // ExecutionMode defines the execution mode.
 type ExecutionMode string

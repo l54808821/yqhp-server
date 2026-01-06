@@ -36,9 +36,16 @@
 
 ### 分布式执行
 
-| 文件                                       | 说明           |
-| ------------------------------------------ | -------------- |
-| [16-distributed.yaml](16-distributed.yaml) | 分布式执行示例 |
+| 文件                                                                   | 说明                       |
+| ---------------------------------------------------------------------- | -------------------------- |
+| [12-distributed-target-slaves.yaml](12-distributed-target-slaves.yaml) | 分布式执行指定目标机器示例 |
+| [16-distributed.yaml](16-distributed.yaml)                             | 分布式执行示例             |
+
+### HTTP 引擎
+
+| 文件                                                             | 说明                               |
+| ---------------------------------------------------------------- | ---------------------------------- |
+| [18-http-engine-comparison.yaml](18-http-engine-comparison.yaml) | HTTP 引擎对比 (FastHTTP vs 标准库) |
 
 ### 完整示例
 
@@ -125,3 +132,37 @@ thresholds:
   - metric: http_req_failed
     condition: "rate < 0.01" # 错误率 < 1%
 ```
+
+## HTTP 引擎
+
+工作流引擎支持两种 HTTP 引擎实现：
+
+| 引擎       | 说明                                     |
+| ---------- | ---------------------------------------- |
+| `fasthttp` | 默认引擎，基于 FastHTTP 库，性能更高     |
+| `standard` | 标准库引擎，基于 Go net/http，兼容性更好 |
+
+### 切换引擎
+
+在工作流的 `options` 中指定 `http_engine`：
+
+```yaml
+options:
+  vus: 10
+  duration: 30s
+  http_engine: standard # 使用标准库引擎
+```
+
+### 引擎对比
+
+FastHTTP 引擎优势：
+
+- 连接池复用，减少 TCP/TLS 握手开销
+- 对象池复用，降低 GC 压力
+- 更高吞吐量，适合高并发压测
+
+标准库引擎优势：
+
+- 兼容性更好
+- 支持更多 HTTP 特性
+- 适合调试场景

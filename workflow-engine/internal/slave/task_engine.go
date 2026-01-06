@@ -444,13 +444,16 @@ func (e *TaskEngine) executeWorkflowIteration(ctx context.Context, task *types.T
 		}
 	}
 
+	// 获取执行选项
+	opts := &workflow.Options
+
 	// 使用钩子执行工作流
 	result := e.hookRunner.ExecuteWorkflowWithHooks(
 		ctx,
 		workflow,
 		execCtx,
 		func(ctx context.Context, wf *types.Workflow, ec *executor.ExecutionContext) ([]*hook.StepExecutionResult, error) {
-			return e.executeSteps(ctx, wf.Steps, ec)
+			return e.executeStepsWithOptions(ctx, wf.Steps, ec, opts)
 		},
 	)
 
@@ -462,6 +465,11 @@ func (e *TaskEngine) executeWorkflowIteration(ctx context.Context, task *types.T
 
 // executeSteps 执行步骤列表。
 func (e *TaskEngine) executeSteps(ctx context.Context, steps []types.Step, execCtx *executor.ExecutionContext) ([]*hook.StepExecutionResult, error) {
+	return e.executeStepsWithOptions(ctx, steps, execCtx, nil)
+}
+
+// executeStepsWithOptions 执行步骤列表，支持执行选项。
+func (e *TaskEngine) executeStepsWithOptions(ctx context.Context, steps []types.Step, execCtx *executor.ExecutionContext, opts *types.ExecutionOptions) ([]*hook.StepExecutionResult, error) {
 	results := make([]*hook.StepExecutionResult, 0, len(steps))
 
 	for i := range steps {
@@ -474,7 +482,13 @@ func (e *TaskEngine) executeSteps(ctx context.Context, steps []types.Step, execC
 		}
 
 		// 获取此步骤类型的执行器
-		exec, err := e.registry.GetOrError(step.Type)
+		execType := step.Type
+		// 如果是 HTTP 类型且配置了使用标准库引擎，则切换执行器类型
+		if execType == "http" && opts != nil && opts.HTTPEngine == types.HTTPEngineStandard {
+			execType = "http-std"
+		}
+
+		exec, err := e.registry.GetOrError(execType)
 		if err != nil {
 			return results, err
 		}

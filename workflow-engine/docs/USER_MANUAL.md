@@ -403,6 +403,9 @@ options:
   # 执行模式
   mode: constant-vus
 
+  # HTTP 引擎类型 (可选)
+  http_engine: fasthttp # fasthttp (默认) 或 standard
+
   # 阶梯配置 (用于 ramping 模式)
   stages:
     - duration: 30s
@@ -424,6 +427,55 @@ options:
     labels:
       region: us-east
 ```
+
+### HTTP 引擎
+
+工作流引擎支持两种 HTTP 引擎实现，可通过 `http_engine` 选项切换：
+
+| 引擎       | 说明                                     |
+| ---------- | ---------------------------------------- |
+| `fasthttp` | 默认引擎，基于 FastHTTP 库，性能更高     |
+| `standard` | 标准库引擎，基于 Go net/http，兼容性更好 |
+
+#### FastHTTP 引擎 (默认)
+
+- 使用连接池复用 TCP 连接，减少握手开销
+- 使用对象池复用请求/响应对象，降低 GC 压力
+- 更高的吞吐量，适合高并发压测场景
+- 默认每个 Host 最大 1000 连接，空闲连接保持 90 秒
+
+#### 标准库引擎
+
+- 使用 Go 标准库 net/http
+- 兼容性更好，支持更多 HTTP 特性
+- 适合调试或需要特殊 HTTP 功能的场景
+
+#### 示例: 使用标准库引擎
+
+```yaml
+id: standard-http-test
+name: 使用标准库 HTTP 引擎
+
+options:
+  vus: 10
+  duration: 1m
+  http_engine: standard # 切换到标准库实现
+
+steps:
+  - id: request
+    type: http
+    config:
+      method: GET
+      url: "https://httpbin.org/get"
+```
+
+#### 性能对比建议
+
+如需对比两种引擎的性能差异，可以：
+
+1. 使用相同的工作流配置
+2. 分别设置 `http_engine: fasthttp` 和 `http_engine: standard`
+3. 对比执行结果中的 RPS、延迟等指标
 
 ### 执行模式
 

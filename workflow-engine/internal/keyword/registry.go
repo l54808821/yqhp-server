@@ -22,7 +22,7 @@ func NewRegistry() *Registry {
 // Returns an error if a keyword with the same name already exists.
 func (r *Registry) Register(kw Keyword) error {
 	if kw == nil {
-		return fmt.Errorf("cannot register nil keyword")
+		return fmt.Errorf("不能注册空关键字")
 	}
 
 	r.mu.Lock()
@@ -30,11 +30,11 @@ func (r *Registry) Register(kw Keyword) error {
 
 	name := kw.Name()
 	if name == "" {
-		return fmt.Errorf("keyword name cannot be empty")
+		return fmt.Errorf("关键字名称不能为空")
 	}
 
 	if _, exists := r.keywords[name]; exists {
-		return fmt.Errorf("keyword '%s' is already registered", name)
+		return fmt.Errorf("关键字 '%s' 已注册", name)
 	}
 
 	r.keywords[name] = kw
@@ -54,7 +54,7 @@ func (r *Registry) Unregister(name string) error {
 	defer r.mu.Unlock()
 
 	if _, exists := r.keywords[name]; !exists {
-		return fmt.Errorf("keyword '%s' is not registered", name)
+		return fmt.Errorf("关键字 '%s' 未注册", name)
 	}
 
 	delete(r.keywords, name)
@@ -68,7 +68,7 @@ func (r *Registry) Get(name string) (Keyword, error) {
 
 	kw, exists := r.keywords[name]
 	if !exists {
-		return nil, fmt.Errorf("keyword '%s' not found", name)
+		return nil, fmt.Errorf("关键字 '%s' 未找到", name)
 	}
 	return kw, nil
 }

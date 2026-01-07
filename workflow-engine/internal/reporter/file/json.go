@@ -128,21 +128,21 @@ func (r *JSONReporter) Init(ctx context.Context, config map[string]any) error {
 	defer r.mu.Unlock()
 
 	if r.initialized {
-		return fmt.Errorf("reporter already initialized")
+		return fmt.Errorf("报告器已初始化")
 	}
 
 	// Ensure directory exists
 	dir := filepath.Dir(r.config.FilePath)
 	if dir != "" && dir != "." {
 		if err := os.MkdirAll(dir, 0755); err != nil {
-			return fmt.Errorf("failed to create directory: %w", err)
+			return fmt.Errorf("创建目录失败: %w", err)
 		}
 	}
 
 	// Open file
 	file, err := os.Create(r.config.FilePath)
 	if err != nil {
-		return fmt.Errorf("failed to create file: %w", err)
+		return fmt.Errorf("创建文件失败: %w", err)
 	}
 
 	r.file = file
@@ -154,7 +154,7 @@ func (r *JSONReporter) Init(ctx context.Context, config map[string]any) error {
 	// Write opening bracket for JSON array
 	if _, err := r.file.WriteString("[\n"); err != nil {
 		r.file.Close()
-		return fmt.Errorf("failed to write header: %w", err)
+		return fmt.Errorf("写入头部失败: %w", err)
 	}
 
 	r.initialized = true
@@ -167,7 +167,7 @@ func (r *JSONReporter) Report(ctx context.Context, metrics *types.Metrics) error
 	defer r.mu.Unlock()
 
 	if !r.initialized {
-		return fmt.Errorf("reporter not initialized")
+		return fmt.Errorf("报告器未初始化")
 	}
 
 	record := r.convertMetrics(metrics)
@@ -209,11 +209,11 @@ func (r *JSONReporter) Close(ctx context.Context) error {
 
 	// Write closing bracket
 	if _, err := r.file.WriteString("\n]"); err != nil {
-		return fmt.Errorf("failed to write footer: %w", err)
+		return fmt.Errorf("写入尾部失败: %w", err)
 	}
 
 	if err := r.file.Close(); err != nil {
-		return fmt.Errorf("failed to close file: %w", err)
+		return fmt.Errorf("关闭文件失败: %w", err)
 	}
 
 	r.initialized = false
@@ -231,17 +231,17 @@ func (r *JSONReporter) flushBuffer() error {
 		// Add comma separator between records
 		if r.recordWritten {
 			if _, err := r.file.WriteString(",\n"); err != nil {
-				return fmt.Errorf("failed to write separator: %w", err)
+				return fmt.Errorf("写入分隔符失败: %w", err)
 			}
 		}
 
 		data, err := json.MarshalIndent(record, "", "  ")
 		if err != nil {
-			return fmt.Errorf("failed to marshal record: %w", err)
+			return fmt.Errorf("序列化记录失败: %w", err)
 		}
 
 		if _, err := r.file.Write(data); err != nil {
-			return fmt.Errorf("failed to write record: %w", err)
+			return fmt.Errorf("写入记录失败: %w", err)
 		}
 
 		r.recordWritten = true

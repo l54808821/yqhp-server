@@ -140,18 +140,18 @@ func (l *Loader) Load() (*Config, error) {
 	// Load from YAML file if specified
 	if l.configPath != "" {
 		if err := l.loadFromFile(cfg); err != nil {
-			return nil, fmt.Errorf("failed to load config from file: %w", err)
+			return nil, fmt.Errorf("从文件加载配置失败: %w", err)
 		}
 	}
 
 	// Apply environment variable overrides
 	if err := l.applyEnvOverrides(cfg); err != nil {
-		return nil, fmt.Errorf("failed to apply env overrides: %w", err)
+		return nil, fmt.Errorf("应用环境变量覆盖失败: %w", err)
 	}
 
 	// Apply command-line argument overrides
 	if err := l.applyCmdOverrides(cfg); err != nil {
-		return nil, fmt.Errorf("failed to apply cmd overrides: %w", err)
+		return nil, fmt.Errorf("应用命令行参数覆盖失败: %w", err)
 	}
 
 	return cfg, nil
@@ -164,11 +164,11 @@ func (l *Loader) loadFromFile(cfg *Config) error {
 		if os.IsNotExist(err) {
 			return nil // File doesn't exist, use defaults
 		}
-		return fmt.Errorf("failed to read config file: %w", err)
+		return fmt.Errorf("读取配置文件失败: %w", err)
 	}
 
 	if err := yaml.Unmarshal(data, cfg); err != nil {
-		return fmt.Errorf("failed to parse config file: %w", err)
+		return fmt.Errorf("解析配置文件失败: %w", err)
 	}
 
 	return nil
@@ -209,7 +209,7 @@ func (l *Loader) applyEnvToStruct(v reflect.Value) error {
 
 		// Set the field value
 		if err := setFieldValue(field, envValue); err != nil {
-			return fmt.Errorf("failed to set field %s from env %s: %w", fieldType.Name, envTag, err)
+			return fmt.Errorf("从环境变量 %s 设置字段 %s 失败: %w", envTag, fieldType.Name, err)
 		}
 	}
 
@@ -220,7 +220,7 @@ func (l *Loader) applyEnvToStruct(v reflect.Value) error {
 func (l *Loader) applyCmdOverrides(cfg *Config) error {
 	for key, value := range l.cmdArgs {
 		if err := l.setConfigValue(cfg, key, value); err != nil {
-			return fmt.Errorf("failed to set config value for %s: %w", key, err)
+			return fmt.Errorf("设置配置值 %s 失败: %w", key, err)
 		}
 	}
 	return nil
@@ -240,7 +240,7 @@ func (l *Loader) setConfigValue(cfg *Config, path, value string) error {
 		})
 
 		if !field.IsValid() {
-			return fmt.Errorf("unknown config path: %s", path)
+			return fmt.Errorf("未知的配置路径: %s", path)
 		}
 
 		if i == len(parts)-1 {
@@ -250,7 +250,7 @@ func (l *Loader) setConfigValue(cfg *Config, path, value string) error {
 
 		// Navigate to nested struct
 		if field.Kind() != reflect.Struct {
-			return fmt.Errorf("expected struct at %s, got %s", part, field.Kind())
+			return fmt.Errorf("期望 %s 是结构体，实际是 %s", part, field.Kind())
 		}
 		v = field
 	}
@@ -261,7 +261,7 @@ func (l *Loader) setConfigValue(cfg *Config, path, value string) error {
 // setFieldValue sets a reflect.Value from a string value.
 func setFieldValue(field reflect.Value, value string) error {
 	if !field.CanSet() {
-		return fmt.Errorf("cannot set field")
+		return fmt.Errorf("无法设置字段")
 	}
 
 	switch field.Kind() {
@@ -273,13 +273,13 @@ func setFieldValue(field reflect.Value, value string) error {
 		if field.Type() == reflect.TypeOf(time.Duration(0)) {
 			d, err := time.ParseDuration(value)
 			if err != nil {
-				return fmt.Errorf("invalid duration: %w", err)
+				return fmt.Errorf("无效的时间格式: %w", err)
 			}
 			field.SetInt(int64(d))
 		} else {
 			i, err := strconv.ParseInt(value, 10, 64)
 			if err != nil {
-				return fmt.Errorf("invalid integer: %w", err)
+				return fmt.Errorf("无效的整数: %w", err)
 			}
 			field.SetInt(i)
 		}
@@ -287,21 +287,21 @@ func setFieldValue(field reflect.Value, value string) error {
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		u, err := strconv.ParseUint(value, 10, 64)
 		if err != nil {
-			return fmt.Errorf("invalid unsigned integer: %w", err)
+			return fmt.Errorf("无效的无符号整数: %w", err)
 		}
 		field.SetUint(u)
 
 	case reflect.Float32, reflect.Float64:
 		f, err := strconv.ParseFloat(value, 64)
 		if err != nil {
-			return fmt.Errorf("invalid float: %w", err)
+			return fmt.Errorf("无效的浮点数: %w", err)
 		}
 		field.SetFloat(f)
 
 	case reflect.Bool:
 		b, err := strconv.ParseBool(value)
 		if err != nil {
-			return fmt.Errorf("invalid boolean: %w", err)
+			return fmt.Errorf("无效的布尔值: %w", err)
 		}
 		field.SetBool(b)
 
@@ -314,7 +314,7 @@ func setFieldValue(field reflect.Value, value string) error {
 			}
 			field.Set(reflect.ValueOf(parts))
 		} else {
-			return fmt.Errorf("unsupported slice type: %s", field.Type().Elem().Kind())
+			return fmt.Errorf("不支持的切片类型: %s", field.Type().Elem().Kind())
 		}
 
 	case reflect.Map:
@@ -330,11 +330,11 @@ func setFieldValue(field reflect.Value, value string) error {
 			}
 			field.Set(reflect.ValueOf(m))
 		} else {
-			return fmt.Errorf("unsupported map type")
+			return fmt.Errorf("不支持的 map 类型")
 		}
 
 	default:
-		return fmt.Errorf("unsupported field type: %s", field.Kind())
+		return fmt.Errorf("不支持的字段类型: %s", field.Kind())
 	}
 
 	return nil
@@ -349,7 +349,7 @@ func (c *Config) Serialize() ([]byte, error) {
 func ParseConfig(data []byte) (*Config, error) {
 	cfg := DefaultConfig()
 	if err := yaml.Unmarshal(data, cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse config: %w", err)
+		return nil, fmt.Errorf("解析配置失败: %w", err)
 	}
 	return cfg, nil
 }

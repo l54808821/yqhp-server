@@ -110,7 +110,7 @@ func (r *Reporter) Init(ctx context.Context, config map[string]any) error {
 	defer r.mu.Unlock()
 
 	if r.initialized {
-		return fmt.Errorf("reporter already initialized")
+		return fmt.Errorf("报告器已初始化")
 	}
 
 	r.startTime = time.Now()
@@ -126,7 +126,7 @@ func (r *Reporter) Report(ctx context.Context, metrics *types.Metrics) error {
 	defer r.mu.Unlock()
 
 	if !r.initialized {
-		return fmt.Errorf("reporter not initialized")
+		return fmt.Errorf("报告器未初始化")
 	}
 
 	r.lastMetrics = metrics

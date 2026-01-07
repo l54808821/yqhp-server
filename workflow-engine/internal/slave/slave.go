@@ -179,7 +179,7 @@ func (s *WorkerSlave) Connect(ctx context.Context, masterAddr string) error {
 	defer s.mu.Unlock()
 
 	if s.connected.Load() {
-		return fmt.Errorf("already connected to master")
+		return fmt.Errorf("已连接到 Master")
 	}
 
 	s.masterAddr = masterAddr
@@ -216,7 +216,7 @@ func (s *WorkerSlave) Disconnect(ctx context.Context) error {
 // Requirements: 12.1
 func (s *WorkerSlave) ExecuteTask(ctx context.Context, task *types.Task) (*types.TaskResult, error) {
 	if task == nil {
-		return nil, fmt.Errorf("task cannot be nil")
+		return nil, fmt.Errorf("任务不能为空")
 	}
 
 	s.activeTasks.Add(1)

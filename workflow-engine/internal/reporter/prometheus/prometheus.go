@@ -113,7 +113,7 @@ func (r *Reporter) Init(ctx context.Context, config map[string]any) error {
 	defer r.mu.Unlock()
 
 	if r.initialized {
-		return fmt.Errorf("reporter already initialized")
+		return fmt.Errorf("报告器已初始化")
 	}
 
 	// Build push URL
@@ -138,7 +138,7 @@ func (r *Reporter) Report(ctx context.Context, metrics *types.Metrics) error {
 	r.mu.Unlock()
 
 	if !r.initialized {
-		return fmt.Errorf("reporter not initialized")
+		return fmt.Errorf("报告器未初始化")
 	}
 
 	// Convert metrics to Prometheus format
@@ -185,20 +185,20 @@ func (r *Reporter) Close(ctx context.Context) error {
 func (r *Reporter) push(ctx context.Context, metrics string) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, r.pushURL, strings.NewReader(metrics))
 	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+		return fmt.Errorf("创建请求失败: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "text/plain; version=0.0.4")
 
 	resp, err := r.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to push metrics: %w", err)
+		return fmt.Errorf("推送指标失败: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("push gateway returned status %d: %s", resp.StatusCode, string(body))
+		return fmt.Errorf("Push Gateway 返回状态码 %d: %s", resp.StatusCode, string(body))
 	}
 
 	return nil
@@ -208,12 +208,12 @@ func (r *Reporter) push(ctx context.Context, metrics string) error {
 func (r *Reporter) delete(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, r.pushURL, nil)
 	if err != nil {
-		return fmt.Errorf("failed to create delete request: %w", err)
+		return fmt.Errorf("创建删除请求失败: %w", err)
 	}
 
 	resp, err := r.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to delete metrics: %w", err)
+		return fmt.Errorf("删除指标失败: %w", err)
 	}
 	defer resp.Body.Close()
 

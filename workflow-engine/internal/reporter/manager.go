@@ -34,7 +34,7 @@ func (m *Manager) AddReporter(reporter Reporter) error {
 	defer m.mu.Unlock()
 
 	if m.started {
-		return fmt.Errorf("cannot add reporter after manager has started")
+		return fmt.Errorf("管理器启动后无法添加报告器")
 	}
 
 	m.reporters = append(m.reporters, reporter)
@@ -49,11 +49,11 @@ func (m *Manager) AddReporterFromConfig(ctx context.Context, config *ReporterCon
 
 	reporter, err := m.registry.Create(config.Type, config.Config)
 	if err != nil {
-		return fmt.Errorf("failed to create reporter %s: %w", config.Type, err)
+		return fmt.Errorf("创建报告器 %s 失败: %w", config.Type, err)
 	}
 
 	if err := reporter.Init(ctx, config.Config); err != nil {
-		return fmt.Errorf("failed to initialize reporter %s: %w", config.Type, err)
+		return fmt.Errorf("初始化报告器 %s 失败: %w", config.Type, err)
 	}
 
 	return m.AddReporter(reporter)
@@ -65,7 +65,7 @@ func (m *Manager) Start(ctx context.Context) error {
 	defer m.mu.Unlock()
 
 	if m.started {
-		return fmt.Errorf("manager already started")
+		return fmt.Errorf("管理器已启动")
 	}
 
 	m.started = true
@@ -87,7 +87,7 @@ func (m *Manager) Report(ctx context.Context, metrics *types.Metrics) error {
 	}
 
 	if len(errs) > 0 {
-		return fmt.Errorf("report errors: %v", errs)
+		return fmt.Errorf("报告错误: %v", errs)
 	}
 	return nil
 }
@@ -107,7 +107,7 @@ func (m *Manager) Flush(ctx context.Context) error {
 	}
 
 	if len(errs) > 0 {
-		return fmt.Errorf("flush errors: %v", errs)
+		return fmt.Errorf("刷新错误: %v", errs)
 	}
 	return nil
 }
@@ -128,7 +128,7 @@ func (m *Manager) Close(ctx context.Context) error {
 	m.started = false
 
 	if len(errs) > 0 {
-		return fmt.Errorf("close errors: %v", errs)
+		return fmt.Errorf("关闭错误: %v", errs)
 	}
 	return nil
 }

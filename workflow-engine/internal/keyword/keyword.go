@@ -97,11 +97,11 @@ func RequiredParam[T any](params map[string]any, key string) (T, error) {
 	var zero T
 	val, ok := params[key]
 	if !ok {
-		return zero, fmt.Errorf("required parameter '%s' is missing", key)
+		return zero, fmt.Errorf("必需参数 '%s' 缺失", key)
 	}
 	typed, ok := val.(T)
 	if !ok {
-		return zero, fmt.Errorf("parameter '%s' has invalid type, expected %T, got %T", key, zero, val)
+		return zero, fmt.Errorf("参数 '%s' 类型无效，期望 %T，实际 %T", key, zero, val)
 	}
 	return typed, nil
 }

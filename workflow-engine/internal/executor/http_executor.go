@@ -156,7 +156,7 @@ func (e *HTTPExecutor) parseGlobalConfig(config map[string]any) {
 func (e *HTTPExecutor) buildClient() error {
 	transport, err := e.globalConfig.BuildTransport()
 	if err != nil {
-		return fmt.Errorf("failed to build HTTP transport: %w", err)
+		return fmt.Errorf("构建 HTTP 传输层失败: %w", err)
 	}
 
 	e.client = &http.Client{

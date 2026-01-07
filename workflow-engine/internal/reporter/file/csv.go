@@ -100,21 +100,21 @@ func (r *CSVReporter) Init(ctx context.Context, config map[string]any) error {
 	defer r.mu.Unlock()
 
 	if r.initialized {
-		return fmt.Errorf("reporter already initialized")
+		return fmt.Errorf("报告器已初始化")
 	}
 
 	// Ensure directory exists
 	dir := filepath.Dir(r.config.FilePath)
 	if dir != "" && dir != "." {
 		if err := os.MkdirAll(dir, 0755); err != nil {
-			return fmt.Errorf("failed to create directory: %w", err)
+			return fmt.Errorf("创建目录失败: %w", err)
 		}
 	}
 
 	// Open file
 	file, err := os.Create(r.config.FilePath)
 	if err != nil {
-		return fmt.Errorf("failed to create file: %w", err)
+		return fmt.Errorf("创建文件失败: %w", err)
 	}
 
 	r.file = file
@@ -126,7 +126,7 @@ func (r *CSVReporter) Init(ctx context.Context, config map[string]any) error {
 		header := r.getHeader()
 		if err := r.writer.Write(header); err != nil {
 			r.file.Close()
-			return fmt.Errorf("failed to write header: %w", err)
+			return fmt.Errorf("写入头部失败: %w", err)
 		}
 		r.writer.Flush()
 		r.headerWritten = true
@@ -142,7 +142,7 @@ func (r *CSVReporter) Report(ctx context.Context, metrics *types.Metrics) error 
 	defer r.mu.Unlock()
 
 	if !r.initialized {
-		return fmt.Errorf("reporter not initialized")
+		return fmt.Errorf("报告器未初始化")
 	}
 
 	records := r.convertMetrics(metrics)
@@ -184,11 +184,11 @@ func (r *CSVReporter) Close(ctx context.Context) error {
 
 	r.writer.Flush()
 	if err := r.writer.Error(); err != nil {
-		return fmt.Errorf("csv writer error: %w", err)
+		return fmt.Errorf("CSV 写入错误: %w", err)
 	}
 
 	if err := r.file.Close(); err != nil {
-		return fmt.Errorf("failed to close file: %w", err)
+		return fmt.Errorf("关闭文件失败: %w", err)
 	}
 
 	r.initialized = false
@@ -204,7 +204,7 @@ func (r *CSVReporter) flushBuffer() error {
 	}
 
 	if err := r.writer.WriteAll(r.buffer); err != nil {
-		return fmt.Errorf("failed to write records: %w", err)
+		return fmt.Errorf("写入记录失败: %w", err)
 	}
 
 	r.buffer = r.buffer[:0]

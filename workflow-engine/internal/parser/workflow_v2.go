@@ -154,7 +154,7 @@ func NewParserV2(basePath string) *ParserV2 {
 func (p *ParserV2) ParseFile(path string) (*WorkflowV2, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read workflow file: %w", err)
+		return nil, fmt.Errorf("读取工作流文件失败: %w", err)
 	}
 
 	return p.Parse(data)
@@ -164,17 +164,17 @@ func (p *ParserV2) ParseFile(path string) (*WorkflowV2, error) {
 func (p *ParserV2) Parse(data []byte) (*WorkflowV2, error) {
 	var workflow WorkflowV2
 	if err := yaml.Unmarshal(data, &workflow); err != nil {
-		return nil, fmt.Errorf("failed to parse workflow YAML: %w", err)
+		return nil, fmt.Errorf("解析工作流 YAML 失败: %w", err)
 	}
 
 	// 处理导入
 	if err := p.processImports(&workflow); err != nil {
-		return nil, fmt.Errorf("failed to process imports: %w", err)
+		return nil, fmt.Errorf("处理导入失败: %w", err)
 	}
 
 	// 验证工作流
 	if err := p.validate(&workflow); err != nil {
-		return nil, fmt.Errorf("workflow validation failed: %w", err)
+		return nil, fmt.Errorf("工作流验证失败: %w", err)
 	}
 
 	return &workflow, nil
@@ -185,7 +185,7 @@ func (p *ParserV2) processImports(workflow *WorkflowV2) error {
 	for _, importPath := range workflow.Imports {
 		// 检查循环导入
 		if p.imports[importPath] {
-			return fmt.Errorf("circular import detected: %s", importPath)
+			return fmt.Errorf("检测到循环导入: %s", importPath)
 		}
 		p.imports[importPath] = true
 
@@ -193,7 +193,7 @@ func (p *ParserV2) processImports(workflow *WorkflowV2) error {
 		fullPath := filepath.Join(p.basePath, importPath)
 		importedScripts, err := p.parseScriptFile(fullPath)
 		if err != nil {
-			return fmt.Errorf("failed to import %s: %w", importPath, err)
+			return fmt.Errorf("导入 %s 失败: %w", importPath, err)
 		}
 
 		// 合并脚本
@@ -202,7 +202,7 @@ func (p *ParserV2) processImports(workflow *WorkflowV2) error {
 		}
 		for name, s := range importedScripts {
 			if _, exists := workflow.Scripts[name]; exists {
-				return fmt.Errorf("duplicate script name: %s", name)
+				return fmt.Errorf("脚本名称重复: %s", name)
 			}
 			workflow.Scripts[name] = s
 		}
@@ -229,11 +229,11 @@ func (p *ParserV2) parseScriptFile(path string) (map[string]*script.Fragment, er
 // validate 验证工作流
 func (p *ParserV2) validate(workflow *WorkflowV2) error {
 	if workflow.ID == "" {
-		return fmt.Errorf("workflow ID is required")
+		return fmt.Errorf("工作流 ID 是必需的")
 	}
 
 	if len(workflow.Steps) == 0 {
-		return fmt.Errorf("workflow must have at least one step")
+		return fmt.Errorf("工作流必须至少有一个步骤")
 	}
 
 	// 验证步骤
@@ -257,16 +257,16 @@ func (p *ParserV2) validate(workflow *WorkflowV2) error {
 // validateStep 验证步骤
 func (p *ParserV2) validateStep(step *StepV2, stepIDs map[string]bool) error {
 	if step.ID == "" {
-		return fmt.Errorf("step ID is required")
+		return fmt.Errorf("步骤 ID 是必需的")
 	}
 
 	if stepIDs[step.ID] {
-		return fmt.Errorf("duplicate step ID: %s", step.ID)
+		return fmt.Errorf("步骤 ID 重复: %s", step.ID)
 	}
 	stepIDs[step.ID] = true
 
 	if step.Type == "" {
-		return fmt.Errorf("step type is required for step: %s", step.ID)
+		return fmt.Errorf("步骤 %s 需要指定类型", step.ID)
 	}
 
 	// 验证步骤类型
@@ -279,7 +279,7 @@ func (p *ParserV2) validateStep(step *StepV2, stepIDs map[string]bool) error {
 	}
 
 	if !validTypes[step.Type] {
-		return fmt.Errorf("invalid step type: %s", step.Type)
+		return fmt.Errorf("无效的步骤类型: %s", step.Type)
 	}
 
 	// 验证子步骤
@@ -315,11 +315,11 @@ func (p *ParserV2) validateStep(step *StepV2, stepIDs map[string]bool) error {
 // validateScript 验证脚本
 func (p *ParserV2) validateScript(name string, s *script.Fragment) error {
 	if s == nil {
-		return fmt.Errorf("script %s is nil", name)
+		return fmt.Errorf("脚本 %s 为空", name)
 	}
 
 	if len(s.Steps) == 0 {
-		return fmt.Errorf("script %s has no steps", name)
+		return fmt.Errorf("脚本 %s 没有步骤", name)
 	}
 
 	return nil

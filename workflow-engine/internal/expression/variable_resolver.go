@@ -156,14 +156,14 @@ func (r *VariableResolver) getIndex(v any, idx int) (any, error) {
 		}
 		return rv.Index(idx).Interface(), nil
 	default:
-		return nil, fmt.Errorf("cannot index type %T", v)
+		return nil, fmt.Errorf("无法索引类型 %T", v)
 	}
 }
 
 // getField 获取字段
 func (r *VariableResolver) getField(v any, field string) (any, error) {
 	if v == nil {
-		return nil, fmt.Errorf("cannot get field '%s' from nil", field)
+		return nil, fmt.Errorf("无法从 nil 获取字段 '%s'", field)
 	}
 
 	// 处理 map
@@ -171,7 +171,7 @@ func (r *VariableResolver) getField(v any, field string) (any, error) {
 		if val, exists := m[field]; exists {
 			return val, nil
 		}
-		return nil, fmt.Errorf("field '%s' not found in map", field)
+		return nil, fmt.Errorf("在 map 中未找到字段 '%s'", field)
 	}
 
 	// 处理结构体
@@ -191,10 +191,10 @@ func (r *VariableResolver) getField(v any, field string) (any, error) {
 				return rv.Field(i).Interface(), nil
 			}
 		}
-		return nil, fmt.Errorf("field '%s' not found in struct", field)
+		return nil, fmt.Errorf("在结构体中未找到字段 '%s'", field)
 	}
 
-	return nil, fmt.Errorf("cannot get field '%s' from type %T", field, v)
+	return nil, fmt.Errorf("无法从类型 %T 获取字段 '%s'", field, v)
 }
 
 // ResolveAll 解析 map 中所有字符串值的变量引用
@@ -204,7 +204,7 @@ func (r *VariableResolver) ResolveAll(data map[string]any) (map[string]any, erro
 	for k, v := range data {
 		resolved, err := r.resolveValue(v)
 		if err != nil {
-			return nil, fmt.Errorf("failed to resolve '%s': %w", k, err)
+			return nil, fmt.Errorf("解析 '%s' 失败: %w", k, err)
 		}
 		result[k] = resolved
 	}

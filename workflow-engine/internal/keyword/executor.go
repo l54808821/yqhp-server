@@ -53,7 +53,7 @@ func (e *ScriptExecutor) ExecuteScripts(
 		kw, err := e.registry.Get(action.Keyword)
 		if err != nil {
 			record.Success = false
-			record.Error = fmt.Errorf("keyword '%s' not found: %w", action.Keyword, err)
+			record.Error = fmt.Errorf("关键字 '%s' 未找到: %w", action.Keyword, err)
 			records = append(records, record)
 			return records, record.Error
 		}
@@ -61,7 +61,7 @@ func (e *ScriptExecutor) ExecuteScripts(
 		// Validate parameters
 		if err := kw.Validate(action.Params); err != nil {
 			record.Success = false
-			record.Error = fmt.Errorf("validation failed for keyword '%s': %w", action.Keyword, err)
+			record.Error = fmt.Errorf("关键字 '%s' 验证失败: %w", action.Keyword, err)
 			records = append(records, record)
 			return records, record.Error
 		}
@@ -79,7 +79,7 @@ func (e *ScriptExecutor) ExecuteScripts(
 			record.Success = false
 			record.Error = result.Error
 			if record.Error == nil {
-				record.Error = fmt.Errorf("keyword '%s' failed: %s", action.Keyword, result.Message)
+				record.Error = fmt.Errorf("关键字 '%s' 执行失败: %s", action.Keyword, result.Message)
 			}
 			records = append(records, record)
 			return records, record.Error
@@ -114,7 +114,7 @@ func (e *ScriptExecutor) ExecuteStep(
 	preRecords, err := e.ExecuteScripts(ctx, execCtx, preScripts, "pre")
 	execution.PreRecords = preRecords
 	if err != nil {
-		return execution, fmt.Errorf("pre_scripts failed: %w", err)
+		return execution, fmt.Errorf("前置脚本执行失败: %w", err)
 	}
 
 	// Execute main action
@@ -128,7 +128,7 @@ func (e *ScriptExecutor) ExecuteStep(
 			mainRecord.Success = false
 			mainRecord.Error = err
 			execution.MainRecord = mainRecord
-			return execution, fmt.Errorf("main action failed: %w", err)
+			return execution, fmt.Errorf("主操作执行失败: %w", err)
 		}
 	}
 	mainRecord.Success = true
@@ -138,7 +138,7 @@ func (e *ScriptExecutor) ExecuteStep(
 	postRecords, err := e.ExecuteScripts(ctx, execCtx, postScripts, "post")
 	execution.PostRecords = postRecords
 	if err != nil {
-		return execution, fmt.Errorf("post_scripts failed: %w", err)
+		return execution, fmt.Errorf("后置脚本执行失败: %w", err)
 	}
 
 	return execution, nil

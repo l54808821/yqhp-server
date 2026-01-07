@@ -219,16 +219,16 @@ func (m *WorkflowMaster) Stop(ctx context.Context) error {
 // Requirements: 5.1, 5.3, 5.7
 func (m *WorkflowMaster) SubmitWorkflow(ctx context.Context, workflow *types.Workflow) (string, error) {
 	if workflow == nil {
-		return "", fmt.Errorf("workflow cannot be nil")
+		return "", fmt.Errorf("工作流不能为空")
 	}
 
 	if !m.started.Load() {
-		return "", fmt.Errorf("master not started")
+		return "", fmt.Errorf("Master 未启动")
 	}
 
 	// 检查并发执行限制
 	if int(m.executionCount.Load()) >= m.config.MaxConcurrentExecutions {
-		return "", fmt.Errorf("maximum concurrent executions reached: %d", m.config.MaxConcurrentExecutions)
+		return "", fmt.Errorf("已达到最大并发执行数: %d", m.config.MaxConcurrentExecutions)
 	}
 
 	// 生成执行 ID
@@ -265,7 +265,7 @@ func (m *WorkflowMaster) SubmitWorkflow(ctx context.Context, workflow *types.Wor
 		execInfo.State.Status = types.ExecutionStatusFailed
 		execInfo.State.Errors = append(execInfo.State.Errors, types.ExecutionError{
 			Code:      types.ErrCodeExecution,
-			Message:   fmt.Sprintf("failed to schedule execution: %v", err),
+			Message:   fmt.Sprintf("调度执行失败: %v", err),
 			Timestamp: time.Now(),
 		})
 		m.executionMu.Unlock()
@@ -300,18 +300,18 @@ func (m *WorkflowMaster) scheduleExecution(ctx context.Context, execInfo *Execut
 		}
 		slaves, err = m.scheduler.SelectSlaves(ctx, selector)
 		if err != nil {
-			return fmt.Errorf("failed to select slaves: %w", err)
+			return fmt.Errorf("选择 Slave 失败: %w", err)
 		}
 	}
 
 	if len(slaves) == 0 {
-		return fmt.Errorf("no available slaves for execution")
+		return fmt.Errorf("没有可用的 Slave 执行任务")
 	}
 
 	// 创建执行计划
 	plan, err := m.scheduler.Schedule(ctx, execInfo.Workflow, slaves)
 	if err != nil {
-		return fmt.Errorf("failed to create execution plan: %w", err)
+		return fmt.Errorf("创建执行计划失败: %w", err)
 	}
 
 	plan.ExecutionID = execInfo.ID
@@ -508,7 +508,7 @@ func (m *WorkflowMaster) GetExecutionStatus(ctx context.Context, executionID str
 
 	execInfo, ok := m.executions[executionID]
 	if !ok {
-		return nil, fmt.Errorf("execution not found: %s", executionID)
+		return nil, fmt.Errorf("执行未找到: %s", executionID)
 	}
 
 	execInfo.mu.RLock()
@@ -527,7 +527,7 @@ func (m *WorkflowMaster) StopExecution(ctx context.Context, executionID string) 
 	m.executionMu.RUnlock()
 
 	if !ok {
-		return fmt.Errorf("execution not found: %s", executionID)
+		return fmt.Errorf("执行未找到: %s", executionID)
 	}
 
 	execInfo.mu.Lock()
@@ -535,7 +535,7 @@ func (m *WorkflowMaster) StopExecution(ctx context.Context, executionID string) 
 
 	if execInfo.State.Status != types.ExecutionStatusRunning &&
 		execInfo.State.Status != types.ExecutionStatusPaused {
-		return fmt.Errorf("execution is not running or paused: %s", execInfo.State.Status)
+		return fmt.Errorf("执行未在运行或暂停状态: %s", execInfo.State.Status)
 	}
 
 	// 发送停止信号
@@ -562,14 +562,14 @@ func (m *WorkflowMaster) PauseExecution(ctx context.Context, executionID string)
 	m.executionMu.RUnlock()
 
 	if !ok {
-		return fmt.Errorf("execution not found: %s", executionID)
+		return fmt.Errorf("执行未找到: %s", executionID)
 	}
 
 	execInfo.mu.Lock()
 	defer execInfo.mu.Unlock()
 
 	if execInfo.State.Status != types.ExecutionStatusRunning {
-		return fmt.Errorf("execution is not running: %s", execInfo.State.Status)
+		return fmt.Errorf("执行未在运行状态: %s", execInfo.State.Status)
 	}
 
 	// 发送暂停信号
@@ -591,14 +591,14 @@ func (m *WorkflowMaster) ResumeExecution(ctx context.Context, executionID string
 	m.executionMu.RUnlock()
 
 	if !ok {
-		return fmt.Errorf("execution not found: %s", executionID)
+		return fmt.Errorf("执行未找到: %s", executionID)
 	}
 
 	execInfo.mu.Lock()
 	defer execInfo.mu.Unlock()
 
 	if execInfo.State.Status != types.ExecutionStatusPaused {
-		return fmt.Errorf("execution is not paused: %s", execInfo.State.Status)
+		return fmt.Errorf("执行未在暂停状态: %s", execInfo.State.Status)
 	}
 
 	// 发送恢复信号
@@ -616,7 +616,7 @@ func (m *WorkflowMaster) ResumeExecution(ctx context.Context, executionID string
 // Requirements: 6.2.1, 6.2.2, 6.2.3
 func (m *WorkflowMaster) ScaleExecution(ctx context.Context, executionID string, targetVUs int) error {
 	if targetVUs < 0 {
-		return fmt.Errorf("target VUs cannot be negative: %d", targetVUs)
+		return fmt.Errorf("目标 VU 数不能为负: %d", targetVUs)
 	}
 
 	m.executionMu.RLock()
@@ -624,14 +624,14 @@ func (m *WorkflowMaster) ScaleExecution(ctx context.Context, executionID string,
 	m.executionMu.RUnlock()
 
 	if !ok {
-		return fmt.Errorf("execution not found: %s", executionID)
+		return fmt.Errorf("执行未找到: %s", executionID)
 	}
 
 	execInfo.mu.Lock()
 	defer execInfo.mu.Unlock()
 
 	if execInfo.State.Status != types.ExecutionStatusRunning {
-		return fmt.Errorf("execution is not running: %s", execInfo.State.Status)
+		return fmt.Errorf("执行未在运行状态: %s", execInfo.State.Status)
 	}
 
 	// 在实际实现中，这里会向 Slave 发送扩缩容命令
@@ -649,7 +649,7 @@ func (m *WorkflowMaster) GetMetrics(ctx context.Context, executionID string) (*t
 	m.executionMu.RUnlock()
 
 	if !ok {
-		return nil, fmt.Errorf("execution not found: %s", executionID)
+		return nil, fmt.Errorf("执行未找到: %s", executionID)
 	}
 
 	execInfo.mu.RLock()

@@ -63,7 +63,7 @@ func (f *Fragment) ValidateParams(provided map[string]any) error {
 
 		// 检查必填参数
 		if param.Required && !exists && param.Default == nil {
-			return fmt.Errorf("required parameter '%s' is missing", param.Name)
+			return fmt.Errorf("必需参数 '%s' 缺失", param.Name)
 		}
 
 		// 如果提供了值，验证类型
@@ -132,7 +132,7 @@ func validateParamType(name string, value any, expectedType ParamType) error {
 	}
 
 	if !valid {
-		return fmt.Errorf("parameter '%s' has invalid type: expected %s, got %T", name, expectedType, value)
+		return fmt.Errorf("参数 '%s' 类型无效: 期望 %s，实际 %T", name, expectedType, value)
 	}
 	return nil
 }
@@ -154,10 +154,10 @@ func NewRegistry() *Registry {
 // Register 注册脚本
 func (r *Registry) Register(fragment *Fragment) error {
 	if fragment.Name == "" {
-		return fmt.Errorf("script name cannot be empty")
+		return fmt.Errorf("脚本名称不能为空")
 	}
 	if _, exists := r.scripts[fragment.Name]; exists {
-		return fmt.Errorf("script '%s' already registered", fragment.Name)
+		return fmt.Errorf("脚本 '%s' 已注册", fragment.Name)
 	}
 	r.scripts[fragment.Name] = fragment
 	return nil
@@ -169,7 +169,7 @@ func (r *Registry) RegisterImport(alias string, fragment *Fragment) error {
 		alias = fragment.Name
 	}
 	if _, exists := r.imports[alias]; exists {
-		return fmt.Errorf("imported script '%s' already registered", alias)
+		return fmt.Errorf("导入的脚本 '%s' 已注册", alias)
 	}
 	r.imports[alias] = fragment
 	return nil
@@ -185,7 +185,7 @@ func (r *Registry) Get(name string) (*Fragment, error) {
 	if script, ok := r.imports[name]; ok {
 		return script, nil
 	}
-	return nil, fmt.Errorf("script '%s' not found", name)
+	return nil, fmt.Errorf("脚本 '%s' 未找到", name)
 }
 
 // Has 检查脚本是否存在
@@ -227,7 +227,7 @@ func (s *CallStack) Push(name string) error {
 	// 检查循环调用
 	for _, n := range s.stack {
 		if n == name {
-			return fmt.Errorf("circular script call detected: %s -> %s",
+			return fmt.Errorf("检测到循环脚本调用: %s -> %s",
 				strings.Join(s.stack, " -> "), name)
 		}
 	}

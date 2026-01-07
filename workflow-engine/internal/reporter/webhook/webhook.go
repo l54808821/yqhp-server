@@ -168,11 +168,11 @@ func (r *Reporter) Init(ctx context.Context, config map[string]any) error {
 	defer r.mu.Unlock()
 
 	if r.initialized {
-		return fmt.Errorf("reporter already initialized")
+		return fmt.Errorf("报告器已初始化")
 	}
 
 	if r.config.URL == "" {
-		return fmt.Errorf("webhook URL is required")
+		return fmt.Errorf("Webhook URL 是必需的")
 	}
 
 	r.initialized = true
@@ -185,7 +185,7 @@ func (r *Reporter) Report(ctx context.Context, metrics *types.Metrics) error {
 	defer r.mu.Unlock()
 
 	if !r.initialized {
-		return fmt.Errorf("reporter not initialized")
+		return fmt.Errorf("报告器未初始化")
 	}
 
 	// Convert metrics to webhook payload
@@ -275,7 +275,7 @@ func (r *Reporter) sendWithRetry(ctx context.Context, payload *WebhookBatchPaylo
 		lastErr = err
 	}
 
-	return fmt.Errorf("failed after %d attempts: %w", r.config.RetryAttempts+1, lastErr)
+	return fmt.Errorf("重试 %d 次后失败: %w", r.config.RetryAttempts+1, lastErr)
 }
 
 // send sends the payload to the webhook.
@@ -283,13 +283,13 @@ func (r *Reporter) send(ctx context.Context, payload *WebhookBatchPayload) error
 	// Marshal payload
 	data, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("failed to marshal payload: %w", err)
+		return fmt.Errorf("序列化请求体失败: %w", err)
 	}
 
 	// Create request
 	req, err := http.NewRequestWithContext(ctx, r.config.Method, r.config.URL, bytes.NewReader(data))
 	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+		return fmt.Errorf("创建请求失败: %w", err)
 	}
 
 	// Set headers
@@ -301,14 +301,14 @@ func (r *Reporter) send(ctx context.Context, payload *WebhookBatchPayload) error
 	// Send request
 	resp, err := r.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to send request: %w", err)
+		return fmt.Errorf("发送请求失败: %w", err)
 	}
 	defer resp.Body.Close()
 
 	// Check response
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("webhook returned status %d: %s", resp.StatusCode, string(body))
+		return fmt.Errorf("Webhook 返回状态码 %d: %s", resp.StatusCode, string(body))
 	}
 
 	return nil

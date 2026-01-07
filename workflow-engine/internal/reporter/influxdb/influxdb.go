@@ -130,7 +130,7 @@ func (r *Reporter) Init(ctx context.Context, config map[string]any) error {
 	defer r.mu.Unlock()
 
 	if r.initialized {
-		return fmt.Errorf("reporter already initialized")
+		return fmt.Errorf("报告器已初始化")
 	}
 
 	// Build write URL
@@ -150,7 +150,7 @@ func (r *Reporter) Report(ctx context.Context, metrics *types.Metrics) error {
 	defer r.mu.Unlock()
 
 	if !r.initialized {
-		return fmt.Errorf("reporter not initialized")
+		return fmt.Errorf("报告器未初始化")
 	}
 
 	// Convert metrics to line protocol
@@ -206,7 +206,7 @@ func (r *Reporter) flushBuffer(ctx context.Context) error {
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, r.writeURL, strings.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+		return fmt.Errorf("创建请求失败: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "text/plain; charset=utf-8")
@@ -216,13 +216,13 @@ func (r *Reporter) flushBuffer(ctx context.Context) error {
 
 	resp, err := r.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to write to InfluxDB: %w", err)
+		return fmt.Errorf("写入 InfluxDB 失败: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("InfluxDB returned status %d: %s", resp.StatusCode, string(respBody))
+		return fmt.Errorf("InfluxDB 返回状态码 %d: %s", resp.StatusCode, string(respBody))
 	}
 
 	// Clear buffer

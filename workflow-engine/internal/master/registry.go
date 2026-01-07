@@ -37,10 +37,10 @@ func NewInMemorySlaveRegistry() *InMemorySlaveRegistry {
 // Requirements: 5.2, 12.2
 func (r *InMemorySlaveRegistry) Register(ctx context.Context, slave *types.SlaveInfo) error {
 	if slave == nil {
-		return fmt.Errorf("slave cannot be nil")
+		return fmt.Errorf("Slave 不能为空")
 	}
 	if slave.ID == "" {
-		return fmt.Errorf("slave ID cannot be empty")
+		return fmt.Errorf("Slave ID 不能为空")
 	}
 
 	r.mu.Lock()
@@ -48,7 +48,7 @@ func (r *InMemorySlaveRegistry) Register(ctx context.Context, slave *types.Slave
 
 	// 检查是否已注册
 	if _, exists := r.slaves[slave.ID]; exists {
-		return fmt.Errorf("slave already registered: %s", slave.ID)
+		return fmt.Errorf("Slave 已注册: %s", slave.ID)
 	}
 
 	// 存储 Slave 信息
@@ -80,7 +80,7 @@ func (r *InMemorySlaveRegistry) Unregister(ctx context.Context, slaveID string) 
 
 	slave, exists := r.slaves[slaveID]
 	if !exists {
-		return fmt.Errorf("slave not found: %s", slaveID)
+		return fmt.Errorf("Slave 未找到: %s", slaveID)
 	}
 
 	delete(r.slaves, slaveID)
@@ -103,7 +103,7 @@ func (r *InMemorySlaveRegistry) UpdateStatus(ctx context.Context, slaveID string
 	defer r.mu.Unlock()
 
 	if _, exists := r.slaves[slaveID]; !exists {
-		return fmt.Errorf("slave not found: %s", slaveID)
+		return fmt.Errorf("Slave 未找到: %s", slaveID)
 	}
 
 	oldStatus := r.status[slaveID]
@@ -138,7 +138,7 @@ func (r *InMemorySlaveRegistry) GetSlave(ctx context.Context, slaveID string) (*
 
 	slave, exists := r.slaves[slaveID]
 	if !exists {
-		return nil, fmt.Errorf("slave not found: %s", slaveID)
+		return nil, fmt.Errorf("Slave 未找到: %s", slaveID)
 	}
 
 	return slave, nil
@@ -151,7 +151,7 @@ func (r *InMemorySlaveRegistry) GetSlaveStatus(ctx context.Context, slaveID stri
 
 	status, exists := r.status[slaveID]
 	if !exists {
-		return nil, fmt.Errorf("slave not found: %s", slaveID)
+		return nil, fmt.Errorf("Slave 未找到: %s", slaveID)
 	}
 
 	return status, nil
@@ -322,7 +322,7 @@ func (r *InMemorySlaveRegistry) UpdateHeartbeat(ctx context.Context, slaveID str
 
 	status, exists := r.status[slaveID]
 	if !exists {
-		return fmt.Errorf("slave not found: %s", slaveID)
+		return fmt.Errorf("Slave 未找到: %s", slaveID)
 	}
 
 	status.LastSeen = time.Now()
@@ -351,7 +351,7 @@ func (r *InMemorySlaveRegistry) MarkOffline(ctx context.Context, slaveID string)
 
 	status, exists := r.status[slaveID]
 	if !exists {
-		return fmt.Errorf("slave not found: %s", slaveID)
+		return fmt.Errorf("Slave 未找到: %s", slaveID)
 	}
 
 	if status.State != types.SlaveStateOffline {
@@ -373,7 +373,7 @@ func (r *InMemorySlaveRegistry) DrainSlave(ctx context.Context, slaveID string) 
 
 	status, exists := r.status[slaveID]
 	if !exists {
-		return fmt.Errorf("slave not found: %s", slaveID)
+		return fmt.Errorf("Slave 未找到: %s", slaveID)
 	}
 
 	status.State = types.SlaveStateDraining

@@ -47,7 +47,7 @@ func NewTaskEngine(registry *executor.Registry, maxVUs int) *TaskEngine {
 // Requirements: 6.1, 6.3, 6.4
 func (e *TaskEngine) Execute(ctx context.Context, task *types.Task) (*types.TaskResult, error) {
 	if task == nil || task.Workflow == nil {
-		return nil, fmt.Errorf("invalid task: task or workflow is nil")
+		return nil, fmt.Errorf("无效任务: task 或 workflow 为空")
 	}
 
 	e.running.Store(true)

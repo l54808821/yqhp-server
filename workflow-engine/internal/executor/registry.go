@@ -23,19 +23,19 @@ func NewRegistry() *Registry {
 // 如果该类型已注册执行器，则返回错误。
 func (r *Registry) Register(executor Executor) error {
 	if executor == nil {
-		return fmt.Errorf("cannot register nil executor")
+		return fmt.Errorf("不能注册空执行器")
 	}
 
 	execType := executor.Type()
 	if execType == "" {
-		return fmt.Errorf("executor type cannot be empty")
+		return fmt.Errorf("执行器类型不能为空")
 	}
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if _, exists := r.executors[execType]; exists {
-		return fmt.Errorf("executor already registered for type: %s", execType)
+		return fmt.Errorf("执行器类型已注册: %s", execType)
 	}
 
 	r.executors[execType] = executor
@@ -111,7 +111,7 @@ func (r *Registry) InitAll(ctx context.Context, configs map[string]map[string]an
 			config = make(map[string]any)
 		}
 		if err := executor.Init(ctx, config); err != nil {
-			return fmt.Errorf("failed to initialize executor %s: %w", execType, err)
+			return fmt.Errorf("初始化执行器 %s 失败: %w", execType, err)
 		}
 	}
 	return nil
@@ -125,7 +125,7 @@ func (r *Registry) CleanupAll(ctx context.Context) error {
 	var lastErr error
 	for execType, executor := range r.executors {
 		if err := executor.Cleanup(ctx); err != nil {
-			lastErr = fmt.Errorf("failed to cleanup executor %s: %w", execType, err)
+			lastErr = fmt.Errorf("清理执行器 %s 失败: %w", execType, err)
 		}
 	}
 	return lastErr

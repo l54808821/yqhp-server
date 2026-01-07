@@ -89,6 +89,46 @@ func ResourceGetUserPermissionCodes(c *fiber.Ctx) error {
 	return response.Success(c, codes)
 }
 
+// ResourceGetUserMenusByApp 获取当前用户在指定应用下的菜单
+func ResourceGetUserMenusByApp(c *fiber.Ctx) error {
+	userID := middleware.GetCurrentUserID(c)
+	if userID == 0 {
+		return response.Unauthorized(c, "请先登录")
+	}
+
+	appCode := c.Params("appCode")
+	if appCode == "" {
+		return response.Error(c, "应用编码不能为空")
+	}
+
+	menus, err := logic.NewResourceLogic(c).GetUserMenusByAppCode(userID, appCode)
+	if err != nil {
+		return response.Error(c, "获取失败")
+	}
+
+	return response.Success(c, menus)
+}
+
+// ResourceGetUserPermissionCodesByApp 获取当前用户在指定应用下的权限码
+func ResourceGetUserPermissionCodesByApp(c *fiber.Ctx) error {
+	userID := middleware.GetCurrentUserID(c)
+	if userID == 0 {
+		return response.Unauthorized(c, "请先登录")
+	}
+
+	appCode := c.Params("appCode")
+	if appCode == "" {
+		return response.Error(c, "应用编码不能为空")
+	}
+
+	codes, err := logic.NewResourceLogic(c).GetUserPermissionCodesByAppCode(userID, appCode)
+	if err != nil {
+		return response.Error(c, "获取失败")
+	}
+
+	return response.Success(c, codes)
+}
+
 // ResourceGet 获取资源详情
 func ResourceGet(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)

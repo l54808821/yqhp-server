@@ -1,0 +1,59 @@
+# 应用配置
+app:
+  name: yqhp-gulu
+  version: 1.0.0
+  env: dev # dev, test, prod
+
+# 服务器配置
+server:
+  port: 5321
+  host: 0.0.0.0
+  read_timeout: 60
+  write_timeout: 60
+
+# 数据库配置 (与 admin 共享同一数据库)
+database:
+  driver: mysql
+  host: 127.0.0.1
+  port: 3306
+  username: root
+  password: 123456
+  database: yqhp_admin
+  charset: utf8mb4
+  max_idle_conns: 10
+  max_open_conns: 100
+  conn_max_lifetime: 3600
+
+# Redis配置 (与 admin 共享，用于 SSO Token 验证)
+redis:
+  host: 127.0.0.1
+  port: 6379
+  password: "123456"
+  db: 0
+
+# 日志配置
+log:
+  level: debug # debug, info, warn, error
+  format: text # json, text
+  output: stdout # stdout, file
+  file_path: ./logs/app.log
+  max_size: 100 # MB
+  max_backups: 7
+  max_age: 30 # days
+
+# SaToken配置 (与 admin 保持一致，用于 SSO Token 验证)
+sa_token:
+  token_name: satoken
+  token_style: jwt
+  timeout: 86400
+  active_timeout: 1800
+  is_concurrent: true
+  is_share: true
+  max_login_count: 12
+  is_log: true
+  jwt_secret_key: yqhp-admin-jwt-secret-key-2024
+
+# Gulu 应用配置
+gulu:
+  app_code: gulu # 应用编码，用于权限过滤
+  admin_url: http://localhost:5320 # Admin 服务地址

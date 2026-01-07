@@ -44,6 +44,8 @@ func Setup(app *fiber.App, db *gorm.DB) {
 	// 用户菜单和权限码
 	authed.Get("/menus", handler.ResourceGetUserMenus)
 	authed.Get("/permissions", handler.ResourceGetUserPermissionCodes)
+	authed.Get("/app/:appCode/menus", handler.ResourceGetUserMenusByApp)
+	authed.Get("/app/:appCode/permissions", handler.ResourceGetUserPermissionCodesByApp)
 
 	// ========== 系统管理 ==========
 	sys := authed.Group("/system")

@@ -308,3 +308,130 @@ func (l *ResourceLogic) GetUserPermissionCodes(userID int64) ([]string, error) {
 	}
 	return codes, nil
 }
+
+// GetUserMenusByAppCode 获取用户在指定应用下的菜单
+func (l *ResourceLogic) GetUserMenusByAppCode(userID int64, appCode string) ([]types.ResourceTreeInfo, error) {
+	// 获取应用ID
+	app := l.db().SysApplication
+	application, err := app.WithContext(l.ctx).Where(app.Code.Eq(appCode), app.Status.Eq(1), app.IsDelete.Is(false)).First()
+	if err != nil {
+		return []types.ResourceTreeInfo{}, nil
+	}
+
+	ur := l.db().SysUserRole
+	userRoles, err := ur.WithContext(l.ctx).Where(ur.UserID.Eq(userID), ur.AppID.Eq(application.ID), ur.IsDelete.Is(false)).Find()
+	if err != nil || len(userRoles) == 0 {
+		return []types.ResourceTreeInfo{}, nil
+	}
+
+	roleIDs := make([]int64, len(userRoles))
+	for i, r := range userRoles {
+		roleIDs[i] = r.RoleID
+	}
+
+	rr := l.db().SysRoleResource
+	roleResources, err := rr.WithContext(l.ctx).Where(rr.RoleID.In(roleIDs...), rr.IsDelete.Is(false)).Find()
+	if err != nil || len(roleResources) == 0 {
+		return []types.ResourceTreeInfo{}, nil
+	}
+
+	resourceIDs := make([]int64, len(roleResources))
+	for i, r := range roleResources {
+		resourceIDs[i] = r.ResourceID
+	}
+
+	r := l.db().SysResource
+	resources, err := r.WithContext(l.ctx).Where(r.ID.In(resourceIDs...), r.AppID.Eq(application.ID), r.Type.In(1, 2), r.Status.Eq(1), r.IsDelete.Is(false)).Order(r.Sort).Find()
+	if err != nil {
+		return nil, err
+	}
+
+	resources = l.completeParentMenusByAppID(resources, application.ID)
+	return types.BuildResourceTree(resources, 0), nil
+}
+
+// completeParentMenusByAppID 补全指定应用的父级菜单
+func (l *ResourceLogic) completeParentMenusByAppID(resources []*model.SysResource, appID int64) []*model.SysResource {
+	existingIDs := make(map[int64]bool)
+	for _, r := range resources {
+		existingIDs[r.ID] = true
+	}
+
+	needParentIDs := make(map[int64]bool)
+	for _, r := range resources {
+		parentID := model.GetInt64(r.ParentID)
+		if parentID != 0 && !existingIDs[parentID] {
+			needParentIDs[parentID] = true
+		}
+	}
+
+	res := l.db().SysResource
+	for len(needParentIDs) > 0 {
+		var parentIDs []int64
+		for id := range needParentIDs {
+			parentIDs = append(parentIDs, id)
+		}
+
+		parents, _ := res.WithContext(l.ctx).Where(res.ID.In(parentIDs...), res.AppID.Eq(appID), res.Status.Eq(1), res.IsDelete.Is(false)).Find()
+
+		needParentIDs = make(map[int64]bool)
+		for _, p := range parents {
+			if !existingIDs[p.ID] {
+				resources = append(resources, p)
+				existingIDs[p.ID] = true
+			}
+			parentID := model.GetInt64(p.ParentID)
+			if parentID != 0 && !existingIDs[parentID] {
+				needParentIDs[parentID] = true
+			}
+		}
+	}
+
+	return resources
+}
+
+// GetUserPermissionCodesByAppCode 获取用户在指定应用下的权限码
+func (l *ResourceLogic) GetUserPermissionCodesByAppCode(userID int64, appCode string) ([]string, error) {
+	// 获取应用ID
+	app := l.db().SysApplication
+	application, err := app.WithContext(l.ctx).Where(app.Code.Eq(appCode), app.Status.Eq(1), app.IsDelete.Is(false)).First()
+	if err != nil {
+		return []string{}, nil
+	}
+
+	ur := l.db().SysUserRole
+	userRoles, err := ur.WithContext(l.ctx).Where(ur.UserID.Eq(userID), ur.AppID.Eq(application.ID), ur.IsDelete.Is(false)).Find()
+	if err != nil || len(userRoles) == 0 {
+		return []string{}, nil
+	}
+
+	roleIDs := make([]int64, len(userRoles))
+	for i, r := range userRoles {
+		roleIDs[i] = r.RoleID
+	}
+
+	rr := l.db().SysRoleResource
+	roleResources, err := rr.WithContext(l.ctx).Where(rr.RoleID.In(roleIDs...), rr.IsDelete.Is(false)).Find()
+	if err != nil || len(roleResources) == 0 {
+		return []string{}, nil
+	}
+
+	resourceIDs := make([]int64, len(roleResources))
+	for i, r := range roleResources {
+		resourceIDs[i] = r.ResourceID
+	}
+
+	r := l.db().SysResource
+	resources, err := r.WithContext(l.ctx).Where(r.ID.In(resourceIDs...), r.AppID.Eq(application.ID), r.Code.IsNotNull(), r.Code.Neq(""), r.Status.Eq(1), r.IsDelete.Is(false)).Find()
+	if err != nil {
+		return nil, err
+	}
+
+	codes := make([]string, 0, len(resources))
+	for _, res := range resources {
+		if res.Code != nil && *res.Code != "" {
+			codes = append(codes, *res.Code)
+		}
+	}
+	return codes, nil
+}

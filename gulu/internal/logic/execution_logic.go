@@ -161,10 +161,26 @@ func (l *ExecutionLogic) Execute(req *ExecuteWorkflowReq, userID int64) (*model.
 		return nil, err
 	}
 
-	// TODO: 调用 workflow-engine 提交执行
-	// 这里需要实现与 workflow-engine 的集成
-	// weClient := client.NewWorkflowEngineClient()
-	// weClient.SubmitExecution(...)
+	// 提交工作流到 workflow-engine 执行
+	engine := workflow.GetEngine()
+	if engine != nil {
+		// 转换为 workflow-engine 的工作流类型
+		weWorkflow := workflow.ConvertToEngineWorkflow(def, executionID)
+
+		// 提交执行
+		_, submitErr := engine.SubmitWorkflow(l.ctx, weWorkflow)
+		if submitErr != nil {
+			// 提交失败，更新状态为失败
+			_, _ = q.TExecution.WithContext(l.ctx).Where(q.TExecution.ID.Eq(execution.ID)).Updates(map[string]interface{}{
+				"status":     ExecutionStatusFailed,
+				"updated_at": time.Now(),
+			})
+			return nil, fmt.Errorf("提交工作流执行失败: %v", submitErr)
+		}
+
+		// 启动后台协程监控执行状态
+		go l.monitorExecution(execution.ID, executionID, engine)
+	}
 
 	// 更新状态为运行中
 	_, err = q.TExecution.WithContext(l.ctx).Where(q.TExecution.ID.Eq(execution.ID)).Update(q.TExecution.Status, ExecutionStatusRunning)
@@ -174,6 +190,81 @@ func (l *ExecutionLogic) Execute(req *ExecuteWorkflowReq, userID int64) (*model.
 	execution.Status = ExecutionStatusRunning
 
 	return execution, nil
+}
+
+// monitorExecution 监控执行状态并更新数据库
+func (l *ExecutionLogic) monitorExecution(dbID int64, executionID string, engine *workflow.Engine) {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	timeout := time.After(30 * time.Minute) // 最大监控30分钟
+
+	for {
+		select {
+		case <-timeout:
+			// 超时，标记为失败
+			l.updateExecutionStatus(dbID, ExecutionStatusFailed, nil, nil)
+			return
+		case <-ticker.C:
+			// 获取执行状态
+			state, err := engine.GetExecutionStatus(context.Background(), executionID)
+			if err != nil {
+				continue
+			}
+
+			// 根据状态更新数据库
+			var dbStatus string
+			switch state.Status {
+			case "pending":
+				dbStatus = ExecutionStatusPending
+			case "running":
+				dbStatus = ExecutionStatusRunning
+			case "completed":
+				dbStatus = ExecutionStatusCompleted
+			case "failed":
+				dbStatus = ExecutionStatusFailed
+			case "aborted", "stopped":
+				dbStatus = ExecutionStatusStopped
+			case "paused":
+				dbStatus = ExecutionStatusPaused
+			default:
+				continue
+			}
+
+			// 如果是终态，更新并退出
+			if dbStatus == ExecutionStatusCompleted || dbStatus == ExecutionStatusFailed || dbStatus == ExecutionStatusStopped {
+				l.updateExecutionStatus(dbID, dbStatus, state.EndTime, nil)
+				return
+			}
+		}
+	}
+}
+
+// updateExecutionStatus 更新执行状态
+func (l *ExecutionLogic) updateExecutionStatus(id int64, status string, endTime *time.Time, result *string) {
+	q := query.Use(svc.Ctx.DB)
+	e := q.TExecution
+
+	updates := map[string]interface{}{
+		"status":     status,
+		"updated_at": time.Now(),
+	}
+
+	if endTime != nil {
+		updates["end_time"] = *endTime
+		// 计算持续时间
+		execution, err := e.WithContext(context.Background()).Where(e.ID.Eq(id)).First()
+		if err == nil && execution.StartTime != nil {
+			duration := endTime.Sub(*execution.StartTime).Milliseconds()
+			updates["duration"] = duration
+		}
+	}
+
+	if result != nil {
+		updates["result"] = *result
+	}
+
+	_, _ = e.WithContext(context.Background()).Where(e.ID.Eq(id)).Updates(updates)
 }
 
 // GetByID 根据ID获取执行记录

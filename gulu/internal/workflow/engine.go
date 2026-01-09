@@ -4,6 +4,7 @@ package workflow
 import (
 	"context"
 	"sync"
+	"time"
 
 	"yqhp/gulu/internal/config"
 	"yqhp/workflow-engine/pkg/engine"
@@ -155,4 +156,64 @@ func (e *Engine) GetMetrics(ctx context.Context, executionID string) (*types.Agg
 	}
 
 	return e.embeddedEngine.GetMetrics(ctx, executionID)
+}
+
+// ConvertToEngineWorkflow 将 gulu 的工作流定义转换为 workflow-engine 的工作流类型
+func ConvertToEngineWorkflow(def *WorkflowDefinition, executionID string) *types.Workflow {
+	if def == nil {
+		return nil
+	}
+
+	// 转换步骤
+	steps := make([]types.Step, len(def.Steps))
+	for i, s := range def.Steps {
+		steps[i] = convertStep(s)
+	}
+
+	// 创建工作流
+	workflow := &types.Workflow{
+		ID:          executionID,
+		Name:        def.Name,
+		Description: def.Description,
+		Variables:   def.Variables,
+		Steps:       steps,
+		Options: types.ExecutionOptions{
+			VUs:           1, // 默认1个虚拟用户
+			Iterations:    1, // 默认执行1次
+			ExecutionMode: "constant-vus",
+		},
+	}
+
+	return workflow
+}
+
+// convertStep 转换单个步骤
+func convertStep(s Step) types.Step {
+	step := types.Step{
+		ID:     s.ID,
+		Type:   s.Type,
+		Name:   s.Name,
+		Config: s.Config,
+	}
+
+	// 转换超时
+	if s.Timeout != "" {
+		if d, err := time.ParseDuration(s.Timeout); err == nil {
+			step.Timeout = d
+		}
+	}
+
+	// 转换错误策略
+	switch s.OnError {
+	case "continue":
+		step.OnError = types.ErrorStrategyContinue
+	case "skip":
+		step.OnError = types.ErrorStrategySkip
+	case "retry":
+		step.OnError = types.ErrorStrategyRetry
+	default:
+		step.OnError = types.ErrorStrategyAbort
+	}
+
+	return step
 }

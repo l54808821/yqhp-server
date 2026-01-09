@@ -208,6 +208,30 @@ func (s *WorkerSlave) Connect(ctx context.Context, masterAddr string) error {
 	// 创建 gRPC 客户端
 	s.grpcClient = grpcclient.NewClient(clientCfg)
 
+	// 设置任务处理回调
+	s.grpcClient.SetTaskHandler(func(ctx context.Context, task *types.Task) error {
+		fmt.Printf("收到任务: %s, 执行ID: %s\n", task.ID, task.ExecutionID)
+		result, err := s.ExecuteTask(ctx, task)
+		if err != nil {
+			fmt.Printf("任务执行失败: %v\n", err)
+			return err
+		}
+		// 发送结果回 Master
+		if err := s.grpcClient.SendTaskResult(result); err != nil {
+			fmt.Printf("发送任务结果失败: %v\n", err)
+			return err
+		}
+		fmt.Printf("任务完成: %s, 状态: %s\n", task.ID, result.Status)
+		return nil
+	})
+
+	// 设置命令处理回调
+	s.grpcClient.SetCommandHandler(func(ctx context.Context, cmdType string, executionID string, params map[string]string) error {
+		fmt.Printf("收到命令: %s, 执行ID: %s\n", cmdType, executionID)
+		// TODO: 处理控制命令（停止、暂停、恢复等）
+		return nil
+	})
+
 	// 连接到 Master
 	if err := s.grpcClient.Connect(ctx); err != nil {
 		return fmt.Errorf("连接 Master 失败: %w", err)
@@ -226,6 +250,12 @@ func (s *WorkerSlave) Connect(ctx context.Context, masterAddr string) error {
 	}); err != nil {
 		s.grpcClient.Disconnect(ctx)
 		return fmt.Errorf("启动心跳失败: %w", err)
+	}
+
+	// 启动任务流
+	if err := s.grpcClient.StartTaskStream(s.heartbeatCtx); err != nil {
+		fmt.Printf("启动任务流失败: %v (将通过心跳接收任务)\n", err)
+		// 任务流启动失败不是致命错误，可以通过心跳接收命令
 	}
 
 	s.connected.Store(true)

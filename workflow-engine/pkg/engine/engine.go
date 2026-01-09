@@ -95,6 +95,9 @@ func (e *Engine) Start() error {
 	}
 	e.grpcServer = grpcserver.NewServer(grpcCfg, e.registry, scheduler, aggregator, e.master)
 
+	// 将 gRPC 服务器设置为任务分配器
+	e.master.SetTaskAssigner(e.grpcServer)
+
 	if err := e.grpcServer.Start(ctx); err != nil {
 		e.master.Stop(ctx)
 		return fmt.Errorf("启动 gRPC 服务器失败: %w", err)

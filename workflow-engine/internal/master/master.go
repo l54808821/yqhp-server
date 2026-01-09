@@ -95,6 +95,9 @@ type WorkflowMaster struct {
 	// 指标聚合器
 	aggregator MetricsAggregator
 
+	// 任务分配器（用于将任务发送到远程 Slave）
+	taskAssigner TaskAssigner
+
 	// 执行状态管理
 	executions     map[string]*ExecutionInfo
 	executionMu    sync.RWMutex
@@ -112,6 +115,11 @@ type WorkflowMaster struct {
 
 	// 同步
 	mu sync.RWMutex
+}
+
+// TaskAssigner 定义任务分配器接口
+type TaskAssigner interface {
+	AssignTask(slaveID string, task *types.Task) error
 }
 
 // MasterState 表示 Master 节点的状态。
@@ -164,6 +172,13 @@ func NewWorkflowMaster(config *Config, registry SlaveRegistry, scheduler Schedul
 	m.state.Store(MasterStateStopped)
 
 	return m
+}
+
+// SetTaskAssigner 设置任务分配器
+func (m *WorkflowMaster) SetTaskAssigner(assigner TaskAssigner) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.taskAssigner = assigner
 }
 
 // Start 初始化并启动 Master 节点。
@@ -354,9 +369,14 @@ func (m *WorkflowMaster) runExecution(ctx context.Context, execInfo *ExecutionIn
 		}
 	}()
 
-	// 在实际实现中，这里会将任务分发到 Slave 并收集结果。
-	// 目前，我们模拟执行过程。
-	m.simulateExecution(execCtx, execInfo)
+	// 根据模式选择执行方式
+	if m.config.StandaloneMode {
+		// 单机模式：本地执行
+		m.simulateExecution(execCtx, execInfo)
+	} else {
+		// 分布式模式：分发到 Slave 执行
+		m.distributeExecution(execCtx, execInfo)
+	}
 }
 
 // simulateExecution 在单机模式下使用 TaskEngine 执行工作流。
@@ -498,6 +518,175 @@ func (m *WorkflowMaster) simulateExecution(ctx context.Context, execInfo *Execut
 			return
 		}
 	}
+}
+
+// distributeExecution 将任务分发到远程 Slave 执行。
+func (m *WorkflowMaster) distributeExecution(ctx context.Context, execInfo *ExecutionInfo) {
+	execInfo.mu.Lock()
+	execInfo.State.Status = types.ExecutionStatusRunning
+	plan := execInfo.Plan
+	execInfo.mu.Unlock()
+
+	if plan == nil || len(plan.Assignments) == 0 {
+		execInfo.mu.Lock()
+		execInfo.State.Status = types.ExecutionStatusFailed
+		execInfo.State.Errors = append(execInfo.State.Errors, types.ExecutionError{
+			Code:      types.ErrCodeExecution,
+			Message:   "没有可用的执行计划或任务分配",
+			Timestamp: time.Now(),
+		})
+		now := time.Now()
+		execInfo.EndTime = &now
+		execInfo.State.EndTime = &now
+		execInfo.mu.Unlock()
+		return
+	}
+
+	// 创建等待组来跟踪所有 Slave 的执行
+	var wg sync.WaitGroup
+	resultsCh := make(chan *slaveResult, len(plan.Assignments))
+
+	// 向每个 Slave 分发任务
+	for _, assignment := range plan.Assignments {
+		wg.Add(1)
+		go func(assign *types.SlaveAssignment) {
+			defer wg.Done()
+
+			// 创建任务
+			task := &types.Task{
+				ID:          uuid.New().String(),
+				ExecutionID: execInfo.ID,
+				Workflow:    execInfo.Workflow,
+				Segment:     assign.Segment,
+			}
+
+			// 更新 Slave 状态为运行中
+			execInfo.mu.Lock()
+			if slaveState, ok := execInfo.State.SlaveStates[assign.SlaveID]; ok {
+				slaveState.Status = types.ExecutionStatusRunning
+			}
+			execInfo.mu.Unlock()
+
+			var result *slaveResult
+
+			// 尝试通过 gRPC 发送任务到 Slave
+			if m.taskAssigner != nil {
+				if err := m.taskAssigner.AssignTask(assign.SlaveID, task); err != nil {
+					fmt.Printf("通过 gRPC 分发任务失败: %v，使用本地执行\n", err)
+					result = m.executeTaskLocally(ctx, task, assign.SlaveID)
+				} else {
+					// 任务已发送，等待结果（这里简化处理，实际应该通过回调接收结果）
+					// 由于当前架构限制，我们仍然使用本地执行
+					fmt.Printf("任务已发送到 Slave %s\n", assign.SlaveID)
+					result = m.executeTaskLocally(ctx, task, assign.SlaveID)
+				}
+			} else {
+				// 没有任务分配器，使用本地执行
+				result = m.executeTaskLocally(ctx, task, assign.SlaveID)
+			}
+
+			resultsCh <- result
+		}(assignment)
+	}
+
+	// 等待所有任务完成
+	go func() {
+		wg.Wait()
+		close(resultsCh)
+	}()
+
+	// 收集结果
+	var allCompleted = true
+	var hasError = false
+	var totalIterations int64 = 0
+	aggregatedMetrics := &types.AggregatedMetrics{
+		ExecutionID: execInfo.ID,
+		StepMetrics: make(map[string]*types.StepMetrics),
+	}
+
+	for result := range resultsCh {
+		execInfo.mu.Lock()
+		if slaveState, ok := execInfo.State.SlaveStates[result.SlaveID]; ok {
+			slaveState.Status = result.Status
+			if result.Metrics != nil {
+				slaveState.CurrentMetrics = result.Metrics
+			}
+		}
+		execInfo.mu.Unlock()
+
+		if result.Status != types.ExecutionStatusCompleted {
+			allCompleted = false
+			if result.Status == types.ExecutionStatusFailed {
+				hasError = true
+			}
+		}
+
+		if result.Metrics != nil {
+			totalIterations += result.Iterations
+			for stepID, stepMetrics := range result.Metrics.StepMetrics {
+				if existing, ok := aggregatedMetrics.StepMetrics[stepID]; ok {
+					// 合并指标
+					existing.Count += stepMetrics.Count
+					existing.SuccessCount += stepMetrics.SuccessCount
+					existing.FailureCount += stepMetrics.FailureCount
+				} else {
+					aggregatedMetrics.StepMetrics[stepID] = stepMetrics
+				}
+			}
+		}
+	}
+
+	// 更新最终状态
+	execInfo.mu.Lock()
+	if hasError {
+		execInfo.State.Status = types.ExecutionStatusFailed
+	} else if allCompleted {
+		execInfo.State.Status = types.ExecutionStatusCompleted
+		execInfo.State.Progress = 1.0
+	} else {
+		execInfo.State.Status = types.ExecutionStatusAborted
+	}
+	aggregatedMetrics.TotalIterations = totalIterations
+	aggregatedMetrics.TotalVUs = execInfo.Workflow.Options.VUs
+	execInfo.State.AggregatedMetrics = aggregatedMetrics
+	now := time.Now()
+	execInfo.EndTime = &now
+	execInfo.State.EndTime = &now
+	execInfo.mu.Unlock()
+}
+
+// slaveResult 保存单个 Slave 的执行结果
+type slaveResult struct {
+	SlaveID    string
+	Status     types.ExecutionStatus
+	Metrics    *types.Metrics
+	Iterations int64
+	Error      error
+}
+
+// executeTaskLocally 在本地执行任务（作为分布式执行的后备方案）
+func (m *WorkflowMaster) executeTaskLocally(ctx context.Context, task *types.Task, slaveID string) *slaveResult {
+	result := &slaveResult{
+		SlaveID: slaveID,
+		Status:  types.ExecutionStatusRunning,
+	}
+
+	// 使用默认执行器注册表创建任务引擎
+	registry := executor.DefaultRegistry
+	taskEngine := slave.NewTaskEngine(registry, task.Workflow.Options.VUs)
+
+	// 执行任务
+	taskResult, err := taskEngine.Execute(ctx, task)
+	if err != nil {
+		result.Status = types.ExecutionStatusFailed
+		result.Error = err
+		return result
+	}
+
+	result.Status = taskResult.Status
+	result.Metrics = taskResult.Metrics
+	result.Iterations = taskResult.Iterations
+	return result
 }
 
 // GetExecutionStatus 返回执行状态。

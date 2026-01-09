@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	grpcclient "yqhp/workflow-engine/api/grpc/client"
 	"yqhp/workflow-engine/internal/executor"
 	"yqhp/workflow-engine/pkg/types"
 )
@@ -89,6 +90,9 @@ func DefaultConfig() *Config {
 type WorkerSlave struct {
 	config   *Config
 	registry *executor.Registry
+
+	// gRPC 客户端
+	grpcClient *grpcclient.Client
 
 	// 状态管理
 	state       atomic.Value // types.SlaveState
@@ -183,11 +187,49 @@ func (s *WorkerSlave) Connect(ctx context.Context, masterAddr string) error {
 	}
 
 	s.masterAddr = masterAddr
-	s.connected.Store(true)
 
-	// 启动心跳协程
+	// 创建 gRPC 客户端配置
+	clientCfg := &grpcclient.Config{
+		MasterAddress:     masterAddr,
+		SlaveID:           s.config.ID,
+		SlaveType:         s.config.Type,
+		Address:           s.config.Address,
+		Capabilities:      s.config.Capabilities,
+		Labels:            s.config.Labels,
+		HeartbeatInterval: s.config.HeartbeatInterval,
+		ConnectionTimeout: s.config.HeartbeatTimeout,
+		Resources: &types.ResourceInfo{
+			CPUCores: s.config.CPUCores,
+			MemoryMB: s.config.MemoryMB,
+			MaxVUs:   s.config.MaxVUs,
+		},
+	}
+
+	// 创建 gRPC 客户端
+	s.grpcClient = grpcclient.NewClient(clientCfg)
+
+	// 连接到 Master
+	if err := s.grpcClient.Connect(ctx); err != nil {
+		return fmt.Errorf("连接 Master 失败: %w", err)
+	}
+
+	// 注册到 Master
+	if err := s.grpcClient.Register(ctx); err != nil {
+		s.grpcClient.Disconnect(ctx)
+		return fmt.Errorf("注册到 Master 失败: %w", err)
+	}
+
+	// 启动心跳
 	s.heartbeatCtx, s.heartbeatCancel = context.WithCancel(context.Background())
-	go s.heartbeatLoop()
+	if err := s.grpcClient.StartHeartbeat(s.heartbeatCtx, func() *types.SlaveStatus {
+		return s.GetStatus()
+	}); err != nil {
+		s.grpcClient.Disconnect(ctx)
+		return fmt.Errorf("启动心跳失败: %w", err)
+	}
+
+	s.connected.Store(true)
+	s.state.Store(types.SlaveStateOnline)
 
 	return nil
 }
@@ -206,8 +248,16 @@ func (s *WorkerSlave) Disconnect(ctx context.Context) error {
 		s.heartbeatCancel()
 	}
 
+	// 断开 gRPC 连接
+	if s.grpcClient != nil {
+		if err := s.grpcClient.Disconnect(ctx); err != nil {
+			return fmt.Errorf("断开 gRPC 连接失败: %w", err)
+		}
+	}
+
 	s.connected.Store(false)
 	s.masterAddr = ""
+	s.state.Store(types.SlaveStateOffline)
 
 	return nil
 }

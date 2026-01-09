@@ -14,6 +14,7 @@ import (
 	"yqhp/gulu/internal/config"
 	"yqhp/gulu/internal/router"
 	"yqhp/gulu/internal/svc"
+	"yqhp/gulu/internal/workflow"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -60,6 +61,16 @@ func main() {
 		log.Fatalf("初始化SaToken失败: %v", err)
 	}
 
+	// 初始化工作流引擎
+	if err := workflow.Init(&cfg.WorkflowEngine); err != nil {
+		log.Fatalf("初始化工作流引擎失败: %v", err)
+	}
+	if cfg.WorkflowEngine.Embedded {
+		logger.Info("内置工作流引擎已启动")
+	} else {
+		logger.Info("使用外部工作流引擎: " + cfg.WorkflowEngine.ExternalURL)
+	}
+
 	// 创建Fiber应用
 	app := fiber.New(fiber.Config{
 		AppName:      cfg.App.Name,
@@ -85,6 +96,14 @@ func main() {
 	<-quit
 
 	log.Println("正在关闭服务器...")
+
+	// 停止工作流引擎
+	if engine := workflow.GetEngine(); engine != nil {
+		if err := engine.Stop(); err != nil {
+			log.Printf("停止工作流引擎失败: %v", err)
+		}
+	}
+
 	if err := app.Shutdown(); err != nil {
 		log.Printf("服务器关闭失败: %v", err)
 	}

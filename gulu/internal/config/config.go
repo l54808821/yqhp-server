@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"sync"
+	"time"
 
 	commonConfig "yqhp/common/config"
 
@@ -11,15 +12,25 @@ import (
 
 // GuluConfig Gulu 应用特有配置
 type GuluConfig struct {
-	AppCode           string `yaml:"app_code"`            // 应用编码，用于权限过滤
-	AdminURL          string `yaml:"admin_url"`           // Admin 服务地址
-	WorkflowEngineURL string `yaml:"workflow_engine_url"` // Workflow Engine 服务地址
+	AppCode  string `yaml:"app_code"`  // 应用编码，用于权限过滤
+	AdminURL string `yaml:"admin_url"` // Admin 服务地址
+}
+
+// WorkflowEngineConfig Workflow Engine 配置
+type WorkflowEngineConfig struct {
+	Embedded         bool          `yaml:"embedded"`          // 是否使用内置 Master
+	ExternalURL      string        `yaml:"external_url"`      // 外部 Master 地址
+	GRPCAddress      string        `yaml:"grpc_address"`      // gRPC 服务地址
+	Standalone       bool          `yaml:"standalone"`        // 独立模式
+	MaxExecutions    int           `yaml:"max_executions"`    // 最大并发执行数
+	HeartbeatTimeout time.Duration `yaml:"heartbeat_timeout"` // 心跳超时
 }
 
 // Config 应用配置
 type Config struct {
 	commonConfig.Config `yaml:",inline"`
-	Gulu                GuluConfig `yaml:"gulu"`
+	Gulu                GuluConfig           `yaml:"gulu"`
+	WorkflowEngine      WorkflowEngineConfig `yaml:"workflow_engine"`
 }
 
 var (

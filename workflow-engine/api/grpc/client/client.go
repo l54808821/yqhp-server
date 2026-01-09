@@ -169,6 +169,10 @@ func (c *Client) Connect(ctx context.Context) error {
 			Timeout:             c.config.ConnectionTimeout,
 			PermitWithoutStream: true,
 		}),
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallRecvMsgSize(16*1024*1024), // 16MB
+			grpc.MaxCallSendMsgSize(16*1024*1024), // 16MB
+		),
 	}
 
 	// Connect with timeout

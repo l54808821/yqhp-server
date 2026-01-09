@@ -3,6 +3,7 @@ package logic
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"yqhp/gulu/internal/model"
@@ -23,9 +24,9 @@ func NewExecutionLogic(ctx context.Context) *ExecutionLogic {
 
 // ExecuteWorkflowReq 执行工作流请求
 type ExecuteWorkflowReq struct {
-	WorkflowID int64  `json:"workflow_id" validate:"required"`
-	EnvID      int64  `json:"env_id" validate:"required"`
-	ExecutorID string `json:"executor_id"` // 可选，指定执行机
+	WorkflowID int64 `json:"workflow_id" validate:"required"`
+	EnvID      int64 `json:"env_id" validate:"required"`
+	ExecutorID int64 `json:"executor_id"` // 可选，指定执行机ID
 }
 
 // ExecutionListReq 执行记录列表请求
@@ -134,13 +135,20 @@ func (l *ExecutionLogic) Execute(req *ExecuteWorkflowReq, userID int64) (*model.
 	now := time.Now()
 	executionID := generateExecutionID()
 
+	// 处理 ExecutorID 转换
+	var executorIDStr *string
+	if req.ExecutorID > 0 {
+		str := fmt.Sprintf("%d", req.ExecutorID)
+		executorIDStr = &str
+	}
+
 	execution := &model.TExecution{
 		CreatedAt:   &now,
 		UpdatedAt:   &now,
 		ProjectID:   wf.ProjectID,
 		WorkflowID:  req.WorkflowID,
 		EnvID:       req.EnvID,
-		ExecutorID:  &req.ExecutorID,
+		ExecutorID:  executorIDStr,
 		ExecutionID: executionID,
 		Status:      ExecutionStatusPending,
 		StartTime:   &now,

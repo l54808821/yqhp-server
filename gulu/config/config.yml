@@ -57,3 +57,12 @@ sa_token:
 gulu:
   app_code: gulu # 应用编码，用于权限过滤
   admin_url: http://localhost:5320 # Admin 服务地址
+
+# Workflow Engine 配置
+workflow_engine:
+  embedded: true # 是否使用内置 Master（默认 true）
+  external_url: "" # 外部 Master 地址（embedded=false 时使用）
+  grpc_address: ":9090" # gRPC 服务地址
+  standalone: true # 独立模式（无需 Slave 即可执行）
+  max_executions: 100 # 最大并发执行数
+  heartbeat_timeout: 30s # Slave 心跳超时

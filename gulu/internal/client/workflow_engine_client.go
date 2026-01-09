@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -8,18 +9,23 @@ import (
 	"time"
 
 	"yqhp/gulu/internal/svc"
+	"yqhp/gulu/internal/workflow"
+	"yqhp/workflow-engine/pkg/types"
 )
 
 // WorkflowEngineClient Workflow Engine 服务 API 客户端
 type WorkflowEngineClient struct {
 	baseURL    string
 	httpClient *http.Client
+	embedded   bool
 }
 
 // NewWorkflowEngineClient 创建 Workflow Engine 客户端
 func NewWorkflowEngineClient() *WorkflowEngineClient {
+	cfg := svc.Ctx.Config.WorkflowEngine
 	return &WorkflowEngineClient{
-		baseURL: svc.Ctx.Config.Gulu.WorkflowEngineURL,
+		baseURL:  cfg.ExternalURL,
+		embedded: cfg.Embedded,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -38,7 +44,7 @@ type ExecutorStatus struct {
 	LastSeen     time.Time `json:"last_seen"`
 }
 
-// doRequest 执行 HTTP 请求
+// doRequest 执行 HTTP 请求（外部模式使用）
 func (c *WorkflowEngineClient) doRequest(method, path string) ([]byte, error) {
 	url := c.baseURL + path
 	req, err := http.NewRequest(method, url, nil)
@@ -68,7 +74,43 @@ func (c *WorkflowEngineClient) doRequest(method, path string) ([]byte, error) {
 
 // GetExecutorList 获取执行机列表
 func (c *WorkflowEngineClient) GetExecutorList() ([]ExecutorStatus, error) {
-	body, err := c.doRequest("GET", "/api/slaves")
+	// 内置模式：直接调用内置 Master
+	if c.embedded {
+		return c.getExecutorListEmbedded()
+	}
+
+	// 外部模式：通过 HTTP 调用
+	return c.getExecutorListExternal()
+}
+
+// getExecutorListEmbedded 从内置引擎获取执行机列表
+func (c *WorkflowEngineClient) getExecutorListEmbedded() ([]ExecutorStatus, error) {
+	engine := workflow.GetEngine()
+	if engine == nil {
+		return nil, fmt.Errorf("工作流引擎未初始化")
+	}
+
+	slaves, err := engine.GetSlaves(context.Background())
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]ExecutorStatus, 0, len(slaves))
+	for _, slave := range slaves {
+		result = append(result, ExecutorStatus{
+			SlaveID:      slave.ID,
+			Address:      slave.Address,
+			Capabilities: slave.Capabilities,
+			State:        "online", // 内置模式下，能获取到的都是在线的
+		})
+	}
+
+	return result, nil
+}
+
+// getExecutorListExternal 从外部 Master 获取执行机列表
+func (c *WorkflowEngineClient) getExecutorListExternal() ([]ExecutorStatus, error) {
+	body, err := c.doRequest("GET", "/api/v1/slaves")
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +134,44 @@ func (c *WorkflowEngineClient) GetExecutorList() ([]ExecutorStatus, error) {
 
 // GetExecutorStatus 获取单个执行机状态
 func (c *WorkflowEngineClient) GetExecutorStatus(slaveID string) (*ExecutorStatus, error) {
-	body, err := c.doRequest("GET", fmt.Sprintf("/api/slaves/%s", slaveID))
+	// 内置模式：直接调用内置 Master
+	if c.embedded {
+		return c.getExecutorStatusEmbedded(slaveID)
+	}
+
+	// 外部模式：通过 HTTP 调用
+	return c.getExecutorStatusExternal(slaveID)
+}
+
+// getExecutorStatusEmbedded 从内置引擎获取单个执行机状态
+func (c *WorkflowEngineClient) getExecutorStatusEmbedded(slaveID string) (*ExecutorStatus, error) {
+	engine := workflow.GetEngine()
+	if engine == nil {
+		return nil, fmt.Errorf("工作流引擎未初始化")
+	}
+
+	slaves, err := engine.GetSlaves(context.Background())
+	if err != nil {
+		return nil, err
+	}
+
+	for _, slave := range slaves {
+		if slave.ID == slaveID {
+			return &ExecutorStatus{
+				SlaveID:      slave.ID,
+				Address:      slave.Address,
+				Capabilities: slave.Capabilities,
+				State:        "online",
+			}, nil
+		}
+	}
+
+	return nil, fmt.Errorf("执行机不存在: %s", slaveID)
+}
+
+// getExecutorStatusExternal 从外部 Master 获取单个执行机状态
+func (c *WorkflowEngineClient) getExecutorStatusExternal(slaveID string) (*ExecutorStatus, error) {
+	body, err := c.doRequest("GET", fmt.Sprintf("/api/v1/slaves/%s", slaveID))
 	if err != nil {
 		return nil, err
 	}
@@ -112,4 +191,46 @@ func (c *WorkflowEngineClient) GetExecutorStatus(slaveID string) (*ExecutorStatu
 	}
 
 	return &result.Data, nil
+}
+
+// SubmitWorkflow 提交工作流执行
+func (c *WorkflowEngineClient) SubmitWorkflow(wf *types.Workflow) (string, error) {
+	if c.embedded {
+		engine := workflow.GetEngine()
+		if engine == nil {
+			return "", fmt.Errorf("工作流引擎未初始化")
+		}
+		return engine.SubmitWorkflow(context.Background(), wf)
+	}
+
+	// 外部模式：TODO 实现 HTTP 调用
+	return "", fmt.Errorf("外部模式暂未实现")
+}
+
+// GetExecutionStatus 获取执行状态
+func (c *WorkflowEngineClient) GetExecutionStatus(executionID string) (*types.ExecutionState, error) {
+	if c.embedded {
+		engine := workflow.GetEngine()
+		if engine == nil {
+			return nil, fmt.Errorf("工作流引擎未初始化")
+		}
+		return engine.GetExecutionStatus(context.Background(), executionID)
+	}
+
+	// 外部模式：TODO 实现 HTTP 调用
+	return nil, fmt.Errorf("外部模式暂未实现")
+}
+
+// StopExecution 停止执行
+func (c *WorkflowEngineClient) StopExecution(executionID string) error {
+	if c.embedded {
+		engine := workflow.GetEngine()
+		if engine == nil {
+			return fmt.Errorf("工作流引擎未初始化")
+		}
+		return engine.StopExecution(context.Background(), executionID)
+	}
+
+	// 外部模式：TODO 实现 HTTP 调用
+	return fmt.Errorf("外部模式暂未实现")
 }

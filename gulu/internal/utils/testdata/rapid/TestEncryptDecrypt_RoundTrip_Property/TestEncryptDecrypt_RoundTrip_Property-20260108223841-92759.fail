@@ -1,0 +1,9 @@
+# 2026/01/08 22:38:41.282282 [TestEncryptDecrypt_RoundTrip_Property] [rapid] draw plaintext: "A"
+# 2026/01/08 22:38:41.282302 [TestEncryptDecrypt_RoundTrip_Property] 加密失败: crypto/aes: invalid key size 30
+# 
+v0.4.8#8022865973866311145
+0x5555555555555
+0x0
+0x0
+0x0
+0x0

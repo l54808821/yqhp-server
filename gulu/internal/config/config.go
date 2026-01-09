@@ -11,8 +11,9 @@ import (
 
 // GuluConfig Gulu 应用特有配置
 type GuluConfig struct {
-	AppCode  string `yaml:"app_code"`  // 应用编码，用于权限过滤
-	AdminURL string `yaml:"admin_url"` // Admin 服务地址
+	AppCode           string `yaml:"app_code"`            // 应用编码，用于权限过滤
+	AdminURL          string `yaml:"admin_url"`           // Admin 服务地址
+	WorkflowEngineURL string `yaml:"workflow_engine_url"` // Workflow Engine 服务地址
 }
 
 // Config 应用配置

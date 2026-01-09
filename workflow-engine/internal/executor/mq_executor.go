@@ -291,17 +291,26 @@ func (e *MQExecutor) parseOperation(config map[string]any) (*MQOperation, error)
 
 // parseStepConfig 解析步骤级配置
 func (e *MQExecutor) parseStepConfig(config map[string]any) *MQConfig {
+	// 初始化默认配置，防止 e.config 为 nil
 	stepConfig := &MQConfig{
-		Type:    e.config.Type,
-		Broker:  e.config.Broker,
-		Topic:   e.config.Topic,
-		Queue:   e.config.Queue,
-		GroupID: e.config.GroupID,
-		Auth:    e.config.Auth,
-		Options: e.config.Options,
-		Timeout: e.config.Timeout,
+		Type:    MQTypeKafka,
+		Timeout: defaultMQTimeout,
+		Options: make(map[string]any),
 	}
 
+	// 如果有全局配置，使用全局配置作为基础
+	if e.config != nil {
+		stepConfig.Type = e.config.Type
+		stepConfig.Broker = e.config.Broker
+		stepConfig.Topic = e.config.Topic
+		stepConfig.Queue = e.config.Queue
+		stepConfig.GroupID = e.config.GroupID
+		stepConfig.Auth = e.config.Auth
+		stepConfig.Options = e.config.Options
+		stepConfig.Timeout = e.config.Timeout
+	}
+
+	// 从步骤配置中覆盖
 	if mqType, ok := config["type"].(string); ok {
 		stepConfig.Type = MQType(strings.ToLower(mqType))
 	}
@@ -316,6 +325,34 @@ func (e *MQExecutor) parseStepConfig(config map[string]any) *MQConfig {
 	}
 	if groupID, ok := config["group_id"].(string); ok {
 		stepConfig.GroupID = groupID
+	}
+	if timeout, ok := config["timeout"].(string); ok {
+		if d, err := time.ParseDuration(timeout); err == nil {
+			stepConfig.Timeout = d
+		}
+	}
+
+	// 解析认证配置
+	if auth, ok := config["auth"].(map[string]any); ok {
+		if username, ok := auth["username"].(string); ok {
+			stepConfig.Auth.Username = username
+		}
+		if password, ok := auth["password"].(string); ok {
+			stepConfig.Auth.Password = password
+		}
+		if token, ok := auth["token"].(string); ok {
+			stepConfig.Auth.Token = token
+		}
+	}
+
+	// 解析其他选项
+	if options, ok := config["options"].(map[string]any); ok {
+		if stepConfig.Options == nil {
+			stepConfig.Options = make(map[string]any)
+		}
+		for k, v := range options {
+			stepConfig.Options[k] = v
+		}
 	}
 
 	return stepConfig

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	commonUtils "yqhp/common/utils"
 	"yqhp/gulu/internal/model"
 	"yqhp/gulu/internal/query"
 	"yqhp/gulu/internal/svc"
@@ -180,8 +181,10 @@ func (l *ExecutionLogic) Execute(req *ExecuteWorkflowReq, userID int64) (*model.
 
 		fmt.Printf("工作流已提交，引擎执行ID: %s\n", engineExecutionID)
 
-		// 启动后台协程监控执行状态（使用引擎返回的执行ID）
-		go l.monitorExecution(execution.ID, engineExecutionID, engine)
+		// 启动后台协程监控执行状态（使用安全的 goroutine，防止 panic 导致服务崩溃）
+		commonUtils.SafeGoWithName("monitor-execution-"+engineExecutionID, func() {
+			l.monitorExecution(execution.ID, engineExecutionID, engine)
+		})
 	}
 
 	// 更新状态为运行中

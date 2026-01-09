@@ -438,7 +438,15 @@ func (e *TaskEngine) executeSharedIterations(ctx context.Context, task *types.Ta
 }
 
 // runVU 运行虚拟用户，直到上下文取消或迭代完成。
-func (e *TaskEngine) runVU(ctx context.Context, task *types.Task, vu *types.VirtualUser, maxIterations int) error {
+func (e *TaskEngine) runVU(ctx context.Context, task *types.Task, vu *types.VirtualUser, maxIterations int) (err error) {
+	// 添加 panic 恢复，防止单个 VU 的 panic 影响其他 VU
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("VU %d panic: %v", vu.ID, r)
+			fmt.Printf("[runVU] VU %d 发生 panic: %v\n", vu.ID, r)
+		}
+	}()
+
 	fmt.Printf("[runVU] VU %d 开始, maxIterations=%d\n", vu.ID, maxIterations)
 	iteration := 0
 	for {
@@ -582,8 +590,19 @@ func (e *TaskEngine) executeStepsWithOptions(ctx context.Context, steps []types.
 }
 
 // executeStep 执行单个步骤。
-func (e *TaskEngine) executeStep(ctx context.Context, exec executor.Executor, step *types.Step, execCtx *executor.ExecutionContext) (*types.StepResult, error) {
+func (e *TaskEngine) executeStep(ctx context.Context, exec executor.Executor, step *types.Step, execCtx *executor.ExecutionContext) (result *types.StepResult, err error) {
 	startTime := time.Now()
+
+	// 添加 panic 恢复，防止执行器 panic 导致整个服务崩溃
+	defer func() {
+		if r := recover(); r != nil {
+			panicErr := fmt.Errorf("executor panic: %v", r)
+			result = executor.CreateFailedResult(step.ID, startTime, panicErr)
+			err = panicErr
+			e.collector.RecordStep(step.ID, result)
+			fmt.Printf("[executeStep] 步骤 %s 执行器发生 panic: %v\n", step.ID, r)
+		}
+	}()
 
 	// 如果配置了超时，应用超时设置
 	stepCtx := ctx
@@ -594,7 +613,7 @@ func (e *TaskEngine) executeStep(ctx context.Context, exec executor.Executor, st
 	}
 
 	// 执行步骤
-	result, err := exec.Execute(stepCtx, step, execCtx)
+	result, err = exec.Execute(stepCtx, step, execCtx)
 
 	// 记录步骤指标
 	if result != nil {

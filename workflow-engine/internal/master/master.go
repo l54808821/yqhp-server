@@ -381,12 +381,16 @@ func (m *WorkflowMaster) runExecution(ctx context.Context, execInfo *ExecutionIn
 
 // simulateExecution 在单机模式下使用 TaskEngine 执行工作流。
 func (m *WorkflowMaster) simulateExecution(ctx context.Context, execInfo *ExecutionInfo) {
+	fmt.Printf("[simulateExecution] 开始执行: %s, 工作流: %s, 步骤数: %d\n", execInfo.ID, execInfo.Workflow.Name, len(execInfo.Workflow.Steps))
+
 	execInfo.mu.Lock()
 	execInfo.State.Status = types.ExecutionStatusRunning
 	execInfo.mu.Unlock()
 
 	// 使用默认执行器注册表创建任务引擎
 	registry := executor.DefaultRegistry
+	fmt.Printf("[simulateExecution] 注册表中的执行器类型: %v\n", registry.Types())
+
 	taskEngine := slave.NewTaskEngine(registry, execInfo.Workflow.Options.VUs)
 
 	// 创建执行任务
@@ -400,15 +404,21 @@ func (m *WorkflowMaster) simulateExecution(ctx context.Context, execInfo *Execut
 		},
 	}
 
+	fmt.Printf("[simulateExecution] 创建任务: %s, VUs: %d, Iterations: %d\n", task.ID, execInfo.Workflow.Options.VUs, execInfo.Workflow.Options.Iterations)
+
 	// 在协程中执行，以便处理取消操作
 	resultCh := make(chan *types.TaskResult, 1)
 	errCh := make(chan error, 1)
 
 	go func() {
+		fmt.Printf("[simulateExecution] 开始执行任务...\n")
 		result, err := taskEngine.Execute(ctx, task)
+		fmt.Printf("[simulateExecution] 任务执行完成, result=%v, err=%v\n", result != nil, err)
 		if err != nil {
+			fmt.Printf("[simulateExecution] 任务执行错误: %v\n", err)
 			errCh <- err
 		} else {
+			fmt.Printf("[simulateExecution] 任务执行成功, status=%s\n", result.Status)
 			resultCh <- result
 		}
 	}()

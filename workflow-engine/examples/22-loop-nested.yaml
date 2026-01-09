@@ -1,0 +1,97 @@
+# 嵌套循环示例
+# 运行: ./workflow-engine run examples/22-loop-nested.yaml
+
+id: loop-nested-example
+name: Nested Loop Example
+description: 嵌套循环和循环内条件执行示例
+
+variables:
+  base_url: "https://httpbin.org"
+  categories:
+    - name: "electronics"
+      items: ["phone", "laptop", "tablet"]
+    - name: "clothing"
+      items: ["shirt", "pants", "shoes"]
+
+steps:
+  # 步骤 1: 外层循环 - 遍历分类
+  - id: outer_loop
+    name: Outer Loop - Categories
+    type: loop
+    loop:
+      mode: foreach
+      items: "${categories}"
+      item_var: category
+      steps:
+        - id: log_category
+          name: Log Category
+          type: script
+          config:
+            script: |
+              const category = ctx.GetVariable('category');
+              console.log('=== Category: ' + category.name + ' ===');
+
+        # 内层循环 - 遍历分类下的商品
+        - id: inner_loop
+          name: Inner Loop - Items
+          type: loop
+          loop:
+            mode: foreach
+            items: "${category.items}"
+            item_var: item
+            steps:
+              - id: log_item
+                name: Log Item
+                type: script
+                config:
+                  script: |
+                    const category = ctx.GetVariable('category');
+                    const item = ctx.GetVariable('item');
+                    console.log('  - Item: ' + item + ' in ' + category.name);
+
+              - id: fetch_item
+                name: Fetch Item
+                type: http
+                config:
+                  method: GET
+                  url: "${base_url}/get"
+                  query:
+                    category: "${category.name}"
+                    item: "${item}"
+                timeout: 10s
+
+  # 步骤 2: 循环内使用条件
+  - id: loop_with_condition
+    name: Loop with Condition
+    type: loop
+    loop:
+      mode: for
+      count: 10
+      steps:
+        - id: check_even_odd
+          name: Check Even/Odd
+          type: condition
+          condition:
+            expression: "${loop.index} % 2 == 0"
+            then:
+              - id: even_handler
+                name: Even Handler
+                type: script
+                config:
+                  script: |
+                    console.log('Index ' + ctx.GetVariable('loop.index') + ' is even');
+            else:
+              - id: odd_handler
+                name: Odd Handler
+                type: script
+                config:
+                  script: |
+                    console.log('Index ' + ctx.GetVariable('loop.index') + ' is odd');
+
+  # 步骤 3: 记录完成
+  - id: complete
+    name: Complete
+    type: script
+    config:
+      script: |
+        console.log('Nested loop completed!');

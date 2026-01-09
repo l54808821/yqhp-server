@@ -19,13 +19,47 @@ type Workflow struct {
 type Step struct {
 	ID        string         `yaml:"id"`
 	Name      string         `yaml:"name"`
-	Type      string         `yaml:"type"` // http, script, grpc, condition
+	Type      string         `yaml:"type"` // http, script, grpc, condition, loop
 	Config    map[string]any `yaml:"config"`
 	PreHook   *Hook          `yaml:"pre_hook,omitempty"`
 	PostHook  *Hook          `yaml:"post_hook,omitempty"`
 	Condition *Condition     `yaml:"condition,omitempty"`
+	Loop      *Loop          `yaml:"loop,omitempty"`
 	OnError   ErrorStrategy  `yaml:"on_error,omitempty"`
 	Timeout   time.Duration  `yaml:"timeout,omitempty"`
+}
+
+// Loop represents loop configuration for iterative execution.
+type Loop struct {
+	// Mode specifies the loop type: "for", "foreach", or "while"
+	Mode string `yaml:"mode"`
+
+	// Count specifies the number of iterations for "for" mode
+	Count int `yaml:"count,omitempty"`
+
+	// Items specifies the collection to iterate over for "foreach" mode
+	// Can be an expression like "${response.data}" or a literal array
+	Items any `yaml:"items,omitempty"`
+
+	// ItemVar specifies the variable name for the current item in "foreach" mode
+	// Default is "item"
+	ItemVar string `yaml:"item_var,omitempty"`
+
+	// Condition specifies the condition expression for "while" mode
+	Condition string `yaml:"condition,omitempty"`
+
+	// MaxIterations specifies the maximum number of iterations for "while" mode
+	// Default is 1000 to prevent infinite loops
+	MaxIterations int `yaml:"max_iterations,omitempty"`
+
+	// BreakCondition specifies a condition that, when true, breaks out of the loop
+	BreakCondition string `yaml:"break_condition,omitempty"`
+
+	// ContinueCondition specifies a condition that, when true, skips to the next iteration
+	ContinueCondition string `yaml:"continue_condition,omitempty"`
+
+	// Steps contains the steps to execute in each iteration
+	Steps []Step `yaml:"steps"`
 }
 
 // Condition represents conditional logic (if/else).

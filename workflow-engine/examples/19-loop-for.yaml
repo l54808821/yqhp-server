@@ -1,0 +1,44 @@
+# For 循环示例
+# 运行: ./workflow-engine run examples/19-loop-for.yaml
+
+id: loop-for-example
+name: For Loop Example
+description: 使用 for 循环执行固定次数迭代
+
+variables:
+  base_url: "https://httpbin.org"
+
+steps:
+  # 步骤 1: 使用 for 循环发送 5 次请求
+  - id: for_loop
+    name: For Loop - 5 Iterations
+    type: loop
+    loop:
+      mode: for
+      count: 5
+      steps:
+        - id: log_iteration
+          name: Log Iteration
+          type: script
+          config:
+            script: |
+              console.log('Iteration: ' + ctx.GetVariable('loop.iteration'));
+              console.log('Index: ' + ctx.GetVariable('loop.index'));
+
+        - id: http_request
+          name: HTTP Request
+          type: http
+          config:
+            method: GET
+            url: "${base_url}/get"
+            query:
+              iteration: "${loop.iteration}"
+          timeout: 10s
+
+  # 步骤 2: 记录完成
+  - id: complete
+    name: Complete
+    type: script
+    config:
+      script: |
+        console.log('For loop completed!');

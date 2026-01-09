@@ -215,5 +215,41 @@ func convertStep(s Step) types.Step {
 		step.OnError = types.ErrorStrategyAbort
 	}
 
+	// 转换条件配置
+	if s.Condition != nil {
+		thenSteps := make([]types.Step, len(s.Condition.Then))
+		for i, ts := range s.Condition.Then {
+			thenSteps[i] = convertStep(ts)
+		}
+		elseSteps := make([]types.Step, len(s.Condition.Else))
+		for i, es := range s.Condition.Else {
+			elseSteps[i] = convertStep(es)
+		}
+		step.Condition = &types.Condition{
+			Expression: s.Condition.Expression,
+			Then:       thenSteps,
+			Else:       elseSteps,
+		}
+	}
+
+	// 转换循环配置
+	if s.Loop != nil {
+		loopSteps := make([]types.Step, len(s.Loop.Steps))
+		for i, ls := range s.Loop.Steps {
+			loopSteps[i] = convertStep(ls)
+		}
+		step.Loop = &types.Loop{
+			Mode:              s.Loop.Mode,
+			Count:             s.Loop.Count,
+			Items:             s.Loop.Items,
+			ItemVar:           s.Loop.ItemVar,
+			Condition:         s.Loop.Condition,
+			MaxIterations:     s.Loop.MaxIterations,
+			BreakCondition:    s.Loop.BreakCondition,
+			ContinueCondition: s.Loop.ContinueCondition,
+			Steps:             loopSteps,
+		}
+	}
+
 	return step
 }

@@ -22,6 +22,16 @@
 | [07-conditional.yaml](07-conditional.yaml)       | 条件分支执行                             |
 | [08-error-handling.yaml](08-error-handling.yaml) | 错误处理策略 (abort/continue/skip/retry) |
 
+### 循环控制
+
+| 文件                                         | 说明                           |
+| -------------------------------------------- | ------------------------------ |
+| [19-loop-for.yaml](19-loop-for.yaml)         | For 循环 - 固定次数迭代        |
+| [20-loop-foreach.yaml](20-loop-foreach.yaml) | Foreach 循环 - 集合遍历        |
+| [21-loop-while.yaml](21-loop-while.yaml)     | While 循环 - 条件迭代          |
+| [22-loop-nested.yaml](22-loop-nested.yaml)   | 嵌套循环和循环内条件执行       |
+| [23-loop-control.yaml](23-loop-control.yaml) | 循环控制 (break/continue 条件) |
+
 ### 性能测试
 
 | 文件                                                                           | 说明                    |

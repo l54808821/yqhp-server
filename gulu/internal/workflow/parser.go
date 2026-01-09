@@ -37,12 +37,15 @@ type ConditionConfig struct {
 
 // LoopConfig 循环配置
 type LoopConfig struct {
-	Count      int    `json:"count,omitempty" yaml:"count,omitempty"`
-	Items      string `json:"items,omitempty" yaml:"items,omitempty"`
-	ItemVar    string `json:"item_var,omitempty" yaml:"item_var,omitempty"`
-	IndexVar   string `json:"index_var,omitempty" yaml:"index_var,omitempty"`
-	Condition  string `json:"condition,omitempty" yaml:"condition,omitempty"`
-	MaxRetries int    `json:"max_retries,omitempty" yaml:"max_retries,omitempty"`
+	Mode              string `json:"mode" yaml:"mode"`                                                 // 循环模式: for, foreach, while
+	Count             int    `json:"count,omitempty" yaml:"count,omitempty"`                           // for 模式的迭代次数
+	Items             any    `json:"items,omitempty" yaml:"items,omitempty"`                           // foreach 模式的集合
+	ItemVar           string `json:"item_var,omitempty" yaml:"item_var,omitempty"`                     // foreach 模式的元素变量名
+	Condition         string `json:"condition,omitempty" yaml:"condition,omitempty"`                   // while 模式的条件表达式
+	MaxIterations     int    `json:"max_iterations,omitempty" yaml:"max_iterations,omitempty"`         // while 模式的最大迭代次数
+	BreakCondition    string `json:"break_condition,omitempty" yaml:"break_condition,omitempty"`       // 跳出条件
+	ContinueCondition string `json:"continue_condition,omitempty" yaml:"continue_condition,omitempty"` // 跳过条件
+	Steps             []Step `json:"steps,omitempty" yaml:"steps,omitempty"`                           // 循环体步骤
 }
 
 // ParseYAML 将 YAML 解析为工作流定义

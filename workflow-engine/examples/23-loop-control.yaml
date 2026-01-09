@@ -1,0 +1,126 @@
+# 循环控制示例 (break/continue)
+# 运行: ./workflow-engine run examples/23-loop-control.yaml
+
+id: loop-control-example
+name: Loop Control Example
+description: 使用 break_condition 和 continue_condition 控制循环流程
+
+variables:
+  base_url: "https://httpbin.org"
+  target_value: 7
+
+steps:
+  # 步骤 1: 使用 break_condition 提前退出循环
+  - id: break_example
+    name: Break Example
+    type: loop
+    loop:
+      mode: for
+      count: 20
+      break_condition: "${loop.index} >= ${target_value}"
+      steps:
+        - id: log_before_break
+          name: Log Before Break
+          type: script
+          config:
+            script: |
+              console.log('Processing index: ' + ctx.GetVariable('loop.index'));
+
+        - id: http_request_break
+          name: HTTP Request
+          type: http
+          config:
+            method: GET
+            url: "${base_url}/get"
+            query:
+              index: "${loop.index}"
+          timeout: 10s
+
+  - id: break_result
+    name: Break Result
+    type: script
+    config:
+      script: |
+        console.log('Break example completed - stopped at target value');
+
+  # 步骤 2: 使用 continue_condition 跳过特定迭代
+  - id: continue_example
+    name: Continue Example
+    type: loop
+    loop:
+      mode: for
+      count: 10
+      continue_condition: "${loop.index} % 2 == 1" # 跳过奇数索引
+      steps:
+        - id: log_even_only
+          name: Log Even Only
+          type: script
+          config:
+            script: |
+              console.log('Processing even index: ' + ctx.GetVariable('loop.index'));
+
+        - id: http_request_continue
+          name: HTTP Request
+          type: http
+          config:
+            method: GET
+            url: "${base_url}/get"
+            query:
+              even_index: "${loop.index}"
+          timeout: 10s
+
+  - id: continue_result
+    name: Continue Result
+    type: script
+    config:
+      script: |
+        console.log('Continue example completed - only even indices processed');
+
+  # 步骤 3: 组合使用 break 和 continue
+  - id: combined_example
+    name: Combined Break and Continue
+    type: loop
+    loop:
+      mode: for
+      count: 100
+      break_condition: "${loop.index} >= 15"
+      continue_condition: "${loop.index} % 3 != 0" # 只处理 3 的倍数
+      steps:
+        - id: log_multiples_of_3
+          name: Log Multiples of 3
+          type: script
+          config:
+            script: |
+              console.log('Processing multiple of 3: ' + ctx.GetVariable('loop.index'));
+
+  - id: combined_result
+    name: Combined Result
+    type: script
+    config:
+      script: |
+        console.log('Combined example completed - processed 0, 3, 6, 9, 12 then stopped at 15');
+
+  # 步骤 4: While 循环中使用 break
+  - id: while_with_break
+    name: While with Break
+    type: loop
+    loop:
+      mode: while
+      condition: "true" # 无限循环
+      max_iterations: 1000
+      break_condition: "${loop.iteration} > 5"
+      steps:
+        - id: log_while_iteration
+          name: Log While Iteration
+          type: script
+          config:
+            script: |
+              console.log('While iteration: ' + ctx.GetVariable('loop.iteration'));
+
+  # 步骤 5: 记录完成
+  - id: complete
+    name: Complete
+    type: script
+    config:
+      script: |
+        console.log('All loop control examples completed!');

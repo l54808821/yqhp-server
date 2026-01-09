@@ -168,7 +168,7 @@ func (l *ExecutionLogic) Execute(req *ExecuteWorkflowReq, userID int64) (*model.
 		weWorkflow := workflow.ConvertToEngineWorkflow(def, executionID)
 
 		// 提交执行
-		_, submitErr := engine.SubmitWorkflow(l.ctx, weWorkflow)
+		engineExecutionID, submitErr := engine.SubmitWorkflow(l.ctx, weWorkflow)
 		if submitErr != nil {
 			// 提交失败，更新状态为失败
 			_, _ = q.TExecution.WithContext(l.ctx).Where(q.TExecution.ID.Eq(execution.ID)).Updates(map[string]interface{}{
@@ -178,8 +178,10 @@ func (l *ExecutionLogic) Execute(req *ExecuteWorkflowReq, userID int64) (*model.
 			return nil, fmt.Errorf("提交工作流执行失败: %v", submitErr)
 		}
 
-		// 启动后台协程监控执行状态
-		go l.monitorExecution(execution.ID, executionID, engine)
+		fmt.Printf("工作流已提交，引擎执行ID: %s\n", engineExecutionID)
+
+		// 启动后台协程监控执行状态（使用引擎返回的执行ID）
+		go l.monitorExecution(execution.ID, engineExecutionID, engine)
 	}
 
 	// 更新状态为运行中
@@ -209,12 +211,20 @@ func (l *ExecutionLogic) monitorExecution(dbID int64, executionID string, engine
 			// 获取执行状态
 			state, err := engine.GetExecutionStatus(context.Background(), executionID)
 			if err != nil {
+				fmt.Printf("获取执行状态失败: %v\n", err)
+				continue
+			}
+			if state == nil {
+				fmt.Printf("执行状态为空: %s\n", executionID)
 				continue
 			}
 
 			// 根据状态更新数据库
+			statusStr := string(state.Status)
+			fmt.Printf("执行状态: %s -> %s\n", executionID, statusStr)
+
 			var dbStatus string
-			switch state.Status {
+			switch statusStr {
 			case "pending":
 				dbStatus = ExecutionStatusPending
 			case "running":
@@ -228,11 +238,13 @@ func (l *ExecutionLogic) monitorExecution(dbID int64, executionID string, engine
 			case "paused":
 				dbStatus = ExecutionStatusPaused
 			default:
+				fmt.Printf("未知状态: %s\n", statusStr)
 				continue
 			}
 
 			// 如果是终态，更新并退出
 			if dbStatus == ExecutionStatusCompleted || dbStatus == ExecutionStatusFailed || dbStatus == ExecutionStatusStopped {
+				fmt.Printf("执行完成: %s -> %s\n", executionID, dbStatus)
 				l.updateExecutionStatus(dbID, dbStatus, state.EndTime, nil)
 				return
 			}

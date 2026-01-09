@@ -306,23 +306,32 @@ options:
         type: script
         config:
           script: "..."
+  loop: # 循环配置 (可选)
+    mode: for
+    count: 5
+    steps:
+      - id: loop_step
+        type: script
+        config:
+          script: "..."
   on_error: continue # 错误处理策略 (可选)
   timeout: 30s # 超时时间 (可选)
 ```
 
 ### Step 字段说明
 
-| 字段        | 类型      | 必需 | 说明                                    |
-| ----------- | --------- | ---- | --------------------------------------- |
-| `id`        | string    | 是   | 步骤唯一标识                            |
-| `name`      | string    | 否   | 步骤名称                                |
-| `type`      | string    | 是   | 步骤类型: http, script, grpc, condition |
-| `config`    | map       | 是   | 步骤配置                                |
-| `pre_hook`  | Hook      | 否   | 前置钩子                                |
-| `post_hook` | Hook      | 否   | 后置钩子                                |
-| `condition` | Condition | 否   | 条件执行                                |
-| `on_error`  | string    | 否   | 错误策略: abort, continue, retry, skip  |
-| `timeout`   | duration  | 否   | 超时时间                                |
+| 字段        | 类型      | 必需 | 说明                                          |
+| ----------- | --------- | ---- | --------------------------------------------- |
+| `id`        | string    | 是   | 步骤唯一标识                                  |
+| `name`      | string    | 否   | 步骤名称                                      |
+| `type`      | string    | 是   | 步骤类型: http, script, grpc, condition, loop |
+| `config`    | map       | 是   | 步骤配置                                      |
+| `pre_hook`  | Hook      | 否   | 前置钩子                                      |
+| `post_hook` | Hook      | 否   | 后置钩子                                      |
+| `condition` | Condition | 否   | 条件执行                                      |
+| `loop`      | Loop      | 否   | 循环配置                                      |
+| `on_error`  | string    | 否   | 错误策略: abort, continue, retry, skip        |
+| `timeout`   | duration  | 否   | 超时时间                                      |
 
 ### HTTP 步骤
 
@@ -373,6 +382,108 @@ options:
         config:
           script: "console.log('Error')"
 ```
+
+### Loop 步骤
+
+循环步骤支持三种模式：`for`（固定次数）、`foreach`（集合遍历）、`while`（条件循环）。
+
+#### For 循环
+
+```yaml
+- id: for_loop
+  type: loop
+  loop:
+    mode: for
+    count: 5 # 执行 5 次
+    steps:
+      - id: log_iteration
+        type: script
+        config:
+          script: |
+            console.log('Iteration: ' + ctx.GetVariable('loop.iteration'));
+            console.log('Index: ' + ctx.GetVariable('loop.index'));
+```
+
+#### Foreach 循环
+
+```yaml
+- id: foreach_loop
+  type: loop
+  loop:
+    mode: foreach
+    items: "${users}" # 可以是表达式或字面量数组
+    item_var: user # 当前元素变量名，默认为 "item"
+    steps:
+      - id: process_user
+        type: script
+        config:
+          script: |
+            const user = ctx.GetVariable('user');
+            console.log('User: ' + user.name);
+```
+
+#### While 循环
+
+```yaml
+- id: while_loop
+  type: loop
+  loop:
+    mode: while
+    condition: "${counter} < 10"
+    max_iterations: 100 # 安全限制，防止无限循环
+    steps:
+      - id: increment
+        type: script
+        config:
+          script: |
+            const counter = ctx.GetVariable('counter');
+            ctx.SetVariable('counter', counter + 1);
+```
+
+#### 循环控制
+
+使用 `break_condition` 和 `continue_condition` 控制循环流程：
+
+```yaml
+- id: controlled_loop
+  type: loop
+  loop:
+    mode: for
+    count: 100
+    break_condition: "${loop.index} >= 10" # 满足条件时退出循环
+    continue_condition: "${loop.index} % 2 == 1" # 满足条件时跳过当前迭代
+    steps:
+      - id: process
+        type: script
+        config:
+          script: "console.log('Index: ' + ctx.GetVariable('loop.index'))"
+```
+
+#### 循环变量
+
+循环执行时会自动设置以下变量：
+
+| 变量             | 说明                            |
+| ---------------- | ------------------------------- |
+| `loop.index`     | 当前迭代索引 (从 0 开始)        |
+| `loop.iteration` | 当前迭代次数 (从 1 开始)        |
+| `loop.count`     | 总迭代次数 (for/foreach 模式)   |
+| `loop.item`      | 当前元素 (foreach 模式)         |
+| `{item_var}`     | 自定义元素变量名 (foreach 模式) |
+
+#### Loop 配置字段
+
+| 字段                 | 类型   | 必需 | 说明                                  |
+| -------------------- | ------ | ---- | ------------------------------------- |
+| `mode`               | string | 是   | 循环模式: for, foreach, while         |
+| `count`              | int    | 否   | for 模式的迭代次数                    |
+| `items`              | any    | 否   | foreach 模式的集合 (表达式或字面量)   |
+| `item_var`           | string | 否   | foreach 模式的元素变量名，默认 "item" |
+| `condition`          | string | 否   | while 模式的条件表达式                |
+| `max_iterations`     | int    | 否   | while 模式的最大迭代次数，默认 1000   |
+| `break_condition`    | string | 否   | 满足时退出循环的条件                  |
+| `continue_condition` | string | 否   | 满足时跳过当前迭代的条件              |
+| `steps`              | []Step | 是   | 循环体中的步骤列表                    |
 
 ### 错误处理策略
 

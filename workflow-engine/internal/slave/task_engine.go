@@ -487,9 +487,9 @@ func (e *TaskEngine) executeWorkflowIteration(ctx context.Context, task *types.T
 		WithWorkflowID(workflow.ID).
 		WithExecutionID(task.ExecutionID)
 
-	// 设置回调到执行上下文（用于循环等嵌套场景）
-	if workflow.Options.Callback != nil {
-		execCtx.WithCallback(workflow.Options.Callback)
+	// 从工作流中获取回调并设置到执行上下文
+	if task.Workflow != nil && task.Workflow.Callback != nil {
+		execCtx.WithCallback(task.Workflow.Callback)
 	}
 
 	// 复制工作流变量
@@ -534,6 +534,9 @@ func (e *TaskEngine) executeStepsWithOptions(ctx context.Context, steps []types.
 func (e *TaskEngine) executeStepsWithContext(ctx context.Context, steps []types.Step, execCtx *executor.ExecutionContext, opts *types.ExecutionOptions, parentID string, iteration int) ([]*hook.StepExecutionResult, error) {
 	results := make([]*hook.StepExecutionResult, 0, len(steps))
 
+	// 从执行上下文获取回调
+	callback := execCtx.GetCallback()
+
 	fmt.Printf("[executeStepsWithContext] 开始执行 %d 个步骤, parentID=%s, iteration=%d\n", len(steps), parentID, iteration)
 
 	for i := range steps {
@@ -548,9 +551,9 @@ func (e *TaskEngine) executeStepsWithContext(ctx context.Context, steps []types.
 		fmt.Printf("[executeStepsWithContext] 执行步骤[%d]: id=%s, type=%s, name=%s\n", i, step.ID, step.Type, step.Name)
 
 		// 触发步骤开始回调
-		if opts != nil && opts.Callback != nil {
-			opts.Callback.OnStepStart(ctx, step, parentID, iteration)
-			opts.Callback.OnProgress(ctx, i+1, len(steps), step.Name)
+		if callback != nil {
+			callback.OnStepStart(ctx, step, parentID, iteration)
+			callback.OnProgress(ctx, i+1, len(steps), step.Name)
 		}
 
 		// 获取此步骤类型的执行器
@@ -564,8 +567,8 @@ func (e *TaskEngine) executeStepsWithContext(ctx context.Context, steps []types.
 		if err != nil {
 			fmt.Printf("[executeStepsWithContext] 获取执行器失败: type=%s, err=%v\n", execType, err)
 			// 触发步骤失败回调
-			if opts != nil && opts.Callback != nil {
-				opts.Callback.OnStepFailed(ctx, step, err, 0, parentID, iteration)
+			if callback != nil {
+				callback.OnStepFailed(ctx, step, err, 0, parentID, iteration)
 			}
 			return results, err
 		}
@@ -591,9 +594,9 @@ func (e *TaskEngine) executeStepsWithContext(ctx context.Context, steps []types.
 			execCtx.SetResult(step.ID, result.StepResult)
 
 			// 触发步骤完成/失败回调
-			if opts != nil && opts.Callback != nil {
+			if callback != nil {
 				if result.StepResult.Status == types.ResultStatusSuccess {
-					opts.Callback.OnStepComplete(ctx, step, result.StepResult, parentID, iteration)
+					callback.OnStepComplete(ctx, step, result.StepResult, parentID, iteration)
 				} else {
 					var errMsg error
 					if result.Error != nil {
@@ -601,7 +604,7 @@ func (e *TaskEngine) executeStepsWithContext(ctx context.Context, steps []types.
 					} else if result.StepResult.Error != nil {
 						errMsg = result.StepResult.Error
 					}
-					opts.Callback.OnStepFailed(ctx, step, errMsg, result.StepResult.Duration, parentID, iteration)
+					callback.OnStepFailed(ctx, step, errMsg, result.StepResult.Duration, parentID, iteration)
 				}
 			}
 		}

@@ -55,7 +55,7 @@ func NewExecutorError(code ErrorCode, message string, cause error) *ExecutorErro
 func NewExecutorNotFoundError(execType string) *ExecutorError {
 	return &ExecutorError{
 		Code:    ErrCodeNotFound,
-		Message: fmt.Sprintf("no executor registered for type: %s", execType),
+		Message: fmt.Sprintf("未找到类型为 '%s' 的执行器", execType),
 	}
 }
 
@@ -73,7 +73,7 @@ func NewExecutionError(stepID, message string, cause error) *ExecutorError {
 func NewTimeoutError(stepID string, timeout time.Duration) *ExecutorError {
 	return &ExecutorError{
 		Code:    ErrCodeTimeout,
-		Message: fmt.Sprintf("step execution timed out after %v", timeout),
+		Message: fmt.Sprintf("步骤执行超时，超时时间: %v", timeout),
 		StepID:  stepID,
 	}
 }
@@ -91,7 +91,7 @@ func NewConfigError(message string, cause error) *ExecutorError {
 func NewInitError(execType, message string, cause error) *ExecutorError {
 	return &ExecutorError{
 		Code:    ErrCodeInit,
-		Message: fmt.Sprintf("failed to initialize executor %s: %s", execType, message),
+		Message: fmt.Sprintf("初始化执行器 '%s' 失败: %s", execType, message),
 		Cause:   cause,
 	}
 }

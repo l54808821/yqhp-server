@@ -5,14 +5,15 @@ import "time"
 
 // Workflow represents a parsed workflow definition.
 type Workflow struct {
-	ID          string           `yaml:"id"`
-	Name        string           `yaml:"name"`
-	Description string           `yaml:"description,omitempty"`
-	Variables   map[string]any   `yaml:"variables,omitempty"`
-	PreHook     *Hook            `yaml:"pre_hook,omitempty"`
-	PostHook    *Hook            `yaml:"post_hook,omitempty"`
-	Steps       []Step           `yaml:"steps"`
-	Options     ExecutionOptions `yaml:"options,omitempty"`
+	ID          string            `yaml:"id"`
+	Name        string            `yaml:"name"`
+	Description string            `yaml:"description,omitempty"`
+	Variables   map[string]any    `yaml:"variables,omitempty"`
+	PreHook     *Hook             `yaml:"pre_hook,omitempty"`
+	PostHook    *Hook             `yaml:"post_hook,omitempty"`
+	Steps       []Step            `yaml:"steps"`
+	Options     ExecutionOptions  `yaml:"options,omitempty"`
+	Callback    ExecutionCallback `yaml:"-"` // 执行回调，用于实时通知执行进度（不序列化）
 }
 
 // Step represents a single execution unit in a workflow.

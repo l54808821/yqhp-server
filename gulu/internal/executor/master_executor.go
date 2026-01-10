@@ -111,8 +111,8 @@ func (e *MasterExecutor) Execute(ctx context.Context, req *DebugRequest) (*Debug
 		session:   session,
 	}
 
-	// 设置回调到工作流选项
-	req.Workflow.Options.Callback = callback
+	// 设置回调到工作流
+	req.Workflow.Callback = callback
 
 	// 合并变量
 	if req.Variables != nil {
@@ -295,9 +295,21 @@ func (c *debugCallback) OnStepComplete(ctx context.Context, step *types.Step, re
 		Duration:  result.Duration.Milliseconds(),
 	}
 
+	// 将 output 转换为 map[string]interface{}
 	if result.Output != nil {
+		// 先尝试直接类型断言
 		if outputMap, ok := result.Output.(map[string]interface{}); ok {
 			wsResult.Output = outputMap
+		} else {
+			// 如果不是 map，尝试通过 JSON 序列化/反序列化转换
+			// 这样可以处理结构体类型（如 HTTPResponse、FastHTTPResponse）
+			jsonBytes, err := json.Marshal(result.Output)
+			if err == nil {
+				var outputMap map[string]interface{}
+				if err := json.Unmarshal(jsonBytes, &outputMap); err == nil {
+					wsResult.Output = outputMap
+				}
+			}
 		}
 	}
 

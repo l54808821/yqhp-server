@@ -223,6 +223,21 @@ func (e *FastHTTPExecutor) Execute(ctx context.Context, step *types.Step, execCt
 		return CreateFailedResult(step.ID, startTime, err), nil
 	}
 
+	// 捕获请求信息用于调试
+	reqInfo := &HTTPRequestInfo{
+		Method:  config.Method,
+		URL:     string(req.URI().FullURI()),
+		Headers: make(map[string]string),
+	}
+	// 复制请求头
+	req.Header.VisitAll(func(key, value []byte) {
+		reqInfo.Headers[string(key)] = string(value)
+	})
+	// 复制请求体
+	if len(req.Body()) > 0 {
+		reqInfo.Body = string(req.Body())
+	}
+
 	// 执行请求
 	var execErr error
 	if e.globalConfig.Redirect.GetFollow() {
@@ -239,8 +254,8 @@ func (e *FastHTTPExecutor) Execute(ctx context.Context, step *types.Step, execCt
 		return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "HTTP 请求失败", execErr)), nil
 	}
 
-	// 构建响应输出
-	output := e.buildOutput(resp)
+	// 构建响应输出（包含请求信息）
+	output := e.buildOutputWithRequest(resp, reqInfo)
 
 	// 创建结果
 	result := CreateSuccessResult(step.ID, startTime, output)
@@ -472,10 +487,17 @@ type FastHTTPResponse struct {
 	Headers    map[string][]string `json:"headers"`
 	Body       any                 `json:"body"`
 	BodyRaw    string              `json:"body_raw"`
+	// 请求信息（用于调试）
+	Request *HTTPRequestInfo `json:"request,omitempty"`
 }
 
 // buildOutput 构建响应输出。
 func (e *FastHTTPExecutor) buildOutput(resp *fasthttp.Response) *FastHTTPResponse {
+	return e.buildOutputWithRequest(resp, nil)
+}
+
+// buildOutputWithRequest 构建响应输出，包含请求信息。
+func (e *FastHTTPExecutor) buildOutputWithRequest(resp *fasthttp.Response, reqInfo *HTTPRequestInfo) *FastHTTPResponse {
 	// 复制响应体（因为 resp.Body() 返回的是内部缓冲区的引用）
 	bodyBytes := make([]byte, len(resp.Body()))
 	copy(bodyBytes, resp.Body())
@@ -485,6 +507,7 @@ func (e *FastHTTPExecutor) buildOutput(resp *fasthttp.Response) *FastHTTPRespons
 		StatusCode: resp.StatusCode(),
 		Headers:    make(map[string][]string),
 		BodyRaw:    string(bodyBytes),
+		Request:    reqInfo,
 	}
 
 	// 复制响应头

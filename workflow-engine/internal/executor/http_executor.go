@@ -194,6 +194,21 @@ func (e *HTTPExecutor) Execute(ctx context.Context, step *types.Step, execCtx *E
 	// 解析 URL（支持多域名）
 	config.URL = e.globalConfig.ResolveURL(config.URL, config.Domain)
 
+	// 保存请求体字符串（用于调试输出）
+	var reqBodyStr string
+	if config.Body != nil {
+		switch body := config.Body.(type) {
+		case string:
+			reqBodyStr = body
+		case []byte:
+			reqBodyStr = string(body)
+		default:
+			if jsonBody, err := json.Marshal(body); err == nil {
+				reqBodyStr = string(jsonBody)
+			}
+		}
+	}
+
 	// 创建 HTTP 请求
 	req, err := e.createRequest(ctx, config, stepConfig)
 	if err != nil {
@@ -232,8 +247,8 @@ func (e *HTTPExecutor) Execute(ctx context.Context, step *types.Step, execCtx *E
 		return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "failed to read response body", err)), nil
 	}
 
-	// 构建响应输出
-	output := e.buildOutput(resp, body)
+	// 构建响应输出（包含请求信息，用于调试）
+	output := e.buildOutputWithRequest(req, resp, body, reqBodyStr)
 
 	// 创建结果
 	result := CreateSuccessResult(step.ID, startTime, output)
@@ -500,11 +515,22 @@ func (e *HTTPExecutor) createRequest(ctx context.Context, config *HTTPConfig, me
 
 // HTTPResponse 表示 HTTP 步骤的输出。
 type HTTPResponse struct {
+	// 请求信息（调试用）
+	Request *HTTPRequestInfo `json:"request,omitempty"`
+	// 响应信息
 	Status     string              `json:"status"`
 	StatusCode int                 `json:"status_code"`
 	Headers    map[string][]string `json:"headers"`
 	Body       any                 `json:"body"`
 	BodyRaw    string              `json:"body_raw"`
+}
+
+// HTTPRequestInfo 请求详情（用于调试）
+type HTTPRequestInfo struct {
+	Method  string            `json:"method"`
+	URL     string            `json:"url"`
+	Headers map[string]string `json:"headers"`
+	Body    string            `json:"body,omitempty"`
 }
 
 // buildOutput 构建响应输出。
@@ -522,6 +548,28 @@ func (e *HTTPExecutor) buildOutput(resp *http.Response, body []byte) *HTTPRespon
 		output.Body = jsonBody
 	} else {
 		output.Body = string(body)
+	}
+
+	return output
+}
+
+// buildOutputWithRequest 构建包含请求信息的响应输出（用于调试）
+func (e *HTTPExecutor) buildOutputWithRequest(req *http.Request, resp *http.Response, body []byte, reqBody string) *HTTPResponse {
+	output := e.buildOutput(resp, body)
+
+	// 添加请求信息
+	headers := make(map[string]string)
+	for k, v := range req.Header {
+		if len(v) > 0 {
+			headers[k] = v[0]
+		}
+	}
+
+	output.Request = &HTTPRequestInfo{
+		Method:  req.Method,
+		URL:     req.URL.String(),
+		Headers: headers,
+		Body:    reqBody,
 	}
 
 	return output

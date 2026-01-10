@@ -30,9 +30,18 @@ type ScriptExecutor struct {
 
 // NewScriptExecutor 创建一个新的脚本执行器。
 func NewScriptExecutor() *ScriptExecutor {
-	return &ScriptExecutor{
+	executor := &ScriptExecutor{
 		BaseExecutor: NewBaseExecutor(ScriptExecutorType),
 	}
+	// 根据操作系统设置默认 shell
+	if runtime.GOOS == "windows" {
+		executor.shell = "cmd"
+		executor.shellArgs = []string{"/C"}
+	} else {
+		executor.shell = "/bin/sh"
+		executor.shellArgs = []string{"-c"}
+	}
+	return executor
 }
 
 // Init 使用配置初始化脚本执行器。
@@ -134,6 +143,7 @@ func (e *ScriptExecutor) Execute(ctx context.Context, step *types.Step, execCtx 
 
 	// 构建输出
 	output := &ScriptOutput{
+		Script:   script,
 		Stdout:   stdout.String(),
 		Stderr:   stderr.String(),
 		ExitCode: 0,
@@ -152,7 +162,7 @@ func (e *ScriptExecutor) Execute(ctx context.Context, step *types.Step, execCtx 
 			output.ExitCode = -1
 		}
 
-		result := CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "script execution failed", err))
+		result := CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "脚本执行失败", err))
 		result.Output = output
 		return result, nil
 	}
@@ -179,6 +189,7 @@ type ScriptConfig struct {
 
 // ScriptOutput 表示脚本执行的输出。
 type ScriptOutput struct {
+	Script   string `json:"script"` // 执行的脚本内容
 	Stdout   string `json:"stdout"`
 	Stderr   string `json:"stderr"`
 	ExitCode int    `json:"exit_code"`
@@ -190,9 +201,9 @@ func (e *ScriptExecutor) parseConfig(config map[string]any) (*ScriptConfig, erro
 		Env: make(map[string]string),
 	}
 
-	// 获取内联脚本
-	if inline, ok := config["inline"].(string); ok {
-		scriptConfig.Script = inline
+	// 获取脚本内容（使用 script 字段）
+	if script, ok := config["script"].(string); ok {
+		scriptConfig.Script = script
 	}
 
 	// 获取脚本文件
@@ -204,14 +215,14 @@ func (e *ScriptExecutor) parseConfig(config map[string]any) (*ScriptConfig, erro
 	if scriptConfig.File != "" && scriptConfig.Script == "" {
 		content, err := os.ReadFile(scriptConfig.File)
 		if err != nil {
-			return nil, NewConfigError(fmt.Sprintf("failed to read script file: %s", scriptConfig.File), err)
+			return nil, NewConfigError(fmt.Sprintf("读取脚本文件失败: %s", scriptConfig.File), err)
 		}
 		scriptConfig.Script = string(content)
 	}
 
 	// 验证是否有脚本
 	if scriptConfig.Script == "" {
-		return nil, NewConfigError("script step requires 'inline' or 'file' configuration", nil)
+		return nil, NewConfigError("脚本步骤需要配置 'script'（脚本内容）或 'file'（脚本文件路径）", nil)
 	}
 
 	// 获取环境变量

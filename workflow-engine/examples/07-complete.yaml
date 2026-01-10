@@ -20,12 +20,35 @@ variables:
 
 # HTTP 全局配置
 http:
+  # 默认域名
   base_url: "https://httpbin.org"
+
+  # 多域名配置
+  domains:
+    main: "https://httpbin.org"
+    auth: "https://httpbin.org"
+    upload: "https://httpbin.org"
+
+  # 公共请求头（所有 HTTP 请求都会携带）
   headers:
     X-API-Key: "${api_key}"
     User-Agent: "workflow-engine/1.0"
     Accept: "application/json"
+
+  # SSL 配置
+  ssl:
+    verify: true
+
+  # 重定向配置
+  redirect:
+    follow: true
+    max_redirects: 5
+
+  # 超时配置
   timeout:
+    connect: 10s
+    read: 30s
+    write: 30s
     request: 60s
 
 # 工作流钩子
@@ -56,7 +79,7 @@ options:
       condition: "rate < 0.05"
 
 steps:
-  # 健康检查
+  # 健康检查 (使用默认 base_url)
   - id: health_check
     name: 健康检查
     type: http
@@ -68,6 +91,24 @@ steps:
       config:
         script: console.log('检查 API 健康状态...');
     on_error: abort
+    timeout: 30s
+
+  # 使用指定域名 (auth)
+  - id: auth_request
+    name: 认证请求
+    type: http
+    config:
+      method: POST
+      domain: auth # 使用 auth 域名
+      url: "/post"
+      headers:
+        X-Auth-Token: "bearer-token-12345"
+      body: |
+        {
+          "username": "${user_id}",
+          "action": "login"
+        }
+    on_error: continue
     timeout: 30s
 
   # 条件判断
@@ -93,12 +134,13 @@ steps:
               console.log('API 异常');
               ctx.SetVariable('api_healthy', false);
 
-  # 创建资源
+  # 创建资源 (使用 main 域名)
   - id: create_resource
     name: 创建资源
     type: http
     config:
       method: POST
+      domain: main # 使用 main 域名
       url: "/post"
       headers:
         Content-Type: "application/json"
@@ -109,6 +151,21 @@ steps:
         }
     on_error: continue
     timeout: 30s
+
+  # 文件上传 (使用 upload 域名)
+  - id: upload_file
+    name: 文件上传
+    type: http
+    config:
+      method: POST
+      domain: upload # 使用 upload 域名
+      url: "/post"
+      headers:
+        Content-Type: "application/octet-stream"
+        X-File-Name: "test-file.txt"
+      body: "This is test file content"
+    on_error: skip
+    timeout: 60s
 
   # 循环处理
   - id: batch_process

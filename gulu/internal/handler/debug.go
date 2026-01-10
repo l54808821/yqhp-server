@@ -119,8 +119,8 @@ func (h *DebugHandler) executeDebug(sessionID string, wf *model.TWorkflow, req S
 	// 等待 WebSocket 连接
 	time.Sleep(500 * time.Millisecond)
 
-	// 转换工作流定义
-	engineWf, err := logic.ConvertToEngineWorkflow(wf.Definition, sessionID)
+	// 转换工作流定义（调试模式：失败立即停止）
+	engineWf, err := logic.ConvertToEngineWorkflowForDebug(wf.Definition, sessionID)
 	if err != nil {
 		h.hub.BroadcastError(sessionID, "CONVERSION_ERROR", "工作流转换失败", err.Error())
 		return

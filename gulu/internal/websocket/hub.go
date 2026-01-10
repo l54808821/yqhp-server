@@ -32,19 +32,25 @@ type Message struct {
 
 // StepStartedData 步骤开始数据
 type StepStartedData struct {
-	StepID   string `json:"step_id"`
-	StepName string `json:"step_name"`
+	StepID    string `json:"step_id"`
+	StepName  string `json:"step_name"`
+	StepType  string `json:"step_type,omitempty"` // 步骤类型
+	ParentID  string `json:"parent_id,omitempty"` // 父步骤ID
+	Iteration int    `json:"iteration,omitempty"` // 循环迭代次数
 }
 
 // StepResult 步骤执行结果
 type StepResult struct {
-	StepID   string                 `json:"step_id"`
-	StepName string                 `json:"step_name"`
-	Status   string                 `json:"status"`
-	Duration int64                  `json:"duration_ms"`
-	Output   map[string]interface{} `json:"output,omitempty"`
-	Error    string                 `json:"error,omitempty"`
-	Logs     []string               `json:"logs,omitempty"`
+	StepID    string                 `json:"step_id"`
+	StepName  string                 `json:"step_name"`
+	StepType  string                 `json:"step_type,omitempty"` // 步骤类型
+	ParentID  string                 `json:"parent_id,omitempty"` // 父步骤ID
+	Iteration int                    `json:"iteration,omitempty"` // 循环迭代次数
+	Status    string                 `json:"status"`
+	Duration  int64                  `json:"duration_ms"`
+	Output    map[string]interface{} `json:"output,omitempty"`
+	Error     string                 `json:"error,omitempty"`
+	Logs      []string               `json:"logs,omitempty"`
 }
 
 // ProgressData 进度数据
@@ -168,15 +174,12 @@ func (h *Hub) Broadcast(sessionID string, msg *Message) error {
 }
 
 // BroadcastStepStarted 广播步骤开始事件
-func (h *Hub) BroadcastStepStarted(sessionID string, stepID, stepName string) {
+func (h *Hub) BroadcastStepStarted(sessionID string, data *StepStartedData) {
 	msg := &Message{
 		Type:      MsgTypeStepStarted,
 		SessionID: sessionID,
 		Timestamp: time.Now(),
-		Data: &StepStartedData{
-			StepID:   stepID,
-			StepName: stepName,
-		},
+		Data:      data,
 	}
 	h.Broadcast(sessionID, msg)
 }

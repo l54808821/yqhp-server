@@ -160,6 +160,17 @@ func (e *Engine) GetMetrics(ctx context.Context, executionID string) (*types.Agg
 
 // ConvertToEngineWorkflow 将 gulu 的工作流定义转换为 workflow-engine 的工作流类型
 func ConvertToEngineWorkflow(def *WorkflowDefinition, executionID string) *types.Workflow {
+	return ConvertToEngineWorkflowWithOptions(def, executionID, false)
+}
+
+// ConvertToEngineWorkflowForDebug 将工作流定义转换为调试模式的工作流
+// 调试模式下，所有步骤失败后立即停止（abort 策略）
+func ConvertToEngineWorkflowForDebug(def *WorkflowDefinition, executionID string) *types.Workflow {
+	return ConvertToEngineWorkflowWithOptions(def, executionID, true)
+}
+
+// ConvertToEngineWorkflowWithOptions 将工作流定义转换为引擎工作流，支持选项
+func ConvertToEngineWorkflowWithOptions(def *WorkflowDefinition, executionID string, debugMode bool) *types.Workflow {
 	if def == nil {
 		return nil
 	}
@@ -167,7 +178,7 @@ func ConvertToEngineWorkflow(def *WorkflowDefinition, executionID string) *types
 	// 转换步骤
 	steps := make([]types.Step, len(def.Steps))
 	for i, s := range def.Steps {
-		steps[i] = convertStep(s)
+		steps[i] = convertStepWithOptions(s, debugMode)
 	}
 
 	// 创建工作流
@@ -189,6 +200,11 @@ func ConvertToEngineWorkflow(def *WorkflowDefinition, executionID string) *types
 
 // convertStep 转换单个步骤
 func convertStep(s Step) types.Step {
+	return convertStepWithOptions(s, false)
+}
+
+// convertStepWithOptions 转换单个步骤，支持调试模式选项
+func convertStepWithOptions(s Step, debugMode bool) types.Step {
 	step := types.Step{
 		ID:     s.ID,
 		Type:   s.Type,
@@ -204,26 +220,31 @@ func convertStep(s Step) types.Step {
 	}
 
 	// 转换错误策略
-	switch s.OnError {
-	case "continue":
-		step.OnError = types.ErrorStrategyContinue
-	case "skip":
-		step.OnError = types.ErrorStrategySkip
-	case "retry":
-		step.OnError = types.ErrorStrategyRetry
-	default:
+	// 调试模式下强制使用 abort 策略，失败立即停止
+	if debugMode {
 		step.OnError = types.ErrorStrategyAbort
+	} else {
+		switch s.OnError {
+		case "continue":
+			step.OnError = types.ErrorStrategyContinue
+		case "skip":
+			step.OnError = types.ErrorStrategySkip
+		case "retry":
+			step.OnError = types.ErrorStrategyRetry
+		default:
+			step.OnError = types.ErrorStrategyAbort
+		}
 	}
 
 	// 转换条件配置
 	if s.Condition != nil {
 		thenSteps := make([]types.Step, len(s.Condition.Then))
 		for i, ts := range s.Condition.Then {
-			thenSteps[i] = convertStep(ts)
+			thenSteps[i] = convertStepWithOptions(ts, debugMode)
 		}
 		elseSteps := make([]types.Step, len(s.Condition.Else))
 		for i, es := range s.Condition.Else {
-			elseSteps[i] = convertStep(es)
+			elseSteps[i] = convertStepWithOptions(es, debugMode)
 		}
 		step.Condition = &types.Condition{
 			Expression: s.Condition.Expression,
@@ -239,12 +260,12 @@ func convertStep(s Step) types.Step {
 		if len(s.Children) > 0 {
 			loopSteps = make([]types.Step, len(s.Children))
 			for i, cs := range s.Children {
-				loopSteps[i] = convertStep(cs)
+				loopSteps[i] = convertStepWithOptions(cs, debugMode)
 			}
 		} else if len(s.Loop.Steps) > 0 {
 			loopSteps = make([]types.Step, len(s.Loop.Steps))
 			for i, ls := range s.Loop.Steps {
-				loopSteps[i] = convertStep(ls)
+				loopSteps[i] = convertStepWithOptions(ls, debugMode)
 			}
 		}
 

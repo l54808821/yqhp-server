@@ -48,6 +48,8 @@ type debugSession struct {
 	sessionID string
 	cancel    context.CancelFunc
 	stopped   bool
+	summary   *DebugSummary
+	mu        sync.Mutex
 }
 
 // NewMasterExecutor 创建 Master 执行器
@@ -72,10 +74,19 @@ func (e *MasterExecutor) Execute(ctx context.Context, req *DebugRequest) (*Debug
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	// 初始化汇总
+	summary := &DebugSummary{
+		SessionID:   req.SessionID,
+		TotalSteps:  0,
+		StepResults: make([]*websocket.StepResult, 0),
+		StartTime:   time.Now(),
+	}
+
 	// 注册会话
 	session := &debugSession{
 		sessionID: req.SessionID,
 		cancel:    cancel,
+		summary:   summary,
 	}
 	e.mu.Lock()
 	e.sessions[req.SessionID] = session
@@ -87,86 +98,61 @@ func (e *MasterExecutor) Execute(ctx context.Context, req *DebugRequest) (*Debug
 		e.mu.Unlock()
 	}()
 
-	// 展开所有步骤（包括循环内的子步骤）
-	allSteps := e.flattenSteps(req.Workflow.Steps)
-
-	// 初始化汇总
-	summary := &DebugSummary{
-		SessionID:   req.SessionID,
-		TotalSteps:  len(allSteps),
-		StepResults: make([]*websocket.StepResult, 0),
-		StartTime:   time.Now(),
-	}
-
 	// 获取工作流引擎
 	engine := workflow.GetEngine()
 	if engine == nil {
 		return nil, fmt.Errorf("工作流引擎未初始化")
 	}
 
-	// 执行工作流步骤
-	for i, step := range allSteps {
-		// 检查是否被停止
-		e.mu.RLock()
-		stopped := session.stopped
-		e.mu.RUnlock()
-		if stopped {
-			summary.Status = "stopped"
-			break
+	// 创建回调实现
+	callback := &debugCallback{
+		hub:       e.hub,
+		sessionID: req.SessionID,
+		session:   session,
+	}
+
+	// 设置回调到工作流选项
+	req.Workflow.Options.Callback = callback
+
+	// 合并变量
+	if req.Variables != nil {
+		if req.Workflow.Variables == nil {
+			req.Workflow.Variables = make(map[string]any)
 		}
-
-		// 检查上下文是否取消
-		select {
-		case <-ctx.Done():
-			if ctx.Err() == context.DeadlineExceeded {
-				summary.Status = "timeout"
-			} else {
-				summary.Status = "stopped"
-			}
-			break
-		default:
-		}
-
-		// 广播进度
-		e.hub.BroadcastProgress(req.SessionID, &websocket.ProgressData{
-			CurrentStep: i + 1,
-			TotalSteps:  len(allSteps),
-			Percentage:  ((i + 1) * 100) / len(allSteps),
-			StepName:    step.Name,
-		})
-
-		// 广播步骤开始
-		e.hub.BroadcastStepStarted(req.SessionID, step.ID, step.Name)
-
-		// 执行步骤
-		stepResult := e.executeStep(ctx, req.Workflow, &step, req.Variables)
-		summary.StepResults = append(summary.StepResults, stepResult)
-
-		if stepResult.Status == "success" {
-			summary.SuccessSteps++
-			e.hub.BroadcastStepCompleted(req.SessionID, stepResult)
-		} else {
-			summary.FailedSteps++
-			e.hub.BroadcastStepFailed(req.SessionID, step.ID, step.Name, stepResult.Error)
-
-			// 根据错误策略决定是否继续
-			if step.OnError == types.ErrorStrategyAbort || step.OnError == "" {
-				summary.Status = "failed"
-				break
-			}
+		for k, v := range req.Variables {
+			req.Workflow.Variables[k] = v
 		}
 	}
 
+	// 提交给引擎执行
+	execID, err := engine.SubmitWorkflow(ctx, req.Workflow)
+	if err != nil {
+		return nil, fmt.Errorf("提交执行失败: %w", err)
+	}
+
+	// 等待执行完成
+	err = e.waitForCompletion(ctx, engine, execID, session)
+
 	// 设置最终状态
+	session.mu.Lock()
 	summary.EndTime = time.Now()
 	summary.TotalDuration = summary.EndTime.Sub(summary.StartTime).Milliseconds()
 	if summary.Status == "" {
-		if summary.FailedSteps > 0 {
+		if err != nil {
+			if ctx.Err() == context.DeadlineExceeded {
+				summary.Status = "timeout"
+			} else if session.stopped {
+				summary.Status = "stopped"
+			} else {
+				summary.Status = "failed"
+			}
+		} else if summary.FailedSteps > 0 {
 			summary.Status = "failed"
 		} else {
 			summary.Status = "success"
 		}
 	}
+	session.mu.Unlock()
 
 	// 广播最终进度100%
 	e.hub.BroadcastProgress(req.SessionID, &websocket.ProgressData{
@@ -191,128 +177,44 @@ func (e *MasterExecutor) Execute(ctx context.Context, req *DebugRequest) (*Debug
 	return summary, nil
 }
 
-// flattenSteps 展开所有步骤（包括循环和条件内的子步骤）
-func (e *MasterExecutor) flattenSteps(steps []types.Step) []types.Step {
-	var result []types.Step
-	for _, step := range steps {
-		// 添加当前步骤
-		result = append(result, step)
-
-		// 如果是循环步骤，展开子步骤
-		if step.Loop != nil && len(step.Loop.Steps) > 0 {
-			childSteps := e.flattenSteps(step.Loop.Steps)
-			result = append(result, childSteps...)
-		}
-
-		// 如果是条件步骤，展开 then 和 else 分支
-		if step.Condition != nil {
-			if len(step.Condition.Then) > 0 {
-				thenSteps := e.flattenSteps(step.Condition.Then)
-				result = append(result, thenSteps...)
-			}
-			if len(step.Condition.Else) > 0 {
-				elseSteps := e.flattenSteps(step.Condition.Else)
-				result = append(result, elseSteps...)
-			}
-		}
-	}
-	return result
-}
-
-// executeStep 执行单个步骤
-func (e *MasterExecutor) executeStep(ctx context.Context, wf *types.Workflow, step *types.Step, variables map[string]interface{}) *websocket.StepResult {
-	startTime := time.Now()
-
-	result := &websocket.StepResult{
-		StepID:   step.ID,
-		StepName: step.Name,
-		Status:   "success",
-		Output:   make(map[string]interface{}),
-		Logs:     make([]string, 0),
-	}
-
-	// 获取工作流引擎
-	engine := workflow.GetEngine()
-	if engine == nil {
-		result.Status = "failed"
-		result.Error = "工作流引擎未初始化"
-		result.Duration = time.Since(startTime).Milliseconds()
-		return result
-	}
-
-	// 创建单步骤工作流用于执行
-	singleStepWf := &types.Workflow{
-		ID:        wf.ID + "_step_" + step.ID,
-		Name:      step.Name,
-		Variables: mergeVariables(wf.Variables, variables),
-		Steps:     []types.Step{*step},
-		Options: types.ExecutionOptions{
-			VUs:           1,
-			Iterations:    1,
-			ExecutionMode: "constant-vus",
-		},
-	}
-
-	// 提交执行
-	execID, err := engine.SubmitWorkflow(ctx, singleStepWf)
-	if err != nil {
-		result.Status = "failed"
-		result.Error = fmt.Sprintf("提交执行失败: %v", err)
-		result.Duration = time.Since(startTime).Milliseconds()
-		return result
-	}
-
-	// 等待执行完成
-	ticker := time.NewTicker(100 * time.Millisecond)
+// waitForCompletion 等待执行完成
+func (e *MasterExecutor) waitForCompletion(ctx context.Context, engine *workflow.Engine, execID string, session *debugSession) error {
+	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
-			result.Status = "timeout"
-			result.Error = "执行超时"
-			result.Duration = time.Since(startTime).Milliseconds()
-			return result
+			return ctx.Err()
 		case <-ticker.C:
+			// 检查是否被停止
+			e.mu.RLock()
+			stopped := session.stopped
+			e.mu.RUnlock()
+			if stopped {
+				engine.StopExecution(ctx, execID)
+				return fmt.Errorf("执行被停止")
+			}
+
+			// 获取执行状态
 			state, err := engine.GetExecutionStatus(ctx, execID)
 			if err != nil {
-				result.Logs = append(result.Logs, fmt.Sprintf("获取状态失败: %v", err))
 				continue
 			}
 
 			switch state.Status {
 			case types.ExecutionStatusCompleted:
-				result.Status = "success"
-				result.Duration = time.Since(startTime).Milliseconds()
-				// 尝试获取输出
-				if state.AggregatedMetrics != nil {
-					result.Output["metrics"] = state.AggregatedMetrics
-				}
-				return result
-			case types.ExecutionStatusFailed, types.ExecutionStatusAborted:
-				result.Status = "failed"
+				return nil
+			case types.ExecutionStatusFailed:
 				if len(state.Errors) > 0 {
-					result.Error = state.Errors[0].Message
-				} else {
-					result.Error = "执行失败"
+					return fmt.Errorf(state.Errors[0].Message)
 				}
-				result.Duration = time.Since(startTime).Milliseconds()
-				return result
+				return fmt.Errorf("执行失败")
+			case types.ExecutionStatusAborted:
+				return fmt.Errorf("执行被中止")
 			}
 		}
 	}
-}
-
-// mergeVariables 合并变量
-func mergeVariables(base map[string]any, override map[string]interface{}) map[string]any {
-	result := make(map[string]any)
-	for k, v := range base {
-		result[k] = v
-	}
-	for k, v := range override {
-		result[k] = v
-	}
-	return result
 }
 
 // Stop 停止调试
@@ -357,3 +259,105 @@ func (s *DebugSummary) ToJSON() (string, error) {
 	}
 	return string(data), nil
 }
+
+// debugCallback 调试回调实现
+type debugCallback struct {
+	hub       *websocket.Hub
+	sessionID string
+	session   *debugSession
+}
+
+// OnStepStart 步骤开始
+func (c *debugCallback) OnStepStart(ctx context.Context, step *types.Step, parentID string, iteration int) {
+	c.hub.BroadcastStepStarted(c.sessionID, &websocket.StepStartedData{
+		StepID:    step.ID,
+		StepName:  step.Name,
+		StepType:  step.Type,
+		ParentID:  parentID,
+		Iteration: iteration,
+	})
+}
+
+// OnStepComplete 步骤完成
+func (c *debugCallback) OnStepComplete(ctx context.Context, step *types.Step, result *types.StepResult, parentID string, iteration int) {
+	c.session.mu.Lock()
+	c.session.summary.TotalSteps++
+	c.session.summary.SuccessSteps++
+	c.session.mu.Unlock()
+
+	wsResult := &websocket.StepResult{
+		StepID:    step.ID,
+		StepName:  step.Name,
+		StepType:  step.Type,
+		ParentID:  parentID,
+		Iteration: iteration,
+		Status:    "success",
+		Duration:  result.Duration.Milliseconds(),
+	}
+
+	if result.Output != nil {
+		if outputMap, ok := result.Output.(map[string]interface{}); ok {
+			wsResult.Output = outputMap
+		}
+	}
+
+	c.session.mu.Lock()
+	c.session.summary.StepResults = append(c.session.summary.StepResults, wsResult)
+	c.session.mu.Unlock()
+
+	c.hub.BroadcastStepCompleted(c.sessionID, wsResult)
+}
+
+// OnStepFailed 步骤失败
+func (c *debugCallback) OnStepFailed(ctx context.Context, step *types.Step, err error, duration time.Duration, parentID string, iteration int) {
+	c.session.mu.Lock()
+	c.session.summary.TotalSteps++
+	c.session.summary.FailedSteps++
+	c.session.mu.Unlock()
+
+	errMsg := ""
+	if err != nil {
+		errMsg = err.Error()
+	}
+
+	wsResult := &websocket.StepResult{
+		StepID:    step.ID,
+		StepName:  step.Name,
+		StepType:  step.Type,
+		ParentID:  parentID,
+		Iteration: iteration,
+		Status:    "failed",
+		Duration:  duration.Milliseconds(),
+		Error:     errMsg,
+	}
+
+	c.session.mu.Lock()
+	c.session.summary.StepResults = append(c.session.summary.StepResults, wsResult)
+	c.session.mu.Unlock()
+
+	c.hub.BroadcastStepFailed(c.sessionID, step.ID, step.Name, errMsg)
+}
+
+// OnProgress 进度更新
+func (c *debugCallback) OnProgress(ctx context.Context, current, total int, stepName string) {
+	percentage := 0
+	if total > 0 {
+		percentage = current * 100 / total
+	}
+
+	c.hub.BroadcastProgress(c.sessionID, &websocket.ProgressData{
+		CurrentStep: current,
+		TotalSteps:  total,
+		Percentage:  percentage,
+		StepName:    stepName,
+	})
+}
+
+// OnExecutionComplete 执行完成
+func (c *debugCallback) OnExecutionComplete(ctx context.Context, summary *types.ExecutionSummary) {
+	// 这个回调在 waitForCompletion 之后由 Execute 方法处理
+	// 这里不需要做任何事情
+}
+
+// 确保 debugCallback 实现了 ExecutionCallback 接口
+var _ types.ExecutionCallback = (*debugCallback)(nil)

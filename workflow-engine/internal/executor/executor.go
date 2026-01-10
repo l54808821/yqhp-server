@@ -43,6 +43,15 @@ type ExecutionContext struct {
 	// ExecutionID 是此次执行的唯一 ID。
 	ExecutionID string
 
+	// Callback 执行回调（用于实时通知）
+	Callback types.ExecutionCallback
+
+	// ParentStepID 父步骤ID（用于循环等嵌套场景）
+	ParentStepID string
+
+	// LoopIteration 循环迭代次数（从1开始）
+	LoopIteration int
+
 	mu sync.RWMutex
 }
 
@@ -130,12 +139,15 @@ func (c *ExecutionContext) Clone() *ExecutionContext {
 	defer c.mu.RUnlock()
 
 	newCtx := &ExecutionContext{
-		Variables:   make(map[string]any, len(c.Variables)),
-		Results:     make(map[string]*types.StepResult, len(c.Results)),
-		VU:          c.VU,
-		Iteration:   c.Iteration,
-		WorkflowID:  c.WorkflowID,
-		ExecutionID: c.ExecutionID,
+		Variables:     make(map[string]any, len(c.Variables)),
+		Results:       make(map[string]*types.StepResult, len(c.Results)),
+		VU:            c.VU,
+		Iteration:     c.Iteration,
+		WorkflowID:    c.WorkflowID,
+		ExecutionID:   c.ExecutionID,
+		Callback:      c.Callback,
+		ParentStepID:  c.ParentStepID,
+		LoopIteration: c.LoopIteration,
 	}
 
 	for k, v := range c.Variables {
@@ -146,6 +158,44 @@ func (c *ExecutionContext) Clone() *ExecutionContext {
 	}
 
 	return newCtx
+}
+
+// WithCallback 设置执行回调。
+func (c *ExecutionContext) WithCallback(callback types.ExecutionCallback) *ExecutionContext {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.Callback = callback
+	return c
+}
+
+// WithParentStep 设置父步骤信息（用于循环等嵌套场景）。
+func (c *ExecutionContext) WithParentStep(parentID string, iteration int) *ExecutionContext {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.ParentStepID = parentID
+	c.LoopIteration = iteration
+	return c
+}
+
+// GetCallback 获取执行回调。
+func (c *ExecutionContext) GetCallback() types.ExecutionCallback {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.Callback
+}
+
+// GetParentStepID 获取父步骤ID。
+func (c *ExecutionContext) GetParentStepID() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.ParentStepID
+}
+
+// GetLoopIteration 获取循环迭代次数。
+func (c *ExecutionContext) GetLoopIteration() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.LoopIteration
 }
 
 // ToEvaluationContext 将 ExecutionContext 转换为表达式求值上下文。

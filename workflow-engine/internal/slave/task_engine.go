@@ -487,6 +487,11 @@ func (e *TaskEngine) executeWorkflowIteration(ctx context.Context, task *types.T
 		WithWorkflowID(workflow.ID).
 		WithExecutionID(task.ExecutionID)
 
+	// 设置回调到执行上下文（用于循环等嵌套场景）
+	if workflow.Options.Callback != nil {
+		execCtx.WithCallback(workflow.Options.Callback)
+	}
+
 	// 复制工作流变量
 	if workflow.Variables != nil {
 		for k, v := range workflow.Variables {
@@ -522,9 +527,14 @@ func (e *TaskEngine) executeSteps(ctx context.Context, steps []types.Step, execC
 
 // executeStepsWithOptions 执行步骤列表，支持执行选项。
 func (e *TaskEngine) executeStepsWithOptions(ctx context.Context, steps []types.Step, execCtx *executor.ExecutionContext, opts *types.ExecutionOptions) ([]*hook.StepExecutionResult, error) {
+	return e.executeStepsWithContext(ctx, steps, execCtx, opts, "", 0)
+}
+
+// executeStepsWithContext 执行步骤列表，支持父步骤上下文（用于循环等嵌套场景）
+func (e *TaskEngine) executeStepsWithContext(ctx context.Context, steps []types.Step, execCtx *executor.ExecutionContext, opts *types.ExecutionOptions, parentID string, iteration int) ([]*hook.StepExecutionResult, error) {
 	results := make([]*hook.StepExecutionResult, 0, len(steps))
 
-	fmt.Printf("[executeStepsWithOptions] 开始执行 %d 个步骤\n", len(steps))
+	fmt.Printf("[executeStepsWithContext] 开始执行 %d 个步骤, parentID=%s, iteration=%d\n", len(steps), parentID, iteration)
 
 	for i := range steps {
 		step := &steps[i]
@@ -535,7 +545,13 @@ func (e *TaskEngine) executeStepsWithOptions(ctx context.Context, steps []types.
 		default:
 		}
 
-		fmt.Printf("[executeStepsWithOptions] 执行步骤[%d]: id=%s, type=%s, name=%s\n", i, step.ID, step.Type, step.Name)
+		fmt.Printf("[executeStepsWithContext] 执行步骤[%d]: id=%s, type=%s, name=%s\n", i, step.ID, step.Type, step.Name)
+
+		// 触发步骤开始回调
+		if opts != nil && opts.Callback != nil {
+			opts.Callback.OnStepStart(ctx, step, parentID, iteration)
+			opts.Callback.OnProgress(ctx, i+1, len(steps), step.Name)
+		}
 
 		// 获取此步骤类型的执行器
 		execType := step.Type
@@ -546,11 +562,15 @@ func (e *TaskEngine) executeStepsWithOptions(ctx context.Context, steps []types.
 
 		exec, err := e.registry.GetOrError(execType)
 		if err != nil {
-			fmt.Printf("[executeStepsWithOptions] 获取执行器失败: type=%s, err=%v\n", execType, err)
+			fmt.Printf("[executeStepsWithContext] 获取执行器失败: type=%s, err=%v\n", execType, err)
+			// 触发步骤失败回调
+			if opts != nil && opts.Callback != nil {
+				opts.Callback.OnStepFailed(ctx, step, err, 0, parentID, iteration)
+			}
 			return results, err
 		}
 
-		fmt.Printf("[executeStepsWithOptions] 找到执行器: type=%s\n", execType)
+		fmt.Printf("[executeStepsWithContext] 找到执行器: type=%s\n", execType)
 
 		// 使用钩子执行步骤
 		result := e.hookRunner.ExecuteStepWithHooks(
@@ -558,39 +578,77 @@ func (e *TaskEngine) executeStepsWithOptions(ctx context.Context, steps []types.
 			step,
 			execCtx,
 			func(ctx context.Context, s *types.Step, ec *executor.ExecutionContext) (*types.StepResult, error) {
-				return e.executeStep(ctx, exec, s, ec)
+				return e.executeStepWithCallback(ctx, exec, s, ec, opts, parentID, iteration)
 			},
 		)
 
-		fmt.Printf("[executeStepsWithOptions] 步骤[%d] 执行完成: status=%v, error=%v\n", i, result.StepResult != nil && result.StepResult.Status == types.ResultStatusSuccess, result.Error)
+		fmt.Printf("[executeStepsWithContext] 步骤[%d] 执行完成: status=%v, error=%v\n", i, result.StepResult != nil && result.StepResult.Status == types.ResultStatusSuccess, result.Error)
 
 		results = append(results, result)
 
 		// 将结果存储到上下文中
 		if result.StepResult != nil {
 			execCtx.SetResult(step.ID, result.StepResult)
+
+			// 触发步骤完成/失败回调
+			if opts != nil && opts.Callback != nil {
+				if result.StepResult.Status == types.ResultStatusSuccess {
+					opts.Callback.OnStepComplete(ctx, step, result.StepResult, parentID, iteration)
+				} else {
+					var errMsg error
+					if result.Error != nil {
+						errMsg = result.Error
+					} else if result.StepResult.Error != nil {
+						errMsg = result.StepResult.Error
+					}
+					opts.Callback.OnStepFailed(ctx, step, errMsg, result.StepResult.Duration, parentID, iteration)
+				}
+			}
 		}
 
 		// 处理错误策略
-		if result.Error != nil {
+		// 检查步骤是否失败（通过 error 或 status）
+		stepFailed := result.Error != nil ||
+			(result.StepResult != nil && (result.StepResult.Status == types.ResultStatusFailed || result.StepResult.Status == types.ResultStatusTimeout))
+
+		if stepFailed {
 			switch step.OnError {
 			case types.ErrorStrategyAbort:
-				return results, result.Error
+				if result.Error != nil {
+					return results, result.Error
+				}
+				// 如果没有 error 但状态是失败，构造一个错误返回
+				if result.StepResult != nil && result.StepResult.Error != nil {
+					return results, result.StepResult.Error
+				}
+				return results, fmt.Errorf("步骤 %s 执行失败", step.Name)
 			case types.ErrorStrategyContinue, types.ErrorStrategySkip:
 				continue
 			default:
-				return results, result.Error
+				// 默认也是 abort
+				if result.Error != nil {
+					return results, result.Error
+				}
+				if result.StepResult != nil && result.StepResult.Error != nil {
+					return results, result.StepResult.Error
+				}
+				return results, fmt.Errorf("步骤 %s 执行失败", step.Name)
 			}
 		}
 	}
 
-	fmt.Printf("[executeStepsWithOptions] 所有步骤执行完成\n")
+	fmt.Printf("[executeStepsWithContext] 所有步骤执行完成\n")
 
 	return results, nil
 }
 
 // executeStep 执行单个步骤。
 func (e *TaskEngine) executeStep(ctx context.Context, exec executor.Executor, step *types.Step, execCtx *executor.ExecutionContext) (result *types.StepResult, err error) {
+	return e.executeStepWithCallback(ctx, exec, step, execCtx, nil, "", 0)
+}
+
+// executeStepWithCallback 执行单个步骤，支持回调。
+func (e *TaskEngine) executeStepWithCallback(ctx context.Context, exec executor.Executor, step *types.Step, execCtx *executor.ExecutionContext, opts *types.ExecutionOptions, parentID string, iteration int) (result *types.StepResult, err error) {
 	startTime := time.Now()
 
 	// 添加 panic 恢复，防止执行器 panic 导致整个服务崩溃
@@ -600,7 +658,7 @@ func (e *TaskEngine) executeStep(ctx context.Context, exec executor.Executor, st
 			result = executor.CreateFailedResult(step.ID, startTime, panicErr)
 			err = panicErr
 			e.collector.RecordStep(step.ID, result)
-			fmt.Printf("[executeStep] 步骤 %s 执行器发生 panic: %v\n", step.ID, r)
+			fmt.Printf("[executeStepWithCallback] 步骤 %s 执行器发生 panic: %v\n", step.ID, r)
 		}
 	}()
 

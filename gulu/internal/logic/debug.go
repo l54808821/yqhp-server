@@ -188,3 +188,16 @@ func ConvertToEngineWorkflow(definition string, executionID string) (*types.Work
 	// 使用 workflow 包的转换函数
 	return workflow.ConvertToEngineWorkflow(&def, executionID), nil
 }
+
+// ConvertToEngineWorkflowForDebug 将工作流定义转换为调试模式的引擎工作流
+// 调试模式下，所有步骤失败后立即停止
+func ConvertToEngineWorkflowForDebug(definition string, executionID string) (*types.Workflow, error) {
+	// 解析工作流定义
+	var def workflow.WorkflowDefinition
+	if err := json.Unmarshal([]byte(definition), &def); err != nil {
+		return nil, err
+	}
+
+	// 使用 workflow 包的调试模式转换函数
+	return workflow.ConvertToEngineWorkflowForDebug(&def, executionID), nil
+}

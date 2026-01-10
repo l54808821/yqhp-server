@@ -4,16 +4,17 @@ import "time"
 
 // ExecutionOptions defines load testing parameters.
 type ExecutionOptions struct {
-	VUs           int            `yaml:"vus,omitempty"`
-	Duration      time.Duration  `yaml:"duration,omitempty"`
-	Iterations    int            `yaml:"iterations,omitempty"`
-	RampUp        *RampConfig    `yaml:"ramp_up,omitempty"`
-	Thresholds    []Threshold    `yaml:"thresholds,omitempty"`
-	SlaveType     string         `yaml:"slave_type,omitempty"`
-	TargetSlaves  *SlaveSelector `yaml:"target_slaves,omitempty"`
-	ExecutionMode ExecutionMode  `yaml:"mode,omitempty"`
-	Stages        []Stage        `yaml:"stages,omitempty"`
-	HTTPEngine    HTTPEngineType `yaml:"http_engine,omitempty"` // HTTP 引擎类型：fasthttp（默认）或 standard
+	VUs           int               `yaml:"vus,omitempty"`
+	Duration      time.Duration     `yaml:"duration,omitempty"`
+	Iterations    int               `yaml:"iterations,omitempty"`
+	RampUp        *RampConfig       `yaml:"ramp_up,omitempty"`
+	Thresholds    []Threshold       `yaml:"thresholds,omitempty"`
+	SlaveType     string            `yaml:"slave_type,omitempty"`
+	TargetSlaves  *SlaveSelector    `yaml:"target_slaves,omitempty"`
+	ExecutionMode ExecutionMode     `yaml:"mode,omitempty"`
+	Stages        []Stage           `yaml:"stages,omitempty"`
+	HTTPEngine    HTTPEngineType    `yaml:"http_engine,omitempty"` // HTTP 引擎类型：fasthttp（默认）或 standard
+	Callback      ExecutionCallback `yaml:"-" json:"-"`            // 执行回调（不序列化）
 }
 
 // HTTPEngineType 定义 HTTP 引擎类型

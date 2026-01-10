@@ -357,18 +357,37 @@ func (e *LoopExecutor) executeWhileLoop(ctx context.Context, step *types.Step, l
 func (e *LoopExecutor) executeLoopBody(ctx context.Context, parentStep *types.Step, steps []types.Step, execCtx *ExecutionContext, iteration int) ([]string, error) {
 	stepsExecuted := make([]string, 0, len(steps))
 
+	// 获取回调
+	callback := execCtx.GetCallback()
+
 	for i := range steps {
 		step := &steps[i]
+
+		// 触发步骤开始回调
+		if callback != nil {
+			callback.OnStepStart(ctx, step, parentStep.ID, iteration+1) // iteration 从1开始
+			callback.OnProgress(ctx, i+1, len(steps), step.Name)
+		}
 
 		// 获取执行器
 		executor, err := e.getExecutor(step.Type)
 		if err != nil {
+			if callback != nil {
+				callback.OnStepFailed(ctx, step, err, 0, parentStep.ID, iteration+1)
+			}
 			return stepsExecuted, NewExecutionError(parentStep.ID, fmt.Sprintf("iteration %d, step '%s': %v", iteration, step.ID, err), nil)
 		}
 
+		// 创建子上下文，设置父步骤信息
+		childCtx := execCtx.Clone().WithParentStep(parentStep.ID, iteration+1)
+
 		// 执行步骤
-		result, err := executor.Execute(ctx, step, execCtx)
+		startTime := time.Now()
+		result, err := executor.Execute(ctx, step, childCtx)
 		if err != nil {
+			if callback != nil {
+				callback.OnStepFailed(ctx, step, err, time.Since(startTime), parentStep.ID, iteration+1)
+			}
 			return stepsExecuted, NewExecutionError(parentStep.ID, fmt.Sprintf("iteration %d, step '%s': %v", iteration, step.ID, err), nil)
 		}
 
@@ -376,6 +395,15 @@ func (e *LoopExecutor) executeLoopBody(ctx context.Context, parentStep *types.St
 
 		// 将结果存储到上下文
 		execCtx.SetResult(step.ID, result)
+
+		// 触发步骤完成/失败回调
+		if callback != nil {
+			if result.Status == types.ResultStatusSuccess {
+				callback.OnStepComplete(ctx, step, result, parentStep.ID, iteration+1)
+			} else {
+				callback.OnStepFailed(ctx, step, result.Error, result.Duration, parentStep.ID, iteration+1)
+			}
+		}
 
 		// 处理错误
 		if result.Status == types.ResultStatusFailed || result.Status == types.ResultStatusTimeout {

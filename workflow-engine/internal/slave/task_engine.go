@@ -9,6 +9,7 @@ import (
 
 	"yqhp/workflow-engine/internal/executor"
 	"yqhp/workflow-engine/internal/hook"
+	"yqhp/workflow-engine/pkg/logger"
 	"yqhp/workflow-engine/pkg/types"
 )
 
@@ -50,10 +51,10 @@ func (e *TaskEngine) Execute(ctx context.Context, task *types.Task) (*types.Task
 		return nil, fmt.Errorf("无效任务: task 或 workflow 为空")
 	}
 
-	fmt.Printf("[TaskEngine.Execute] 开始执行任务: %s, 工作流: %s\n", task.ID, task.Workflow.Name)
-	fmt.Printf("[TaskEngine.Execute] 步骤数: %d\n", len(task.Workflow.Steps))
+	logger.Debug("TaskEngine.Execute] 开始执行任务: %s, 工作流: %s\n", task.ID, task.Workflow.Name)
+	logger.Debug("TaskEngine.Execute] 步骤数: %d\n", len(task.Workflow.Steps))
 	for i, step := range task.Workflow.Steps {
-		fmt.Printf("[TaskEngine.Execute] 步骤[%d]: id=%s, type=%s, name=%s\n", i, step.ID, step.Type, step.Name)
+		logger.Debug("TaskEngine.Execute] 步骤[%d]: id=%s, type=%s, name=%s\n", i, step.ID, step.Type, step.Name)
 	}
 
 	e.running.Store(true)
@@ -72,13 +73,13 @@ func (e *TaskEngine) Execute(ctx context.Context, task *types.Task) (*types.Task
 	iterations := e.calculateIterations(opts, task.Segment)
 	duration := opts.Duration
 
-	fmt.Printf("[TaskEngine.Execute] 执行参数: vus=%d, iterations=%d, duration=%v, mode=%s\n", vus, iterations, duration, opts.ExecutionMode)
+	logger.Debug("TaskEngine.Execute] 执行参数: vus=%d, iterations=%d, duration=%v, mode=%s\n", vus, iterations, duration, opts.ExecutionMode)
 
 	// 根据模式执行
 	var execErr error
 	switch opts.ExecutionMode {
 	case types.ModeConstantVUs, "":
-		fmt.Printf("[TaskEngine.Execute] 使用 ConstantVUs 模式执行\n")
+		logger.Debug("TaskEngine.Execute] 使用 ConstantVUs 模式执行")
 		execErr = e.executeConstantVUs(ctx, task, vus, duration, iterations)
 	case types.ModeRampingVUs:
 		execErr = e.executeRampingVUs(ctx, task, opts.Stages)
@@ -90,7 +91,7 @@ func (e *TaskEngine) Execute(ctx context.Context, task *types.Task) (*types.Task
 		execErr = e.executeConstantVUs(ctx, task, vus, duration, iterations)
 	}
 
-	fmt.Printf("[TaskEngine.Execute] 执行完成, execErr=%v\n", execErr)
+	logger.Debug("TaskEngine.Execute] 执行完成, execErr=%v\n", execErr)
 
 	if execErr != nil {
 		result.Status = types.ExecutionStatusFailed
@@ -109,7 +110,7 @@ func (e *TaskEngine) Execute(ctx context.Context, task *types.Task) (*types.Task
 	// 设置迭代次数
 	result.Iterations = e.iterations.Load()
 
-	fmt.Printf("[TaskEngine.Execute] 返回结果: status=%s, iterations=%d\n", result.Status, result.Iterations)
+	logger.Debug("TaskEngine.Execute] 返回结果: status=%s, iterations=%d\n", result.Status, result.Iterations)
 
 	return result, execErr
 }
@@ -186,7 +187,7 @@ func (e *TaskEngine) calculateIterations(opts types.ExecutionOptions, segment ty
 // executeConstantVUs 使用固定数量的 VU 执行。
 // Requirements: 6.1.1
 func (e *TaskEngine) executeConstantVUs(ctx context.Context, task *types.Task, vus int, duration time.Duration, iterations int) error {
-	fmt.Printf("[executeConstantVUs] 开始: vus=%d, duration=%v, iterations=%d\n", vus, duration, iterations)
+	logger.Debug("executeConstantVUs] 开始: vus=%d, duration=%v, iterations=%d\n", vus, duration, iterations)
 
 	var wg sync.WaitGroup
 	errChan := make(chan error, vus)
@@ -203,7 +204,7 @@ func (e *TaskEngine) executeConstantVUs(ctx context.Context, task *types.Task, v
 	for i := 0; i < vus; i++ {
 		vu := e.vuPool.Acquire(i)
 		if vu == nil {
-			fmt.Printf("[executeConstantVUs] 无法获取 VU %d\n", i)
+			logger.Debug("executeConstantVUs] 无法获取 VU %d\n", i)
 			continue
 		}
 
@@ -215,9 +216,9 @@ func (e *TaskEngine) executeConstantVUs(ctx context.Context, task *types.Task, v
 			defer e.activeVUs.Add(-1)
 			defer e.vuPool.Release(vu)
 
-			fmt.Printf("[executeConstantVUs] VU %d 开始执行\n", vu.ID)
+			logger.Debug("executeConstantVUs] VU %d 开始执行\n", vu.ID)
 			err := e.runVU(execCtx, task, vu, iterations)
-			fmt.Printf("[executeConstantVUs] VU %d 执行完成, err=%v\n", vu.ID, err)
+			logger.Debug("executeConstantVUs] VU %d 执行完成, err=%v\n", vu.ID, err)
 			if err != nil && err != context.Canceled && err != context.DeadlineExceeded {
 				errChan <- err
 			}
@@ -225,10 +226,10 @@ func (e *TaskEngine) executeConstantVUs(ctx context.Context, task *types.Task, v
 	}
 
 	// 等待所有 VU 完成
-	fmt.Printf("[executeConstantVUs] 等待所有 VU 完成...\n")
+	logger.Debug("executeConstantVUs] 等待所有 VU 完成...")
 	wg.Wait()
 	close(errChan)
-	fmt.Printf("[executeConstantVUs] 所有 VU 已完成\n")
+	logger.Debug("executeConstantVUs] 所有 VU 已完成")
 
 	// 收集错误
 	var firstErr error
@@ -443,28 +444,28 @@ func (e *TaskEngine) runVU(ctx context.Context, task *types.Task, vu *types.Virt
 	defer func() {
 		if r := recover(); r != nil {
 			err = fmt.Errorf("VU %d panic: %v", vu.ID, r)
-			fmt.Printf("[runVU] VU %d 发生 panic: %v\n", vu.ID, r)
+			logger.Debug("runVU] VU %d 发生 panic: %v\n", vu.ID, r)
 		}
 	}()
 
-	fmt.Printf("[runVU] VU %d 开始, maxIterations=%d\n", vu.ID, maxIterations)
+	logger.Debug("runVU] VU %d 开始, maxIterations=%d\n", vu.ID, maxIterations)
 	iteration := 0
 	for {
 		select {
 		case <-ctx.Done():
-			fmt.Printf("[runVU] VU %d 上下文取消\n", vu.ID)
+			logger.Debug("runVU] VU %d 上下文取消\n", vu.ID)
 			return ctx.Err()
 		default:
 			if maxIterations > 0 && iteration >= maxIterations {
-				fmt.Printf("[runVU] VU %d 达到最大迭代次数 %d\n", vu.ID, maxIterations)
+				logger.Debug("runVU] VU %d 达到最大迭代次数 %d\n", vu.ID, maxIterations)
 				return nil
 			}
 
 			vu.Iteration = iteration
-			fmt.Printf("[runVU] VU %d 执行迭代 %d\n", vu.ID, iteration)
+			logger.Debug("runVU] VU %d 执行迭代 %d\n", vu.ID, iteration)
 			err := e.executeWorkflowIteration(ctx, task, vu)
 			if err != nil {
-				fmt.Printf("[runVU] VU %d 迭代 %d 执行失败: %v\n", vu.ID, iteration, err)
+				logger.Debug("runVU] VU %d 迭代 %d 执行失败: %v\n", vu.ID, iteration, err)
 				return err
 			}
 
@@ -478,7 +479,7 @@ func (e *TaskEngine) runVU(ctx context.Context, task *types.Task, vu *types.Virt
 func (e *TaskEngine) executeWorkflowIteration(ctx context.Context, task *types.Task, vu *types.VirtualUser) error {
 	workflow := task.Workflow
 
-	fmt.Printf("[executeWorkflowIteration] VU %d 开始执行工作流迭代, 步骤数: %d\n", vu.ID, len(workflow.Steps))
+	logger.Debug("executeWorkflowIteration] VU %d 开始执行工作流迭代, 步骤数: %d\n", vu.ID, len(workflow.Steps))
 
 	// 创建执行上下文
 	execCtx := executor.NewExecutionContext().
@@ -512,7 +513,7 @@ func (e *TaskEngine) executeWorkflowIteration(ctx context.Context, task *types.T
 		},
 	)
 
-	fmt.Printf("[executeWorkflowIteration] VU %d 工作流迭代完成, error=%v\n", vu.ID, result.Error)
+	logger.Debug("executeWorkflowIteration] VU %d 工作流迭代完成, error=%v\n", vu.ID, result.Error)
 
 	// 记录指标
 	e.recordWorkflowMetrics(result)
@@ -537,7 +538,7 @@ func (e *TaskEngine) executeStepsWithContext(ctx context.Context, steps []types.
 	// 从执行上下文获取回调
 	callback := execCtx.GetCallback()
 
-	fmt.Printf("[executeStepsWithContext] 开始执行 %d 个步骤, parentID=%s, iteration=%d\n", len(steps), parentID, iteration)
+	logger.Debug("executeStepsWithContext] 开始执行 %d 个步骤, parentID=%s, iteration=%d\n", len(steps), parentID, iteration)
 
 	for i := range steps {
 		step := &steps[i]
@@ -548,7 +549,7 @@ func (e *TaskEngine) executeStepsWithContext(ctx context.Context, steps []types.
 		default:
 		}
 
-		fmt.Printf("[executeStepsWithContext] 执行步骤[%d]: id=%s, type=%s, name=%s\n", i, step.ID, step.Type, step.Name)
+		logger.Debug("executeStepsWithContext] 执行步骤[%d]: id=%s, type=%s, name=%s\n", i, step.ID, step.Type, step.Name)
 
 		// 触发步骤开始回调
 		if callback != nil {
@@ -565,7 +566,7 @@ func (e *TaskEngine) executeStepsWithContext(ctx context.Context, steps []types.
 
 		exec, err := e.registry.GetOrError(execType)
 		if err != nil {
-			fmt.Printf("[executeStepsWithContext] 获取执行器失败: type=%s, err=%v\n", execType, err)
+			logger.Debug("executeStepsWithContext] 获取执行器失败: type=%s, err=%v\n", execType, err)
 			// 触发步骤失败回调
 			if callback != nil {
 				callback.OnStepFailed(ctx, step, err, 0, parentID, iteration)
@@ -573,7 +574,7 @@ func (e *TaskEngine) executeStepsWithContext(ctx context.Context, steps []types.
 			return results, err
 		}
 
-		fmt.Printf("[executeStepsWithContext] 找到执行器: type=%s\n", execType)
+		logger.Debug("executeStepsWithContext] 找到执行器: type=%s\n", execType)
 
 		// 使用钩子执行步骤
 		result := e.hookRunner.ExecuteStepWithHooks(
@@ -585,7 +586,7 @@ func (e *TaskEngine) executeStepsWithContext(ctx context.Context, steps []types.
 			},
 		)
 
-		fmt.Printf("[executeStepsWithContext] 步骤[%d] 执行完成: status=%v, error=%v\n", i, result.StepResult != nil && result.StepResult.Status == types.ResultStatusSuccess, result.Error)
+		logger.Debug("executeStepsWithContext] 步骤[%d] 执行完成: status=%v, error=%v\n", i, result.StepResult != nil && result.StepResult.Status == types.ResultStatusSuccess, result.Error)
 
 		results = append(results, result)
 
@@ -640,7 +641,7 @@ func (e *TaskEngine) executeStepsWithContext(ctx context.Context, steps []types.
 		}
 	}
 
-	fmt.Printf("[executeStepsWithContext] 所有步骤执行完成\n")
+	logger.Debug("executeStepsWithContext] 所有步骤执行完成")
 
 	return results, nil
 }
@@ -661,7 +662,7 @@ func (e *TaskEngine) executeStepWithCallback(ctx context.Context, exec executor.
 			result = executor.CreateFailedResult(step.ID, startTime, panicErr)
 			err = panicErr
 			e.collector.RecordStep(step.ID, result)
-			fmt.Printf("[executeStepWithCallback] 步骤 %s 执行器发生 panic: %v\n", step.ID, r)
+			logger.Debug("executeStepWithCallback] 步骤 %s 执行器发生 panic: %v\n", step.ID, r)
 		}
 	}()
 

@@ -12,6 +12,7 @@ import (
 
 	"yqhp/workflow-engine/internal/master"
 	"yqhp/workflow-engine/internal/parser"
+	"yqhp/workflow-engine/pkg/logger"
 	"yqhp/workflow-engine/pkg/types"
 )
 
@@ -28,6 +29,7 @@ func Execute(args []string) error {
 	// 输出选项
 	quiet := fs.Bool("quiet", false, "静默模式，不输出进度")
 	jsonOutput := fs.String("out-json", "", "输出 JSON 结果到文件")
+	debug := fs.Bool("debug", false, "启用调试日志")
 
 	// 帮助
 	help := fs.Bool("help", false, "显示帮助信息")
@@ -43,6 +45,11 @@ func Execute(args []string) error {
 	if *help {
 		printUsage()
 		return nil
+	}
+
+	// 启用调试日志
+	if *debug {
+		logger.EnableDebug()
 	}
 
 	// 获取工作流文件路径
@@ -148,6 +155,8 @@ func printUsage() {
         执行模式 (constant-vus, ramping-vus, per-vu-iterations, shared-iterations)
   -quiet
         静默模式，不输出进度
+  -debug
+        启用调试日志
   -out-json string
         输出 JSON 结果到文件
   -help
@@ -156,7 +165,8 @@ func printUsage() {
 示例:
   workflow-engine run workflow.yaml
   workflow-engine run -vus 10 -duration 30s workflow.yaml
-  workflow-engine run -iterations 100 -mode shared-iterations workflow.yaml`)
+  workflow-engine run -iterations 100 -mode shared-iterations workflow.yaml
+  workflow-engine run -debug workflow.yaml`)
 }
 
 func printExecutionInfo(workflow *types.Workflow) {

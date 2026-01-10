@@ -165,6 +165,14 @@ func (e *MasterExecutor) Execute(ctx context.Context, req *DebugRequest) (*Debug
 		}
 	}
 
+	// 广播最终进度100%
+	e.hub.BroadcastProgress(req.SessionID, &websocket.ProgressData{
+		CurrentStep: summary.TotalSteps,
+		TotalSteps:  summary.TotalSteps,
+		Percentage:  100,
+		StepName:    "完成",
+	})
+
 	// 广播完成
 	e.hub.BroadcastDebugComplete(req.SessionID, &websocket.DebugSummary{
 		SessionID:     summary.SessionID,

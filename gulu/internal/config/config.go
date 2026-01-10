@@ -24,6 +24,7 @@ type WorkflowEngineConfig struct {
 	Standalone       bool          `yaml:"standalone"`        // 独立模式
 	MaxExecutions    int           `yaml:"max_executions"`    // 最大并发执行数
 	HeartbeatTimeout time.Duration `yaml:"heartbeat_timeout"` // 心跳超时
+	Debug            bool          `yaml:"debug"`             // 是否启用调试日志
 }
 
 // Config 应用配置

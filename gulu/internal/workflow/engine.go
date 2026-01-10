@@ -8,6 +8,7 @@ import (
 
 	"yqhp/gulu/internal/config"
 	"yqhp/workflow-engine/pkg/engine"
+	"yqhp/workflow-engine/pkg/logger"
 	"yqhp/workflow-engine/pkg/types"
 )
 
@@ -30,6 +31,11 @@ func Init(cfg *config.WorkflowEngineConfig) error {
 	engineOnce.Do(func() {
 		globalEngine = &Engine{
 			config: cfg,
+		}
+
+		// 根据配置启用调试日志
+		if cfg.Debug {
+			logger.EnableDebug()
 		}
 
 		if cfg.Embedded {

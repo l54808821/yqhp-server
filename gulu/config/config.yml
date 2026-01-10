@@ -66,3 +66,4 @@ workflow_engine:
   standalone: true # 独立模式（true=本地执行，false=分发到Slave执行）
   max_executions: 100 # 最大并发执行数
   heartbeat_timeout: 30s # Slave 心跳超时
+  debug: false # 是否启用调试日志

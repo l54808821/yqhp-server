@@ -62,7 +62,7 @@ gulu:
 workflow_engine:
   embedded: true # 是否使用内置 Master（默认 true）
   external_url: "" # 外部 Master 地址（embedded=false 时使用）
-  grpc_address: ":9090" # gRPC 服务地址
+  http_address: ":8080" # HTTP 服务地址（Master 监听地址）
   standalone: true # 独立模式（true=本地执行，false=分发到Slave执行）
   max_executions: 100 # 最大并发执行数
   heartbeat_timeout: 30s # Slave 心跳超时

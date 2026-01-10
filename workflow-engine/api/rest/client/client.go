@@ -12,7 +12,6 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
-	"yqhp/workflow-engine/api/rest"
 	"yqhp/workflow-engine/pkg/types"
 )
 
@@ -37,7 +36,7 @@ type Config struct {
 	Address string
 
 	// Resources contains resource information.
-	Resources *rest.ResourceInfo
+	Resources *types.APIResourceInfo
 
 	// HeartbeatInterval is the interval between heartbeats.
 	HeartbeatInterval time.Duration
@@ -119,21 +118,21 @@ type BufferedResult struct {
 	ExecutionID string
 	Status      string
 	Result      map[string]interface{}
-	Errors      []*rest.ExecutionErrorRequest
+	Errors      []*types.ExecutionErrorRequest
 }
 
 // BufferedMetrics holds metrics for buffering.
 type BufferedMetrics struct {
 	ExecutionID string
-	Metrics     *rest.MetricsData
-	StepMetrics map[string]*rest.StepMetricsData
+	Metrics     *types.APIMetricsData
+	StepMetrics map[string]*types.StepMetricsData
 }
 
 // TaskHandler handles incoming task assignments.
-type TaskHandler func(ctx context.Context, task *rest.TaskAssignment) error
+type TaskHandler func(ctx context.Context, task *types.TaskAssignment) error
 
 // CommandHandler handles incoming control commands.
-type CommandHandler func(ctx context.Context, cmd *rest.ControlCommand) error
+type CommandHandler func(ctx context.Context, cmd *types.ControlCommand) error
 
 // DisconnectHandler is called when the client disconnects.
 type DisconnectHandler func(err error)
@@ -215,7 +214,7 @@ func (c *Client) Register(ctx context.Context) error {
 		return fmt.Errorf("not connected")
 	}
 
-	req := &rest.SlaveRegisterRequest{
+	req := &types.SlaveRegisterRequest{
 		SlaveID:      c.config.SlaveID,
 		SlaveType:    string(c.config.SlaveType),
 		Capabilities: c.config.Capabilities,
@@ -241,14 +240,14 @@ func (c *Client) Register(ctx context.Context) error {
 	}
 
 	if statusCode != fiber.StatusOK && statusCode != fiber.StatusCreated {
-		var errResp rest.ErrorResponse
+		var errResp types.ErrorResponse
 		if err := json.Unmarshal(respBody, &errResp); err == nil {
 			return fmt.Errorf("registration failed: %s", errResp.Message)
 		}
 		return fmt.Errorf("registration failed with status: %d", statusCode)
 	}
 
-	var resp rest.SlaveRegisterResponse
+	var resp types.SlaveRegisterResponse
 	if err := json.Unmarshal(respBody, &resp); err != nil {
 		return fmt.Errorf("failed to unmarshal register response: %w", err)
 	}
@@ -272,7 +271,7 @@ func (c *Client) Register(ctx context.Context) error {
 }
 
 // StartHeartbeat starts the heartbeat loop.
-func (c *Client) StartHeartbeat(ctx context.Context, statusProvider func() *rest.SlaveStatusInfo) error {
+func (c *Client) StartHeartbeat(ctx context.Context, statusProvider func() *types.APISlaveStatusInfo) error {
 	if !c.registered.Load() {
 		return fmt.Errorf("not registered")
 	}
@@ -286,7 +285,7 @@ func (c *Client) StartHeartbeat(ctx context.Context, statusProvider func() *rest
 }
 
 // heartbeatLoop sends periodic heartbeats.
-func (c *Client) heartbeatLoop(statusProvider func() *rest.SlaveStatusInfo) {
+func (c *Client) heartbeatLoop(statusProvider func() *types.APISlaveStatusInfo) {
 	ticker := time.NewTicker(c.config.HeartbeatInterval)
 	defer ticker.Stop()
 
@@ -318,8 +317,8 @@ func (c *Client) heartbeatLoop(statusProvider func() *rest.SlaveStatusInfo) {
 }
 
 // sendHeartbeat sends a single heartbeat.
-func (c *Client) sendHeartbeat(status *rest.SlaveStatusInfo) (*rest.SlaveHeartbeatResponse, error) {
-	req := &rest.SlaveHeartbeatRequest{
+func (c *Client) sendHeartbeat(status *types.APISlaveStatusInfo) (*types.SlaveHeartbeatResponse, error) {
+	req := &types.SlaveHeartbeatRequest{
 		SlaveID:   c.config.SlaveID,
 		Status:    status,
 		Timestamp: time.Now().UnixMilli(),
@@ -345,7 +344,7 @@ func (c *Client) sendHeartbeat(status *rest.SlaveStatusInfo) (*rest.SlaveHeartbe
 		return nil, fmt.Errorf("heartbeat failed with status: %d", statusCode)
 	}
 
-	var resp rest.SlaveHeartbeatResponse
+	var resp types.SlaveHeartbeatResponse
 	if err := json.Unmarshal(respBody, &resp); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal heartbeat response: %w", err)
 	}
@@ -354,7 +353,7 @@ func (c *Client) sendHeartbeat(status *rest.SlaveStatusInfo) (*rest.SlaveHeartbe
 }
 
 // PollTasks polls for pending tasks from the master.
-func (c *Client) PollTasks(ctx context.Context) ([]*rest.TaskAssignment, error) {
+func (c *Client) PollTasks(ctx context.Context) ([]*types.TaskAssignment, error) {
 	if !c.registered.Load() {
 		return nil, fmt.Errorf("not registered")
 	}
@@ -372,7 +371,7 @@ func (c *Client) PollTasks(ctx context.Context) ([]*rest.TaskAssignment, error) 
 		return nil, fmt.Errorf("poll tasks failed with status: %d", statusCode)
 	}
 
-	var resp rest.PendingTasksResponse
+	var resp types.PendingTasksResponse
 	if err := json.Unmarshal(respBody, &resp); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal tasks response: %w", err)
 	}
@@ -454,7 +453,7 @@ func (c *Client) SendTaskResult(result *BufferedResult) error {
 
 // sendTaskResultDirect sends a task result directly to the master.
 func (c *Client) sendTaskResultDirect(result *BufferedResult) error {
-	req := &rest.TaskResultRequest{
+	req := &types.TaskResultRequest{
 		TaskID:      result.TaskID,
 		ExecutionID: result.ExecutionID,
 		SlaveID:     c.config.SlaveID,
@@ -480,7 +479,7 @@ func (c *Client) sendTaskResultDirect(result *BufferedResult) error {
 	}
 
 	if statusCode != fiber.StatusOK {
-		var errResp rest.ErrorResponse
+		var errResp types.ErrorResponse
 		if err := json.Unmarshal(respBody, &errResp); err == nil {
 			return fmt.Errorf("send task result failed: %s", errResp.Message)
 		}
@@ -533,7 +532,7 @@ func (c *Client) sendBufferedResults() {
 
 // SendMetrics sends metrics to the master.
 // If not connected, the metrics are buffered for later delivery.
-func (c *Client) SendMetrics(executionID string, metrics *rest.MetricsData, stepMetrics map[string]*rest.StepMetricsData) error {
+func (c *Client) SendMetrics(executionID string, metrics *types.APIMetricsData, stepMetrics map[string]*types.StepMetricsData) error {
 	if metrics == nil {
 		return fmt.Errorf("metrics cannot be nil")
 	}
@@ -561,7 +560,7 @@ func (c *Client) SendMetrics(executionID string, metrics *rest.MetricsData, step
 
 // sendMetricsDirect sends metrics directly to the master.
 func (c *Client) sendMetricsDirect(buffered *BufferedMetrics) error {
-	req := &rest.MetricsReportRequest{
+	req := &types.MetricsReportRequest{
 		SlaveID:     c.config.SlaveID,
 		ExecutionID: buffered.ExecutionID,
 		Timestamp:   time.Now().UnixMilli(),
@@ -586,7 +585,7 @@ func (c *Client) sendMetricsDirect(buffered *BufferedMetrics) error {
 	}
 
 	if statusCode != fiber.StatusOK {
-		var errResp rest.ErrorResponse
+		var errResp types.ErrorResponse
 		if err := json.Unmarshal(respBody, &errResp); err == nil {
 			return fmt.Errorf("send metrics failed: %s", errResp.Message)
 		}
@@ -636,7 +635,7 @@ func (c *Client) sendBufferedMetrics() {
 
 // unregister unregisters this slave from the master.
 func (c *Client) unregister(ctx context.Context) error {
-	req := &rest.SlaveUnregisterRequest{
+	req := &types.SlaveUnregisterRequest{
 		SlaveID: c.config.SlaveID,
 		Reason:  "client disconnect",
 	}
@@ -757,8 +756,8 @@ func (c *Client) reconnectLoop() {
 func (c *Client) restartLoops(ctx context.Context) error {
 	// Restart heartbeat if it was running
 	if c.heartbeatCancel != nil {
-		if err := c.StartHeartbeat(ctx, func() *rest.SlaveStatusInfo {
-			return &rest.SlaveStatusInfo{
+		if err := c.StartHeartbeat(ctx, func() *types.APISlaveStatusInfo {
+			return &types.APISlaveStatusInfo{
 				State:    string(types.SlaveStateOnline),
 				LastSeen: time.Now().UnixMilli(),
 			}

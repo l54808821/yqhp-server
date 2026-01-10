@@ -325,13 +325,13 @@ func (c *WorkflowEngineClient) getExecutionStatusExternal(executionID string) (*
 
 	// 转换 Errors
 	if len(resp.Errors) > 0 {
-		state.Errors = make([]*types.ExecutionError, len(resp.Errors))
+		state.Errors = make([]types.ExecutionError, len(resp.Errors))
 		for i, e := range resp.Errors {
 			var timestamp time.Time
 			if e.Timestamp != "" {
 				timestamp, _ = time.Parse(time.RFC3339, e.Timestamp)
 			}
-			state.Errors[i] = &types.ExecutionError{
+			state.Errors[i] = types.ExecutionError{
 				Code:      types.ErrorCode(e.Code),
 				Message:   e.Message,
 				StepID:    e.StepID,

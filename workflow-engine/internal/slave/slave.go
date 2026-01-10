@@ -7,7 +7,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"yqhp/workflow-engine/api/rest"
 	httpclient "yqhp/workflow-engine/api/rest/client"
 	"yqhp/workflow-engine/internal/executor"
 	"yqhp/workflow-engine/pkg/types"
@@ -203,7 +202,7 @@ func (s *WorkerSlave) Connect(ctx context.Context, masterAddr string) error {
 		ResultBufferSize:  1000,
 		MetricsBufferSize: 1000,
 		TaskPollInterval:  1 * time.Second,
-		Resources: &rest.ResourceInfo{
+		Resources: &types.APIResourceInfo{
 			CPUCores: s.config.CPUCores,
 			MemoryMB: s.config.MemoryMB,
 			MaxVUs:   s.config.MaxVUs,
@@ -214,7 +213,7 @@ func (s *WorkerSlave) Connect(ctx context.Context, masterAddr string) error {
 	s.httpClient = httpclient.NewClient(clientCfg)
 
 	// 设置任务处理回调
-	s.httpClient.SetTaskHandler(func(ctx context.Context, task *rest.TaskAssignment) error {
+	s.httpClient.SetTaskHandler(func(ctx context.Context, task *types.TaskAssignment) error {
 		fmt.Printf("收到任务: %s, 执行ID: %s\n", task.TaskID, task.ExecutionID)
 
 		// 转换任务格式
@@ -224,7 +223,7 @@ func (s *WorkerSlave) Connect(ctx context.Context, masterAddr string) error {
 			Workflow:    task.Workflow,
 		}
 		if task.Segment != nil {
-			internalTask.Segment = &types.ExecutionSegment{
+			internalTask.Segment = types.ExecutionSegment{
 				Start: task.Segment.Start,
 				End:   task.Segment.End,
 			}
@@ -241,12 +240,11 @@ func (s *WorkerSlave) Connect(ctx context.Context, masterAddr string) error {
 			TaskID:      result.TaskID,
 			ExecutionID: result.ExecutionID,
 			Status:      string(result.Status),
-			Result:      result.Result,
 		}
 		if len(result.Errors) > 0 {
-			bufferedResult.Errors = make([]*rest.ExecutionErrorRequest, len(result.Errors))
+			bufferedResult.Errors = make([]*types.ExecutionErrorRequest, len(result.Errors))
 			for i, e := range result.Errors {
-				bufferedResult.Errors[i] = &rest.ExecutionErrorRequest{
+				bufferedResult.Errors[i] = &types.ExecutionErrorRequest{
 					Code:      string(e.Code),
 					Message:   e.Message,
 					StepID:    e.StepID,
@@ -264,7 +262,7 @@ func (s *WorkerSlave) Connect(ctx context.Context, masterAddr string) error {
 	})
 
 	// 设置命令处理回调
-	s.httpClient.SetCommandHandler(func(ctx context.Context, cmd *rest.ControlCommand) error {
+	s.httpClient.SetCommandHandler(func(ctx context.Context, cmd *types.ControlCommand) error {
 		fmt.Printf("收到命令: %s, 执行ID: %s\n", cmd.Type, cmd.ExecutionID)
 		// TODO: 处理控制命令（停止、暂停、恢复等）
 		return nil
@@ -295,14 +293,14 @@ func (s *WorkerSlave) Connect(ctx context.Context, masterAddr string) error {
 
 	// 启动心跳
 	s.heartbeatCtx, s.heartbeatCancel = context.WithCancel(context.Background())
-	if err := s.httpClient.StartHeartbeat(s.heartbeatCtx, func() *rest.SlaveStatusInfo {
+	if err := s.httpClient.StartHeartbeat(s.heartbeatCtx, func() *types.APISlaveStatusInfo {
 		status := s.GetStatus()
-		return &rest.SlaveStatusInfo{
+		return &types.APISlaveStatusInfo{
 			State:       string(status.State),
 			Load:        status.Load,
 			ActiveTasks: status.ActiveTasks,
 			LastSeen:    status.LastSeen.UnixMilli(),
-			Metrics: &rest.SlaveMetrics{
+			Metrics: &types.APISlaveMetrics{
 				CPUUsage:    status.Metrics.CPUUsage,
 				MemoryUsage: status.Metrics.MemoryUsage,
 				ActiveVUs:   status.Metrics.ActiveVUs,

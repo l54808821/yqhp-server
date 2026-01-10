@@ -26,7 +26,7 @@
 │                     │  └─────────────────────────────────────┘│ │
 │                     └──────────────────┬──────────────────────┘ │
 └────────────────────────────────────────┼────────────────────────┘
-                                         │ gRPC
+                                         │ HTTP
                     ┌────────────────────┼────────────────────┐
                     │                    │                    │
                     ▼                    ▼                    ▼
@@ -62,7 +62,7 @@ Master 内置在 Gulu 服务中，无需单独启动。适合：
 workflow_engine:
   embedded: true # 使用内置 Master
   standalone: true # 无需 Slave 也能执行简单工作流
-  grpc_address: ":9090" # gRPC 服务地址
+  http_address: ":8080" # HTTP 服务地址
   max_executions: 100 # 最大并发执行数
 ```
 
@@ -112,7 +112,7 @@ go build -o workflow-engine ./cmd/main.go
 
 ```bash
 # 启动 Master（如果还没启动）
-./workflow-engine master start --address :8080 --grpc-address :9090
+./workflow-engine master start --address :8080
 
 # 验证 Master 运行状态
 curl http://localhost:8080/health
@@ -124,14 +124,14 @@ curl http://localhost:8080/health
 
 ```bash
 # 连接到本地 Master
-./workflow-engine slave start --master localhost:9090
+./workflow-engine slave start --master http://localhost:8080
 ```
 
 ### 带参数启动
 
 ```bash
 ./workflow-engine slave start \
-  --master localhost:9090 \
+  --master http://localhost:8080 \
   --id my-executor-1 \
   --max-vus 100 \
   --type worker
@@ -155,7 +155,7 @@ INFO  Slave is ready to receive tasks
 
 | 参数             | 说明                  | 默认值                          | 示例                              |
 | ---------------- | --------------------- | ------------------------------- | --------------------------------- |
-| `--master`       | Master 节点 gRPC 地址 | `localhost:9090`                | `192.168.1.100:9090`              |
+| `--master`       | Master 节点 HTTP 地址 | `http://localhost:8080`         | `http://192.168.1.100:8080`       |
 | `--id`           | 执行机唯一标识        | 自动生成                        | `executor-prod-1`                 |
 | `--type`         | 执行机类型            | `worker`                        | `worker`, `gateway`, `aggregator` |
 | `--address`      | 执行机监听地址        | `:9091`                         | `0.0.0.0:9091`                    |
@@ -190,7 +190,7 @@ slave:
     env: prod
     team: qa
   max_vus: 200
-  master_addr: "192.168.1.100:9090"
+  master_url: "http://192.168.1.100:8080"
 
 logging:
   level: info
@@ -259,7 +259,7 @@ Type=simple
 User=workflow
 WorkingDirectory=/opt/workflow-engine
 ExecStart=/opt/workflow-engine/workflow-engine slave start \
-  --master 192.168.1.100:9090 \
+  --master http://192.168.1.100:8080 \
   --id executor-prod-1 \
   --max-vus 200 \
   --labels region=cn-east,env=prod
@@ -317,7 +317,7 @@ docker run -d \
   --restart always \
   workflow-engine:latest \
   slave start \
-  --master host.docker.internal:9090 \
+  --master http://host.docker.internal:8080 \
   --id docker-executor-1 \
   --max-vus 100
 ```
@@ -357,11 +357,11 @@ journalctl -u workflow-executor --since "2024-01-01 00:00:00" --until "2024-01-0
 # 1. 检查 Master 是否运行
 curl http://<master-host>:8080/health
 
-# 2. 检查 gRPC 端口是否可达
-nc -zv <master-host> 9090
+# 2. 检查 HTTP 端口是否可达
+nc -zv <master-host> 8080
 
 # 3. 检查防火墙
-sudo iptables -L -n | grep 9090
+sudo iptables -L -n | grep 8080
 
 # 4. 检查网络连通性
 ping <master-host>
@@ -370,7 +370,7 @@ ping <master-host>
 **解决方案**：
 
 - 确保 Master 已启动
-- 检查防火墙规则，开放 9090 端口
+- 检查防火墙规则，开放 8080 端口
 - 确认 `--master` 参数地址正确
 
 ### Q2: 执行机频繁断开重连
@@ -427,7 +427,7 @@ top -p $(pgrep workflow-engine)
 ```bash
 # 在不同机器上启动
 ./workflow-engine slave start \
-  --master 192.168.1.100:9090 \
+  --master http://192.168.1.100:8080 \
   --id executor-2 \
   --max-vus 200
 ```
@@ -437,7 +437,7 @@ top -p $(pgrep workflow-engine)
 ```bash
 # 重启时增加 max-vus
 ./workflow-engine slave start \
-  --master 192.168.1.100:9090 \
+  --master http://192.168.1.100:8080 \
   --id executor-1 \
   --max-vus 500
 ```
@@ -455,7 +455,7 @@ top -p $(pgrep workflow-engine)
 ### 2. 网络配置
 
 - Master 和 Slave 之间使用内网通信
-- 确保 gRPC 端口（默认 9090）可访问
+- 确保 HTTP 端口（默认 8080）可访问
 - 建议配置心跳超时为网络延迟的 3-5 倍
 
 ### 3. 监控告警
@@ -480,7 +480,7 @@ top -p $(pgrep workflow-engine)
 ```bash
 # 生产环境执行机
 ./workflow-engine slave start \
-  --master 192.168.1.100:9090 \
+  --master http://192.168.1.100:8080 \
   --id prod-executor-cn-east-1 \
   --type worker \
   --address 0.0.0.0:9091 \

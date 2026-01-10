@@ -15,7 +15,6 @@ func TestDefaultConfig(t *testing.T) {
 
 	assert.Equal(t, ":8080", cfg.Server.Address)
 	assert.Equal(t, 30*time.Second, cfg.Server.ReadTimeout)
-	assert.Equal(t, ":9090", cfg.GRPC.Address)
 	assert.Equal(t, 5*time.Second, cfg.Master.HeartbeatInterval)
 	assert.Equal(t, "worker", cfg.Slave.Type)
 	assert.Equal(t, "info", cfg.Logging.Level)
@@ -33,9 +32,6 @@ server:
   write_timeout: 60s
   enable_cors: true
 
-grpc:
-  address: ":9091"
-
 master:
   heartbeat_interval: 10s
   heartbeat_timeout: 30s
@@ -44,7 +40,7 @@ slave:
   type: aggregator
   capabilities:
     - http_executor
-    - grpc_executor
+    - script_executor
   max_vus: 200
 
 logging:
@@ -60,10 +56,9 @@ logging:
 	assert.Equal(t, ":9000", cfg.Server.Address)
 	assert.Equal(t, 60*time.Second, cfg.Server.ReadTimeout)
 	assert.True(t, cfg.Server.EnableCORS)
-	assert.Equal(t, ":9091", cfg.GRPC.Address)
 	assert.Equal(t, 10*time.Second, cfg.Master.HeartbeatInterval)
 	assert.Equal(t, "aggregator", cfg.Slave.Type)
-	assert.Contains(t, cfg.Slave.Capabilities, "grpc_executor")
+	assert.Contains(t, cfg.Slave.Capabilities, "script_executor")
 	assert.Equal(t, 200, cfg.Slave.MaxVUs)
 	assert.Equal(t, "debug", cfg.Logging.Level)
 }
@@ -78,7 +73,6 @@ func TestEnvOverrides(t *testing.T) {
 	// Set environment variables
 	os.Setenv("WE_SERVER_ADDRESS", ":7070")
 	os.Setenv("WE_SERVER_READ_TIMEOUT", "45s")
-	os.Setenv("WE_GRPC_ADDRESS", ":7071")
 	os.Setenv("WE_MASTER_HEARTBEAT_INTERVAL", "20s")
 	os.Setenv("WE_SLAVE_TYPE", "gateway")
 	os.Setenv("WE_SLAVE_CAPABILITIES", "http_executor,custom_executor")
@@ -88,7 +82,6 @@ func TestEnvOverrides(t *testing.T) {
 	defer func() {
 		os.Unsetenv("WE_SERVER_ADDRESS")
 		os.Unsetenv("WE_SERVER_READ_TIMEOUT")
-		os.Unsetenv("WE_GRPC_ADDRESS")
 		os.Unsetenv("WE_MASTER_HEARTBEAT_INTERVAL")
 		os.Unsetenv("WE_SLAVE_TYPE")
 		os.Unsetenv("WE_SLAVE_CAPABILITIES")
@@ -101,7 +94,6 @@ func TestEnvOverrides(t *testing.T) {
 
 	assert.Equal(t, ":7070", cfg.Server.Address)
 	assert.Equal(t, 45*time.Second, cfg.Server.ReadTimeout)
-	assert.Equal(t, ":7071", cfg.GRPC.Address)
 	assert.Equal(t, 20*time.Second, cfg.Master.HeartbeatInterval)
 	assert.Equal(t, "gateway", cfg.Slave.Type)
 	assert.Contains(t, cfg.Slave.Capabilities, "custom_executor")
@@ -113,7 +105,6 @@ func TestCmdOverrides(t *testing.T) {
 	cmdArgs := map[string]string{
 		"server.address":            ":6060",
 		"server.read_timeout":       "90s",
-		"grpc.address":              ":6061",
 		"master.heartbeat_interval": "25s",
 		"slave.type":                "worker",
 		"logging.level":             "error",
@@ -124,7 +115,6 @@ func TestCmdOverrides(t *testing.T) {
 
 	assert.Equal(t, ":6060", cfg.Server.Address)
 	assert.Equal(t, 90*time.Second, cfg.Server.ReadTimeout)
-	assert.Equal(t, ":6061", cfg.GRPC.Address)
 	assert.Equal(t, 25*time.Second, cfg.Master.HeartbeatInterval)
 	assert.Equal(t, "worker", cfg.Slave.Type)
 	assert.Equal(t, "error", cfg.Logging.Level)

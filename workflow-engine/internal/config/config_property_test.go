@@ -84,15 +84,13 @@ func TestServerConfigRoundTripProperty(t *testing.T) {
 func genConfig() gopter.Gen {
 	return gopter.CombineGens(
 		genServerConfig(),
-		genGRPCConfig(),
 		genMasterConfigGen(),
 		genSlaveConfigGen(),
 	).Map(func(values []interface{}) *Config {
 		return &Config{
 			Server:  values[0].(ServerConfig),
-			GRPC:    values[1].(GRPCConfig),
-			Master:  values[2].(MasterConfig),
-			Slave:   values[3].(SlaveConfig),
+			Master:  values[1].(MasterConfig),
+			Slave:   values[2].(SlaveConfig),
 			Logging: LoggingConfig{Level: "info", Format: "json", Output: "stdout"},
 		}
 	})
@@ -113,21 +111,6 @@ func genServerConfig() gopter.Gen {
 			WriteTimeout:  time.Duration(values[2].(int)) * time.Second,
 			EnableCORS:    values[3].(bool),
 			EnableSwagger: false,
-		}
-	})
-}
-
-// genGRPCConfig generates a gRPC configuration.
-func genGRPCConfig() gopter.Gen {
-	return gopter.CombineGens(
-		gen.IntRange(1024, 65535),
-		gen.IntRange(1, 10),
-	).Map(func(values []interface{}) GRPCConfig {
-		return GRPCConfig{
-			Address:           ":9090",
-			MaxRecvMsgSize:    values[1].(int) * 1024 * 1024,
-			MaxSendMsgSize:    values[1].(int) * 1024 * 1024,
-			ConnectionTimeout: 10 * time.Second,
 		}
 	})
 }
@@ -177,11 +160,6 @@ func configsEqual(a, b *Config) bool {
 		return false
 	}
 	if a.Server.WriteTimeout != b.Server.WriteTimeout {
-		return false
-	}
-
-	// Compare GRPC config
-	if a.GRPC.Address != b.GRPC.Address {
 		return false
 	}
 

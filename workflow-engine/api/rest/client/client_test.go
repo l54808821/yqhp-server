@@ -13,7 +13,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"yqhp/workflow-engine/api/rest"
 	"yqhp/workflow-engine/pkg/types"
 )
 
@@ -23,7 +22,7 @@ func setupTestServer(t *testing.T) (*fiber.App, string) {
 
 	// Health endpoint
 	app.Get("/api/v1/health", func(c *fiber.Ctx) error {
-		return c.JSON(rest.HealthResponse{
+		return c.JSON(types.HealthResponse{
 			Status:    "healthy",
 			Timestamp: time.Now().Format(time.RFC3339),
 		})
@@ -31,15 +30,15 @@ func setupTestServer(t *testing.T) (*fiber.App, string) {
 
 	// Register endpoint
 	app.Post("/api/v1/slaves/register", func(c *fiber.Ctx) error {
-		var req rest.SlaveRegisterRequest
+		var req types.SlaveRegisterRequest
 		if err := c.BodyParser(&req); err != nil {
-			return c.Status(fiber.StatusBadRequest).JSON(rest.ErrorResponse{
+			return c.Status(fiber.StatusBadRequest).JSON(types.ErrorResponse{
 				Error:   "bad_request",
 				Message: err.Error(),
 			})
 		}
 
-		return c.JSON(rest.SlaveRegisterResponse{
+		return c.JSON(types.SlaveRegisterResponse{
 			Accepted:          true,
 			AssignedID:        req.SlaveID,
 			HeartbeatInterval: 5000,
@@ -50,22 +49,22 @@ func setupTestServer(t *testing.T) (*fiber.App, string) {
 
 	// Heartbeat endpoint
 	app.Post("/api/v1/slaves/:id/heartbeat", func(c *fiber.Ctx) error {
-		return c.JSON(rest.SlaveHeartbeatResponse{
-			Commands:  []*rest.ControlCommand{},
+		return c.JSON(types.SlaveHeartbeatResponse{
+			Commands:  []*types.ControlCommand{},
 			Timestamp: time.Now().UnixMilli(),
 		})
 	})
 
 	// Tasks endpoint
 	app.Get("/api/v1/slaves/:id/tasks", func(c *fiber.Ctx) error {
-		return c.JSON(rest.PendingTasksResponse{
-			Tasks: []*rest.TaskAssignment{},
+		return c.JSON(types.PendingTasksResponse{
+			Tasks: []*types.TaskAssignment{},
 		})
 	})
 
 	// Task result endpoint
 	app.Post("/api/v1/tasks/:id/result", func(c *fiber.Ctx) error {
-		return c.JSON(rest.TaskResultResponse{
+		return c.JSON(types.TaskResultResponse{
 			Success: true,
 			Message: "result received",
 		})
@@ -73,14 +72,14 @@ func setupTestServer(t *testing.T) (*fiber.App, string) {
 
 	// Metrics report endpoint
 	app.Post("/api/v1/executions/:id/metrics/report", func(c *fiber.Ctx) error {
-		return c.JSON(rest.MetricsReportResponse{
+		return c.JSON(types.MetricsReportResponse{
 			Success: true,
 		})
 	})
 
 	// Unregister endpoint
 	app.Post("/api/v1/slaves/:id/unregister", func(c *fiber.Ctx) error {
-		return c.JSON(rest.SlaveUnregisterResponse{
+		return c.JSON(types.SlaveUnregisterResponse{
 			Success: true,
 			Message: "unregistered",
 		})
@@ -218,7 +217,7 @@ func TestClient_Heartbeat(t *testing.T) {
 		err = client.Register(context.Background())
 		require.NoError(t, err)
 
-		resp, err := client.sendHeartbeat(&rest.SlaveStatusInfo{
+		resp, err := client.sendHeartbeat(&types.APISlaveStatusInfo{
 			State:       "online",
 			Load:        0.5,
 			ActiveTasks: 2,
@@ -246,8 +245,8 @@ func TestClient_Heartbeat(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		err = client.StartHeartbeat(ctx, func() *rest.SlaveStatusInfo {
-			return &rest.SlaveStatusInfo{
+		err = client.StartHeartbeat(ctx, func() *types.APISlaveStatusInfo {
+			return &types.APISlaveStatusInfo{
 				State: "online",
 			}
 		})
@@ -374,7 +373,7 @@ func TestClient_SendMetrics(t *testing.T) {
 		err = client.Register(context.Background())
 		require.NoError(t, err)
 
-		metrics := &rest.MetricsData{
+		metrics := &types.APIMetricsData{
 			TotalVUs:        10,
 			TotalIterations: 100,
 			DurationMs:      5000,
@@ -450,7 +449,7 @@ func TestClient_Callbacks(t *testing.T) {
 		client := NewClient(config)
 
 		var called atomic.Bool
-		client.SetTaskHandler(func(ctx context.Context, task *rest.TaskAssignment) error {
+		client.SetTaskHandler(func(ctx context.Context, task *types.TaskAssignment) error {
 			called.Store(true)
 			return nil
 		})
@@ -466,7 +465,7 @@ func TestClient_Callbacks(t *testing.T) {
 		client := NewClient(config)
 
 		var called atomic.Bool
-		client.SetCommandHandler(func(ctx context.Context, cmd *rest.ControlCommand) error {
+		client.SetCommandHandler(func(ctx context.Context, cmd *types.ControlCommand) error {
 			called.Store(true)
 			return nil
 		})
@@ -540,8 +539,8 @@ func TestClient_CommandHandling(t *testing.T) {
 
 	// Heartbeat endpoint that returns commands
 	app.Post("/api/v1/slaves/:id/heartbeat", func(c *fiber.Ctx) error {
-		return c.JSON(rest.SlaveHeartbeatResponse{
-			Commands: []*rest.ControlCommand{
+		return c.JSON(types.SlaveHeartbeatResponse{
+			Commands: []*types.ControlCommand{
 				{
 					Type:        "stop",
 					ExecutionID: "exec-1",
@@ -553,11 +552,11 @@ func TestClient_CommandHandling(t *testing.T) {
 	})
 
 	app.Get("/api/v1/health", func(c *fiber.Ctx) error {
-		return c.JSON(rest.HealthResponse{Status: "healthy"})
+		return c.JSON(types.HealthResponse{Status: "healthy"})
 	})
 
 	app.Post("/api/v1/slaves/register", func(c *fiber.Ctx) error {
-		return c.JSON(rest.SlaveRegisterResponse{
+		return c.JSON(types.SlaveRegisterResponse{
 			Accepted:          true,
 			HeartbeatInterval: 50,
 		})
@@ -576,9 +575,9 @@ func TestClient_CommandHandling(t *testing.T) {
 		client := NewClient(config)
 
 		var commandReceived atomic.Bool
-		var receivedCmd *rest.ControlCommand
+		var receivedCmd *types.ControlCommand
 
-		client.SetCommandHandler(func(ctx context.Context, cmd *rest.ControlCommand) error {
+		client.SetCommandHandler(func(ctx context.Context, cmd *types.ControlCommand) error {
 			commandReceived.Store(true)
 			receivedCmd = cmd
 			return nil
@@ -593,8 +592,8 @@ func TestClient_CommandHandling(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		err = client.StartHeartbeat(ctx, func() *rest.SlaveStatusInfo {
-			return &rest.SlaveStatusInfo{State: "online"}
+		err = client.StartHeartbeat(ctx, func() *types.APISlaveStatusInfo {
+			return &types.APISlaveStatusInfo{State: "online"}
 		})
 		require.NoError(t, err)
 
@@ -667,13 +666,13 @@ func TestDefaultConfig(t *testing.T) {
 // TestJSONSerialization tests JSON serialization round-trip for request/response types.
 func TestJSONSerialization(t *testing.T) {
 	t.Run("SlaveRegisterRequest round-trip", func(t *testing.T) {
-		original := &rest.SlaveRegisterRequest{
+		original := &types.SlaveRegisterRequest{
 			SlaveID:      "slave-1",
 			SlaveType:    "worker",
 			Capabilities: []string{"http", "grpc"},
 			Labels:       map[string]string{"env": "test"},
 			Address:      "localhost:8081",
-			Resources: &rest.ResourceInfo{
+			Resources: &types.APIResourceInfo{
 				CPUCores:    4,
 				MemoryMB:    8192,
 				MaxVUs:      100,
@@ -684,7 +683,7 @@ func TestJSONSerialization(t *testing.T) {
 		data, err := json.Marshal(original)
 		require.NoError(t, err)
 
-		var decoded rest.SlaveRegisterRequest
+		var decoded types.SlaveRegisterRequest
 		err = json.Unmarshal(data, &decoded)
 		require.NoError(t, err)
 
@@ -697,14 +696,14 @@ func TestJSONSerialization(t *testing.T) {
 	})
 
 	t.Run("SlaveHeartbeatRequest round-trip", func(t *testing.T) {
-		original := &rest.SlaveHeartbeatRequest{
+		original := &types.SlaveHeartbeatRequest{
 			SlaveID: "slave-1",
-			Status: &rest.SlaveStatusInfo{
+			Status: &types.APISlaveStatusInfo{
 				State:       "online",
 				Load:        0.75,
 				ActiveTasks: 5,
 				LastSeen:    time.Now().UnixMilli(),
-				Metrics: &rest.SlaveMetrics{
+				Metrics: &types.APISlaveMetrics{
 					CPUUsage:    50.0,
 					MemoryUsage: 60.0,
 					ActiveVUs:   10,
@@ -717,7 +716,7 @@ func TestJSONSerialization(t *testing.T) {
 		data, err := json.Marshal(original)
 		require.NoError(t, err)
 
-		var decoded rest.SlaveHeartbeatRequest
+		var decoded types.SlaveHeartbeatRequest
 		err = json.Unmarshal(data, &decoded)
 		require.NoError(t, err)
 
@@ -728,13 +727,13 @@ func TestJSONSerialization(t *testing.T) {
 	})
 
 	t.Run("TaskResultRequest round-trip", func(t *testing.T) {
-		original := &rest.TaskResultRequest{
+		original := &types.TaskResultRequest{
 			TaskID:      "task-1",
 			ExecutionID: "exec-1",
 			SlaveID:     "slave-1",
 			Status:      "completed",
 			Result:      map[string]interface{}{"key": "value", "count": float64(42)},
-			Errors: []*rest.ExecutionErrorRequest{
+			Errors: []*types.ExecutionErrorRequest{
 				{
 					Code:      "ERR001",
 					Message:   "test error",
@@ -747,7 +746,7 @@ func TestJSONSerialization(t *testing.T) {
 		data, err := json.Marshal(original)
 		require.NoError(t, err)
 
-		var decoded rest.TaskResultRequest
+		var decoded types.TaskResultRequest
 		err = json.Unmarshal(data, &decoded)
 		require.NoError(t, err)
 
@@ -759,22 +758,22 @@ func TestJSONSerialization(t *testing.T) {
 	})
 
 	t.Run("MetricsReportRequest round-trip", func(t *testing.T) {
-		original := &rest.MetricsReportRequest{
+		original := &types.MetricsReportRequest{
 			SlaveID:     "slave-1",
 			ExecutionID: "exec-1",
 			Timestamp:   time.Now().UnixMilli(),
-			Metrics: &rest.MetricsData{
+			Metrics: &types.APIMetricsData{
 				TotalVUs:        10,
 				TotalIterations: 1000,
 				DurationMs:      60000,
 			},
-			StepMetrics: map[string]*rest.StepMetricsData{
+			StepMetrics: map[string]*types.StepMetricsData{
 				"step-1": {
 					StepID:       "step-1",
 					Count:        100,
 					SuccessCount: 95,
 					FailureCount: 5,
-					Duration: &rest.DurationMetricsData{
+					Duration: &types.DurationMetricsData{
 						MinNs: 1000000,
 						MaxNs: 5000000,
 						AvgNs: 2500000,
@@ -790,7 +789,7 @@ func TestJSONSerialization(t *testing.T) {
 		data, err := json.Marshal(original)
 		require.NoError(t, err)
 
-		var decoded rest.MetricsReportRequest
+		var decoded types.MetricsReportRequest
 		err = json.Unmarshal(data, &decoded)
 		require.NoError(t, err)
 

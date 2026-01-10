@@ -385,3 +385,23 @@ func (r *InMemorySlaveRegistry) DrainSlave(ctx context.Context, slaveID string) 
 
 	return nil
 }
+
+// IsSlaveHealthy 检查 Slave 是否健康（在线且心跳在超时时间内）。
+// Requirements: 14.3
+func (r *InMemorySlaveRegistry) IsSlaveHealthy(ctx context.Context, slaveID string, timeout time.Duration) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	status, exists := r.status[slaveID]
+	if !exists {
+		return false
+	}
+
+	// 离线状态不健康
+	if status.State == types.SlaveStateOffline {
+		return false
+	}
+
+	// 检查心跳是否在超时时间内
+	return time.Since(status.LastSeen) < timeout
+}

@@ -1,0 +1,73 @@
+# 性能测试示例
+# 运行: ./workflow-engine run examples/04-performance.yaml
+# 或: ./workflow-engine run -vus 20 -duration 2m examples/04-performance.yaml
+#
+# 本示例展示各种性能测试模式：
+# - constant-vus: 恒定 VU 数
+# - ramping-vus: 阶梯负载
+# - shared-iterations: 共享迭代
+# - per-vu-iterations: 每 VU 固定迭代
+
+id: performance-test
+name: 性能测试
+description: 展示各种性能测试模式
+
+# ============================================
+# 模式 1: 恒定 VU (constant-vus)
+# 固定数量的虚拟用户持续运行
+# ============================================
+options:
+  vus: 5
+  duration: 30s
+  mode: constant-vus
+  # HTTP 引擎: fasthttp (高性能) 或 standard (兼容性好)
+  http_engine: fasthttp
+  # 性能阈值
+  thresholds:
+    - metric: http_req_duration
+      condition: "p(95) < 500" # 95% 请求 < 500ms
+    - metric: http_req_duration
+      condition: "p(99) < 1000" # 99% 请求 < 1000ms
+    - metric: http_req_failed
+      condition: "rate < 0.01" # 错误率 < 1%
+
+# ============================================
+# 模式 2: 阶梯负载 (ramping-vus)
+# 取消上面的注释，注释掉模式1
+# ============================================
+# options:
+#   mode: ramping-vus
+#   stages:
+#     - duration: 30s
+#       target: 10      # 30秒内从0增加到10 VU
+#     - duration: 1m
+#       target: 10      # 保持10 VU 1分钟
+#     - duration: 30s
+#       target: 0       # 30秒内降到0
+
+# ============================================
+# 模式 3: 共享迭代 (shared-iterations)
+# 所有 VU 共享总迭代次数
+# ============================================
+# options:
+#   vus: 10
+#   iterations: 100     # 总共执行100次
+#   mode: shared-iterations
+
+# ============================================
+# 模式 4: 每 VU 固定迭代 (per-vu-iterations)
+# 每个 VU 执行固定次数
+# ============================================
+# options:
+#   vus: 10
+#   iterations: 10      # 每个 VU 执行10次，总共100次
+#   mode: per-vu-iterations
+
+steps:
+  - id: api_request
+    name: API 请求
+    type: http
+    config:
+      method: GET
+      url: "https://httpbin.org/get"
+    timeout: 30s

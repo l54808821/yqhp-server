@@ -1,0 +1,71 @@
+# 基础示例 - HTTP 请求
+# 运行: ./workflow-engine run examples/01-basic.yaml
+#
+# 本示例展示：
+# - GET/POST/PUT/DELETE 请求
+# - 请求头和请求体
+# - 查询参数
+# - 变量使用
+
+id: basic-http-workflow
+name: 基础 HTTP 工作流
+description: 展示各种 HTTP 请求方法和变量使用
+
+# 定义变量
+variables:
+  base_url: "https://httpbin.org"
+  user_name: "test-user"
+  user_email: "test@example.com"
+
+steps:
+  # GET 请求
+  - id: get_request
+    name: GET 请求
+    type: http
+    config:
+      method: GET
+      url: "${base_url}/get"
+      query:
+        page: 1
+        size: 10
+    timeout: 30s
+
+  # POST 请求
+  - id: post_request
+    name: POST 请求
+    type: http
+    config:
+      method: POST
+      url: "${base_url}/post"
+      headers:
+        Content-Type: "application/json"
+      body: |
+        {
+          "name": "${user_name}",
+          "email": "${user_email}"
+        }
+    timeout: 30s
+
+  # PUT 请求
+  - id: put_request
+    name: PUT 请求
+    type: http
+    config:
+      method: PUT
+      url: "${base_url}/put"
+      headers:
+        Content-Type: "application/json"
+      body: |
+        {
+          "name": "updated-user"
+        }
+    timeout: 30s
+
+  # DELETE 请求
+  - id: delete_request
+    name: DELETE 请求
+    type: http
+    config:
+      method: DELETE
+      url: "${base_url}/delete"
+    timeout: 30s

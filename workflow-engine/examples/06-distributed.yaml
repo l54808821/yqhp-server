@@ -1,0 +1,74 @@
+# 分布式执行示例
+# 运行: 通过 REST API 提交到 Master 节点
+#
+# 本示例展示分布式执行配置：
+# - 手动指定 Slave
+# - 按标签选择 Slave
+# - 按能力选择 Slave
+
+id: distributed-workflow
+name: 分布式执行
+description: 展示分布式执行配置
+
+# ============================================
+# 方式 1: 手动指定 Slave ID
+# ============================================
+options:
+  vus: 100
+  duration: 5m
+  target_slaves:
+    mode: manual
+    slave_ids:
+      - slave-1
+      - slave-2
+      - slave-3
+
+# ============================================
+# 方式 2: 按标签选择 Slave
+# 取消下面注释使用
+# ============================================
+# options:
+#   vus: 100
+#   duration: 5m
+#   target_slaves:
+#     mode: label
+#     labels:
+#       region: cn-east    # 选择 cn-east 区域
+#       env: prod          # 且环境为 prod
+
+# ============================================
+# 方式 3: 按能力选择 Slave
+# 取消下面注释使用
+# ============================================
+# options:
+#   vus: 100
+#   duration: 5m
+#   target_slaves:
+#     mode: capability
+#     capabilities:
+#       - http_executor
+#       - db_executor      # 需要数据库执行能力
+
+steps:
+  - id: api_request
+    name: API 请求
+    type: http
+    config:
+      method: GET
+      url: "https://httpbin.org/get"
+    timeout: 30s
+# ============================================
+# 分布式运行说明
+# ============================================
+#
+# 1. 启动 Master:
+#    ./workflow-engine master start
+#
+# 2. 启动 Slave (多个终端):
+#    ./workflow-engine slave start --master localhost:9090 --labels region=cn-east,env=prod
+#    ./workflow-engine slave start --master localhost:9090 --labels region=cn-west,env=prod
+#
+# 3. 提交工作流:
+#    curl -X POST http://localhost:8080/api/v1/workflows \
+#      -H "Content-Type: application/json" \
+#      -d '{"yaml": "'"$(cat examples/06-distributed.yaml)"'"}'

@@ -1,0 +1,86 @@
+# 压力测试示例
+# 运行: ./workflow-engine run examples/05-stress-tests.yaml
+#
+# 本示例展示各种压力测试场景：
+# - 峰值测试 (Spike Test)
+# - 压力测试 (Stress Test)
+# - 浸泡测试 (Soak Test)
+
+id: stress-tests
+name: 压力测试
+description: 展示各种压力测试场景
+
+# ============================================
+# 场景 1: 峰值测试 (Spike Test)
+# 模拟突发流量
+# ============================================
+options:
+  mode: ramping-vus
+  stages:
+    - duration: 10s
+      target: 5 # 预热
+    - duration: 5s
+      target: 100 # 突然增加到100 VU
+    - duration: 30s
+      target: 100 # 保持峰值
+    - duration: 5s
+      target: 5 # 快速下降
+    - duration: 10s
+      target: 5 # 恢复期
+  thresholds:
+    - metric: http_req_duration
+      condition: "p(95) < 2000"
+    - metric: http_req_failed
+      condition: "rate < 0.1"
+
+# ============================================
+# 场景 2: 压力测试 (Stress Test)
+# 逐步增加负载直到系统极限
+# 取消下面注释使用
+# ============================================
+# options:
+#   mode: ramping-vus
+#   stages:
+#     - duration: 2m
+#       target: 50      # 逐步增加
+#     - duration: 5m
+#       target: 50      # 保持
+#     - duration: 2m
+#       target: 100     # 继续增加
+#     - duration: 5m
+#       target: 100     # 保持
+#     - duration: 2m
+#       target: 200     # 极限测试
+#     - duration: 5m
+#       target: 200     # 保持
+#     - duration: 2m
+#       target: 0       # 恢复
+
+# ============================================
+# 场景 3: 浸泡测试 (Soak Test)
+# 长时间稳定负载，检测内存泄漏等问题
+# 取消下面注释使用
+# ============================================
+# options:
+#   mode: ramping-vus
+#   stages:
+#     - duration: 5m
+#       target: 50      # 预热
+#     - duration: 4h
+#       target: 50      # 长时间保持
+#     - duration: 5m
+#       target: 0       # 恢复
+#   thresholds:
+#     - metric: http_req_duration
+#       condition: "p(95) < 500"
+#     - metric: http_req_failed
+#       condition: "rate < 0.001"
+
+steps:
+  - id: api_request
+    name: API 请求
+    type: http
+    config:
+      method: GET
+      url: "https://httpbin.org/get"
+    timeout: 30s

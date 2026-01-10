@@ -1,0 +1,101 @@
+# 钩子和错误处理示例
+# 运行: ./workflow-engine run examples/03-hooks-and-errors.yaml
+#
+# 本示例展示：
+# - 工作流级别钩子 (pre_hook/post_hook)
+# - 步骤级别钩子
+# - 错误处理策略 (abort/continue/skip/retry)
+
+id: hooks-and-errors-workflow
+name: 钩子和错误处理
+description: 展示钩子和各种错误处理策略
+
+# 工作流前置钩子
+pre_hook:
+  type: script
+  config:
+    script: |
+      console.log('=== 工作流开始 ===');
+      ctx.SetVariable('start_time', Date.now());
+
+# 工作流后置钩子
+post_hook:
+  type: script
+  config:
+    script: |
+      const duration = Date.now() - ctx.GetVariable('start_time');
+      console.log('=== 工作流完成，耗时: ' + duration + 'ms ===');
+
+steps:
+  # ============================================
+  # 步骤级别钩子
+  # ============================================
+  - id: step_with_hooks
+    name: 带钩子的步骤
+    type: http
+    config:
+      method: GET
+      url: "https://httpbin.org/get"
+    pre_hook:
+      type: script
+      config:
+        script: |
+          console.log('步骤开始...');
+    post_hook:
+      type: script
+      config:
+        script: |
+          console.log('步骤完成');
+    timeout: 30s
+
+  # ============================================
+  # 错误处理策略
+  # ============================================
+
+  # abort - 遇到错误停止整个工作流 (默认)
+  - id: step_abort
+    name: Abort 策略
+    type: http
+    config:
+      method: GET
+      url: "https://httpbin.org/get"
+    on_error: abort
+    timeout: 30s
+
+  # continue - 遇到错误继续执行下一步
+  - id: step_continue
+    name: Continue 策略 (会失败)
+    type: http
+    config:
+      method: GET
+      url: "https://httpbin.org/status/500"
+    on_error: continue
+    timeout: 30s
+
+  # skip - 跳过当前步骤
+  - id: step_skip
+    name: Skip 策略 (会超时)
+    type: http
+    config:
+      method: GET
+      url: "https://httpbin.org/delay/60"
+    on_error: skip
+    timeout: 2s
+
+  # retry - 重试当前步骤
+  - id: step_retry
+    name: Retry 策略
+    type: http
+    config:
+      method: GET
+      url: "https://httpbin.org/get"
+    on_error: retry
+    timeout: 30s
+
+  # 最终步骤
+  - id: final_step
+    name: 最终步骤
+    type: script
+    config:
+      script: |
+        console.log('所有步骤执行完成');

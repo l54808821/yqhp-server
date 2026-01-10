@@ -1,0 +1,135 @@
+# 完整示例 - 包含所有功能
+# 运行: ./workflow-engine run examples/07-complete.yaml
+#
+# 本示例综合展示所有功能：
+# - 变量和 HTTP 全局配置
+# - 钩子 (工作流级和步骤级)
+# - 各种 HTTP 方法
+# - 条件分支
+# - 错误处理
+# - 性能配置
+
+id: complete-example
+name: 完整示例
+description: 综合展示所有功能
+
+# 变量定义
+variables:
+  api_key: "test-api-key-12345"
+  user_id: "user-001"
+
+# HTTP 全局配置
+http:
+  base_url: "https://httpbin.org"
+  headers:
+    X-API-Key: "${api_key}"
+    User-Agent: "workflow-engine/1.0"
+    Accept: "application/json"
+  timeout:
+    request: 60s
+
+# 工作流钩子
+pre_hook:
+  type: script
+  config:
+    script: |
+      console.log('=== 工作流开始 ===');
+      ctx.SetVariable('start_time', Date.now());
+
+post_hook:
+  type: script
+  config:
+    script: |
+      const duration = Date.now() - ctx.GetVariable('start_time');
+      console.log('=== 工作流完成，耗时: ' + duration + 'ms ===');
+
+# 执行选项
+options:
+  vus: 5
+  iterations: 10
+  mode: shared-iterations
+  http_engine: fasthttp
+  thresholds:
+    - metric: http_req_duration
+      condition: "p(95) < 500"
+    - metric: http_req_failed
+      condition: "rate < 0.05"
+
+steps:
+  # 健康检查
+  - id: health_check
+    name: 健康检查
+    type: http
+    config:
+      method: GET
+      url: "/get"
+    pre_hook:
+      type: script
+      config:
+        script: console.log('检查 API 健康状态...');
+    on_error: abort
+    timeout: 30s
+
+  # 条件判断
+  - id: check_response
+    name: 检查响应
+    type: condition
+    condition:
+      expression: "${response.status_code} == 200"
+      then:
+        - id: log_success
+          name: 记录成功
+          type: script
+          config:
+            script: |
+              console.log('API 正常');
+              ctx.SetVariable('api_healthy', true);
+      else:
+        - id: log_failure
+          name: 记录失败
+          type: script
+          config:
+            script: |
+              console.log('API 异常');
+              ctx.SetVariable('api_healthy', false);
+
+  # 创建资源
+  - id: create_resource
+    name: 创建资源
+    type: http
+    config:
+      method: POST
+      url: "/post"
+      headers:
+        Content-Type: "application/json"
+      body: |
+        {
+          "name": "test-resource",
+          "user_id": "${user_id}"
+        }
+    on_error: continue
+    timeout: 30s
+
+  # 循环处理
+  - id: batch_process
+    name: 批量处理
+    type: loop
+    loop:
+      mode: for
+      count: 3
+      steps:
+        - id: process_item
+          name: 处理项目
+          type: script
+          config:
+            script: |
+              console.log('处理第 ' + ctx.GetVariable('loop.iteration') + ' 项');
+
+  # 最终步骤
+  - id: final_step
+    name: 完成
+    type: script
+    config:
+      script: |
+        console.log('所有步骤执行完成');
+        console.log('API 健康: ' + ctx.GetVariable('api_healthy'));

@@ -1,0 +1,132 @@
+# 控制流示例 - 条件和循环
+# 运行: ./workflow-engine run examples/02-control-flow.yaml
+#
+# 本示例展示：
+# - 条件分支 (if/else)
+# - For 循环
+# - Foreach 循环
+# - While 循环
+# - 循环控制 (break/continue)
+
+id: control-flow-workflow
+name: 控制流工作流
+description: 展示条件判断和各种循环
+
+variables:
+  base_url: "https://httpbin.org"
+  items: ["apple", "banana", "cherry"]
+
+steps:
+  # ============================================
+  # 条件分支
+  # ============================================
+  - id: check_api
+    name: 检查 API 状态
+    type: http
+    config:
+      method: GET
+      url: "${base_url}/status/200"
+    timeout: 30s
+
+  - id: handle_response
+    name: 处理响应
+    type: condition
+    condition:
+      expression: "${response.status_code} == 200"
+      then:
+        - id: success_handler
+          name: 成功处理
+          type: script
+          config:
+            script: |
+              console.log('API 正常!');
+              ctx.SetVariable('api_status', 'healthy');
+      else:
+        - id: error_handler
+          name: 错误处理
+          type: script
+          config:
+            script: |
+              console.log('API 异常!');
+              ctx.SetVariable('api_status', 'unhealthy');
+
+  # ============================================
+  # For 循环 - 固定次数
+  # ============================================
+  - id: for_loop
+    name: For 循环 (3次)
+    type: loop
+    loop:
+      mode: for
+      count: 3
+      steps:
+        - id: log_for
+          name: 记录迭代
+          type: script
+          config:
+            script: |
+              console.log('For 循环第 ' + ctx.GetVariable('loop.iteration') + ' 次');
+
+  # ============================================
+  # Foreach 循环 - 遍历集合
+  # ============================================
+  - id: foreach_loop
+    name: Foreach 循环
+    type: loop
+    loop:
+      mode: foreach
+      items: "${items}"
+      item_var: "fruit"
+      steps:
+        - id: log_foreach
+          name: 记录元素
+          type: script
+          config:
+            script: |
+              console.log('当前水果: ' + ctx.GetVariable('fruit'));
+
+  # ============================================
+  # While 循环 - 条件循环
+  # ============================================
+  - id: init_counter
+    name: 初始化计数器
+    type: script
+    config:
+      script: |
+        ctx.SetVariable('counter', 0);
+
+  - id: while_loop
+    name: While 循环
+    type: loop
+    loop:
+      mode: while
+      condition: "${counter} < 3"
+      max_iterations: 10
+      steps:
+        - id: increment
+          name: 递增计数器
+          type: script
+          config:
+            script: |
+              const c = ctx.GetVariable('counter');
+              console.log('While 循环计数: ' + c);
+              ctx.SetVariable('counter', c + 1);
+
+  # ============================================
+  # 循环控制 - break/continue
+  # ============================================
+  - id: loop_with_control
+    name: 带控制的循环
+    type: loop
+    loop:
+      mode: for
+      count: 10
+      break_condition: "${loop.index} >= 5"
+      continue_condition: "${loop.index} == 2"
+      steps:
+        - id: log_control
+          name: 记录
+          type: script
+          config:
+            script: |
+              console.log('索引: ' + ctx.GetVariable('loop.index'));

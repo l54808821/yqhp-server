@@ -26,6 +26,7 @@ type Step struct {
 	OnError   string                 `json:"on_error,omitempty" yaml:"on_error,omitempty"`
 	Condition *ConditionConfig       `json:"condition,omitempty" yaml:"condition,omitempty"`
 	Loop      *LoopConfig            `json:"loop,omitempty" yaml:"loop,omitempty"`
+	Children  []Step                 `json:"children,omitempty" yaml:"children,omitempty"` // 子步骤（用于循环等控制器）
 }
 
 // ConditionConfig 条件配置

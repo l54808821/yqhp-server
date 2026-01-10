@@ -87,10 +87,13 @@ func (e *MasterExecutor) Execute(ctx context.Context, req *DebugRequest) (*Debug
 		e.mu.Unlock()
 	}()
 
+	// 展开所有步骤（包括循环内的子步骤）
+	allSteps := e.flattenSteps(req.Workflow.Steps)
+
 	// 初始化汇总
 	summary := &DebugSummary{
 		SessionID:   req.SessionID,
-		TotalSteps:  len(req.Workflow.Steps),
+		TotalSteps:  len(allSteps),
 		StepResults: make([]*websocket.StepResult, 0),
 		StartTime:   time.Now(),
 	}
@@ -102,7 +105,7 @@ func (e *MasterExecutor) Execute(ctx context.Context, req *DebugRequest) (*Debug
 	}
 
 	// 执行工作流步骤
-	for i, step := range req.Workflow.Steps {
+	for i, step := range allSteps {
 		// 检查是否被停止
 		e.mu.RLock()
 		stopped := session.stopped
@@ -127,8 +130,8 @@ func (e *MasterExecutor) Execute(ctx context.Context, req *DebugRequest) (*Debug
 		// 广播进度
 		e.hub.BroadcastProgress(req.SessionID, &websocket.ProgressData{
 			CurrentStep: i + 1,
-			TotalSteps:  len(req.Workflow.Steps),
-			Percentage:  (i * 100) / len(req.Workflow.Steps),
+			TotalSteps:  len(allSteps),
+			Percentage:  ((i + 1) * 100) / len(allSteps),
 			StepName:    step.Name,
 		})
 
@@ -186,6 +189,34 @@ func (e *MasterExecutor) Execute(ctx context.Context, req *DebugRequest) (*Debug
 	})
 
 	return summary, nil
+}
+
+// flattenSteps 展开所有步骤（包括循环和条件内的子步骤）
+func (e *MasterExecutor) flattenSteps(steps []types.Step) []types.Step {
+	var result []types.Step
+	for _, step := range steps {
+		// 添加当前步骤
+		result = append(result, step)
+
+		// 如果是循环步骤，展开子步骤
+		if step.Loop != nil && len(step.Loop.Steps) > 0 {
+			childSteps := e.flattenSteps(step.Loop.Steps)
+			result = append(result, childSteps...)
+		}
+
+		// 如果是条件步骤，展开 then 和 else 分支
+		if step.Condition != nil {
+			if len(step.Condition.Then) > 0 {
+				thenSteps := e.flattenSteps(step.Condition.Then)
+				result = append(result, thenSteps...)
+			}
+			if len(step.Condition.Else) > 0 {
+				elseSteps := e.flattenSteps(step.Condition.Else)
+				result = append(result, elseSteps...)
+			}
+		}
+	}
+	return result
 }
 
 // executeStep 执行单个步骤

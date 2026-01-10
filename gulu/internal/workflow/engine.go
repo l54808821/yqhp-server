@@ -234,10 +234,20 @@ func convertStep(s Step) types.Step {
 
 	// 转换循环配置
 	if s.Loop != nil {
-		loopSteps := make([]types.Step, len(s.Loop.Steps))
-		for i, ls := range s.Loop.Steps {
-			loopSteps[i] = convertStep(ls)
+		// 优先使用 Children 字段，如果没有则使用 Loop.Steps
+		var loopSteps []types.Step
+		if len(s.Children) > 0 {
+			loopSteps = make([]types.Step, len(s.Children))
+			for i, cs := range s.Children {
+				loopSteps[i] = convertStep(cs)
+			}
+		} else if len(s.Loop.Steps) > 0 {
+			loopSteps = make([]types.Step, len(s.Loop.Steps))
+			for i, ls := range s.Loop.Steps {
+				loopSteps[i] = convertStep(ls)
+			}
 		}
+
 		step.Loop = &types.Loop{
 			Mode:              s.Loop.Mode,
 			Count:             s.Loop.Count,

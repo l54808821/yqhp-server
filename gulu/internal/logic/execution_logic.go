@@ -25,9 +25,10 @@ func NewExecutionLogic(ctx context.Context) *ExecutionLogic {
 
 // ExecuteWorkflowReq 执行工作流请求
 type ExecuteWorkflowReq struct {
-	WorkflowID int64 `json:"workflow_id" validate:"required"`
-	EnvID      int64 `json:"env_id" validate:"required"`
-	ExecutorID int64 `json:"executor_id"` // 可选，指定执行机ID
+	WorkflowID int64  `json:"workflow_id" validate:"required"`
+	EnvID      int64  `json:"env_id" validate:"required"`
+	ExecutorID int64  `json:"executor_id"` // 可选，指定执行机ID
+	Mode       string `json:"mode"`        // 执行模式: debug, execute（默认 execute）
 }
 
 // ExecutionListReq 执行记录列表请求
@@ -38,6 +39,7 @@ type ExecutionListReq struct {
 	WorkflowID int64  `query:"workflowId"`
 	EnvID      int64  `query:"envId"`
 	Status     string `query:"status"`
+	Mode       string `query:"mode"` // 执行模式过滤: debug, execute
 }
 
 // ExecutionStatus 执行状态常量
@@ -57,6 +59,28 @@ func (l *ExecutionLogic) Execute(req *ExecuteWorkflowReq, userID int64) (*model.
 	wf, err := workflowLogic.GetByID(req.WorkflowID)
 	if err != nil {
 		return nil, errors.New("工作流不存在")
+	}
+
+	// 获取工作流类型
+	workflowType := string(model.WorkflowTypeNormal)
+	if wf.WorkflowType != nil {
+		workflowType = *wf.WorkflowType
+	}
+
+	// 设置默认执行模式
+	mode := req.Mode
+	if mode == "" {
+		mode = string(model.ExecutionModeExecute)
+	}
+
+	// 验证执行模式
+	if mode != string(model.ExecutionModeDebug) && mode != string(model.ExecutionModeExecute) {
+		return nil, errors.New("无效的执行模式，必须是 debug 或 execute")
+	}
+
+	// 普通流程只能调试，不能正式执行
+	if mode == string(model.ExecutionModeExecute) && workflowType == string(model.WorkflowTypeNormal) {
+		return nil, errors.New("普通流程仅支持调试模式，请使用调试接口")
 	}
 
 	// 解析工作流定义
@@ -151,6 +175,7 @@ func (l *ExecutionLogic) Execute(req *ExecuteWorkflowReq, userID int64) (*model.
 		EnvID:       req.EnvID,
 		ExecutorID:  executorIDStr,
 		ExecutionID: executionID,
+		Mode:        mode,
 		Status:      ExecutionStatusPending,
 		StartTime:   &now,
 		CreatedBy:   &userID,
@@ -317,6 +342,9 @@ func (l *ExecutionLogic) List(req *ExecutionListReq) ([]*model.TExecution, int64
 	}
 	if req.Status != "" {
 		queryBuilder = queryBuilder.Where(e.Status.Eq(req.Status))
+	}
+	if req.Mode != "" {
+		queryBuilder = queryBuilder.Where(e.Mode.Eq(req.Mode))
 	}
 
 	// 获取总数

@@ -23,19 +23,21 @@ func NewWorkflowLogic(ctx context.Context) *WorkflowLogic {
 
 // CreateWorkflowReq 创建工作流请求
 type CreateWorkflowReq struct {
-	ProjectID   int64  `json:"project_id" validate:"required"`
-	Name        string `json:"name" validate:"required,max=100"`
-	Description string `json:"description" validate:"max=500"`
-	Definition  string `json:"definition" validate:"required"` // JSON 格式
-	Status      int32  `json:"status"`
+	ProjectID    int64  `json:"project_id" validate:"required"`
+	Name         string `json:"name" validate:"required,max=100"`
+	Description  string `json:"description" validate:"max=500"`
+	Definition   string `json:"definition" validate:"required"` // JSON 格式
+	Status       int32  `json:"status"`
+	WorkflowType string `json:"workflow_type"` // normal, performance, data_generation
 }
 
 // UpdateWorkflowReq 更新工作流请求
 type UpdateWorkflowReq struct {
-	Name        string `json:"name" validate:"max=100"`
-	Description string `json:"description" validate:"max=500"`
-	Definition  string `json:"definition"` // JSON 格式
-	Status      int32  `json:"status"`
+	Name         string `json:"name" validate:"max=100"`
+	Description  string `json:"description" validate:"max=500"`
+	Definition   string `json:"definition"` // JSON 格式
+	Status       int32  `json:"status"`
+	WorkflowType string `json:"workflow_type"` // normal, performance, data_generation
 }
 
 // WorkflowListReq 工作流列表请求
@@ -62,18 +64,29 @@ func (l *WorkflowLogic) Create(req *CreateWorkflowReq, userID int64) (*model.TWo
 	}
 	version := int32(1)
 
+	// 设置工作流类型，默认为 normal
+	workflowType := req.WorkflowType
+	if workflowType == "" {
+		workflowType = string(model.WorkflowTypeNormal)
+	}
+	// 验证工作流类型
+	if !model.WorkflowType(workflowType).IsValid() {
+		return nil, errors.New("无效的工作流类型")
+	}
+
 	wf := &model.TWorkflow{
-		CreatedAt:   &now,
-		UpdatedAt:   &now,
-		IsDelete:    &isDelete,
-		CreatedBy:   &userID,
-		UpdatedBy:   &userID,
-		ProjectID:   req.ProjectID,
-		Name:        req.Name,
-		Description: &req.Description,
-		Version:     &version,
-		Definition:  req.Definition,
-		Status:      &status,
+		CreatedAt:    &now,
+		UpdatedAt:    &now,
+		IsDelete:     &isDelete,
+		CreatedBy:    &userID,
+		UpdatedBy:    &userID,
+		ProjectID:    req.ProjectID,
+		Name:         req.Name,
+		Description:  &req.Description,
+		Version:      &version,
+		Definition:   req.Definition,
+		Status:       &status,
+		WorkflowType: &workflowType,
 	}
 
 	q := query.Use(svc.Ctx.DB)
@@ -123,6 +136,13 @@ func (l *WorkflowLogic) Update(id int64, req *UpdateWorkflowReq, userID int64) e
 			newVersion = *wf.Version + 1
 		}
 		updates["version"] = newVersion
+	}
+	if req.WorkflowType != "" {
+		// 验证工作流类型
+		if !model.WorkflowType(req.WorkflowType).IsValid() {
+			return errors.New("无效的工作流类型")
+		}
+		updates["workflow_type"] = req.WorkflowType
 	}
 	updates["status"] = req.Status
 

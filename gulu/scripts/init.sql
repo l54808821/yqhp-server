@@ -180,9 +180,11 @@ CREATE TABLE IF NOT EXISTS `t_workflow` (
     `version` INT DEFAULT 1 COMMENT '版本号',
     `definition` LONGTEXT NOT NULL COMMENT '工作流定义(JSON格式)',
     `status` TINYINT DEFAULT 1 COMMENT '状态: 1-启用 0-禁用',
+    `workflow_type` VARCHAR(20) DEFAULT 'normal' COMMENT '工作流类型: normal(普通流程), performance(压测流程), data_generation(造数流程)',
     PRIMARY KEY (`id`),
     INDEX `idx_t_workflow_project_id` (`project_id`),
-    INDEX `idx_t_workflow_is_delete` (`is_delete`)
+    INDEX `idx_t_workflow_is_delete` (`is_delete`),
+    INDEX `idx_t_workflow_type` (`workflow_type`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='工作流表';
 
 -- ============================================
@@ -197,10 +199,14 @@ CREATE TABLE IF NOT EXISTS `t_execution` (
     `env_id` BIGINT UNSIGNED NOT NULL COMMENT '执行环境ID',
     `executor_id` VARCHAR(100) DEFAULT NULL COMMENT '执行机ID(来自workflow-engine)',
     `execution_id` VARCHAR(100) NOT NULL COMMENT 'workflow-engine返回的执行ID',
-    `status` VARCHAR(20) NOT NULL COMMENT '执行状态: pending, running, completed, failed, stopped',
+    `mode` VARCHAR(20) NOT NULL DEFAULT 'execute' COMMENT '执行模式: debug, execute',
+    `status` VARCHAR(20) NOT NULL COMMENT '执行状态: pending, running, completed, failed, stopped, timeout',
     `start_time` DATETIME DEFAULT NULL COMMENT '开始时间',
     `end_time` DATETIME DEFAULT NULL COMMENT '结束时间',
     `duration` BIGINT DEFAULT NULL COMMENT '执行时长(毫秒)',
+    `total_steps` INT DEFAULT 0 COMMENT '总步骤数',
+    `success_steps` INT DEFAULT 0 COMMENT '成功步骤数',
+    `failed_steps` INT DEFAULT 0 COMMENT '失败步骤数',
     `result` LONGTEXT DEFAULT NULL COMMENT '执行结果(JSON格式)',
     `logs` LONGTEXT DEFAULT NULL COMMENT '执行日志',
     `created_by` BIGINT UNSIGNED DEFAULT NULL COMMENT '创建人ID',
@@ -208,7 +214,8 @@ CREATE TABLE IF NOT EXISTS `t_execution` (
     INDEX `idx_t_execution_project_id` (`project_id`),
     INDEX `idx_t_execution_workflow_id` (`workflow_id`),
     INDEX `idx_t_execution_env_id` (`env_id`),
-    INDEX `idx_t_execution_execution_id` (`execution_id`)
+    INDEX `idx_t_execution_execution_id` (`execution_id`),
+    INDEX `idx_t_execution_mode` (`mode`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='执行记录表';
 
 -- ============================================

@@ -10,23 +10,58 @@ import (
 
 const TableNameTExecution = "t_execution"
 
-// TExecution 执行记录表
+// ExecutionMode 执行模式
+type ExecutionMode string
+
+const (
+	// ExecutionModeDebug 调试模式
+	ExecutionModeDebug ExecutionMode = "debug"
+	// ExecutionModeExecute 正式执行模式
+	ExecutionModeExecute ExecutionMode = "execute"
+)
+
+// ExecutionStatus 执行状态
+type ExecutionStatus string
+
+const (
+	ExecutionStatusPending   ExecutionStatus = "pending"
+	ExecutionStatusRunning   ExecutionStatus = "running"
+	ExecutionStatusCompleted ExecutionStatus = "completed"
+	ExecutionStatusFailed    ExecutionStatus = "failed"
+	ExecutionStatusStopped   ExecutionStatus = "stopped"
+	ExecutionStatusTimeout   ExecutionStatus = "timeout"
+)
+
+// IsTerminal 检查是否为终态
+func (s ExecutionStatus) IsTerminal() bool {
+	switch s {
+	case ExecutionStatusCompleted, ExecutionStatusFailed, ExecutionStatusStopped, ExecutionStatusTimeout:
+		return true
+	}
+	return false
+}
+
+// TExecution 执行记录表（统一调试和正式执行）
 type TExecution struct {
-	ID          int64      `gorm:"column:id;type:bigint unsigned;primaryKey;autoIncrement:true" json:"id"`
-	CreatedAt   *time.Time `gorm:"column:created_at;type:datetime" json:"created_at"`
-	UpdatedAt   *time.Time `gorm:"column:updated_at;type:datetime" json:"updated_at"`
-	ProjectID   int64      `gorm:"column:project_id;type:bigint unsigned;not null;index:idx_t_execution_project_id,priority:1;comment:所属项目ID" json:"project_id"`                    // 所属项目ID
-	WorkflowID  int64      `gorm:"column:workflow_id;type:bigint unsigned;not null;index:idx_t_execution_workflow_id,priority:1;comment:工作流ID" json:"workflow_id"`                  // 工作流ID
-	EnvID       int64      `gorm:"column:env_id;type:bigint unsigned;not null;index:idx_t_execution_env_id,priority:1;comment:执行环境ID" json:"env_id"`                                // 执行环境ID
-	ExecutorID  *string    `gorm:"column:executor_id;type:varchar(100);comment:执行机ID(来自workflow-engine)" json:"executor_id"`                                                        // 执行机ID(来自workflow-engine)
-	ExecutionID string     `gorm:"column:execution_id;type:varchar(100);not null;index:idx_t_execution_execution_id,priority:1;comment:workflow-engine返回的执行ID" json:"execution_id"` // workflow-engine返回的执行ID
-	Status      string     `gorm:"column:status;type:varchar(20);not null;comment:执行状态: pending, running, completed, failed, stopped" json:"status"`                                // 执行状态: pending, running, completed, failed, stopped
-	StartTime   *time.Time `gorm:"column:start_time;type:datetime;comment:开始时间" json:"start_time"`                                                                                  // 开始时间
-	EndTime     *time.Time `gorm:"column:end_time;type:datetime;comment:结束时间" json:"end_time"`                                                                                      // 结束时间
-	Duration    *int64     `gorm:"column:duration;type:bigint;comment:执行时长(毫秒)" json:"duration"`                                                                                    // 执行时长(毫秒)
-	Result      *string    `gorm:"column:result;type:longtext;comment:执行结果(JSON格式)" json:"result"`                                                                                  // 执行结果(JSON格式)
-	Logs        *string    `gorm:"column:logs;type:longtext;comment:执行日志" json:"logs"`                                                                                              // 执行日志
-	CreatedBy   *int64     `gorm:"column:created_by;type:bigint unsigned;comment:创建人ID" json:"created_by"`                                                                          // 创建人ID
+	ID           int64      `gorm:"column:id;type:bigint unsigned;primaryKey;autoIncrement:true" json:"id"`
+	CreatedAt    *time.Time `gorm:"column:created_at;type:datetime" json:"created_at"`
+	UpdatedAt    *time.Time `gorm:"column:updated_at;type:datetime" json:"updated_at"`
+	ProjectID    int64      `gorm:"column:project_id;type:bigint unsigned;not null;index:idx_t_execution_project_id,priority:1;comment:所属项目ID" json:"project_id"`                    // 所属项目ID
+	WorkflowID   int64      `gorm:"column:workflow_id;type:bigint unsigned;not null;index:idx_t_execution_workflow_id,priority:1;comment:工作流ID" json:"workflow_id"`                  // 工作流ID
+	EnvID        int64      `gorm:"column:env_id;type:bigint unsigned;not null;index:idx_t_execution_env_id,priority:1;comment:执行环境ID" json:"env_id"`                                // 执行环境ID
+	ExecutorID   *string    `gorm:"column:executor_id;type:varchar(100);comment:执行机ID(来自workflow-engine)" json:"executor_id"`                                                        // 执行机ID(来自workflow-engine)
+	ExecutionID  string     `gorm:"column:execution_id;type:varchar(100);not null;index:idx_t_execution_execution_id,priority:1;comment:workflow-engine返回的执行ID" json:"execution_id"` // workflow-engine返回的执行ID
+	Mode         string     `gorm:"column:mode;type:varchar(20);not null;default:execute;index:idx_t_execution_mode;comment:执行模式: debug, execute" json:"mode"`                       // 执行模式
+	Status       string     `gorm:"column:status;type:varchar(20);not null;comment:执行状态: pending, running, completed, failed, stopped, timeout" json:"status"`                       // 执行状态
+	StartTime    *time.Time `gorm:"column:start_time;type:datetime;comment:开始时间" json:"start_time"`                                                                                  // 开始时间
+	EndTime      *time.Time `gorm:"column:end_time;type:datetime;comment:结束时间" json:"end_time"`                                                                                      // 结束时间
+	Duration     *int64     `gorm:"column:duration;type:bigint;comment:执行时长(毫秒)" json:"duration"`                                                                                    // 执行时长(毫秒)
+	TotalSteps   *int       `gorm:"column:total_steps;type:int;default:0;comment:总步骤数" json:"total_steps"`                                                                           // 总步骤数
+	SuccessSteps *int       `gorm:"column:success_steps;type:int;default:0;comment:成功步骤数" json:"success_steps"`                                                                      // 成功步骤数
+	FailedSteps  *int       `gorm:"column:failed_steps;type:int;default:0;comment:失败步骤数" json:"failed_steps"`                                                                        // 失败步骤数
+	Result       *string    `gorm:"column:result;type:longtext;comment:执行结果(JSON格式)" json:"result"`                                                                                  // 执行结果(JSON格式)
+	Logs         *string    `gorm:"column:logs;type:longtext;comment:执行日志" json:"logs"`                                                                                              // 执行日志
+	CreatedBy    *int64     `gorm:"column:created_by;type:bigint unsigned;comment:创建人ID" json:"created_by"`                                                                          // 创建人ID
 }
 
 // TableName TExecution's table name

@@ -39,6 +39,7 @@ func newTWorkflow(db *gorm.DB, opts ...gen.DOOption) tWorkflow {
 	_tWorkflow.Version = field.NewInt32(tableName, "version")
 	_tWorkflow.Definition = field.NewString(tableName, "definition")
 	_tWorkflow.Status = field.NewInt32(tableName, "status")
+	_tWorkflow.WorkflowType = field.NewString(tableName, "workflow_type")
 
 	_tWorkflow.fillFieldMap()
 
@@ -49,19 +50,20 @@ func newTWorkflow(db *gorm.DB, opts ...gen.DOOption) tWorkflow {
 type tWorkflow struct {
 	tWorkflowDo tWorkflowDo
 
-	ALL         field.Asterisk
-	ID          field.Int64
-	CreatedAt   field.Time
-	UpdatedAt   field.Time
-	IsDelete    field.Bool
-	CreatedBy   field.Int64  // 创建人ID
-	UpdatedBy   field.Int64  // 更新人ID
-	ProjectID   field.Int64  // 所属项目ID
-	Name        field.String // 工作流名称
-	Description field.String // 描述
-	Version     field.Int32  // 版本号
-	Definition  field.String // 工作流定义(JSON格式)
-	Status      field.Int32  // 状态: 1-启用 0-禁用
+	ALL          field.Asterisk
+	ID           field.Int64
+	CreatedAt    field.Time
+	UpdatedAt    field.Time
+	IsDelete     field.Bool
+	CreatedBy    field.Int64  // 创建人ID
+	UpdatedBy    field.Int64  // 更新人ID
+	ProjectID    field.Int64  // 所属项目ID
+	Name         field.String // 工作流名称
+	Description  field.String // 描述
+	Version      field.Int32  // 版本号
+	Definition   field.String // 工作流定义(JSON格式)
+	Status       field.Int32  // 状态: 1-启用 0-禁用
+	WorkflowType field.String // 工作流类型: normal, performance, data_generation
 
 	fieldMap map[string]field.Expr
 }
@@ -90,6 +92,7 @@ func (t *tWorkflow) updateTableName(table string) *tWorkflow {
 	t.Version = field.NewInt32(table, "version")
 	t.Definition = field.NewString(table, "definition")
 	t.Status = field.NewInt32(table, "status")
+	t.WorkflowType = field.NewString(table, "workflow_type")
 
 	t.fillFieldMap()
 
@@ -116,7 +119,7 @@ func (t *tWorkflow) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (t *tWorkflow) fillFieldMap() {
-	t.fieldMap = make(map[string]field.Expr, 12)
+	t.fieldMap = make(map[string]field.Expr, 13)
 	t.fieldMap["id"] = t.ID
 	t.fieldMap["created_at"] = t.CreatedAt
 	t.fieldMap["updated_at"] = t.UpdatedAt
@@ -129,6 +132,7 @@ func (t *tWorkflow) fillFieldMap() {
 	t.fieldMap["version"] = t.Version
 	t.fieldMap["definition"] = t.Definition
 	t.fieldMap["status"] = t.Status
+	t.fieldMap["workflow_type"] = t.WorkflowType
 }
 
 func (t tWorkflow) clone(db *gorm.DB) tWorkflow {

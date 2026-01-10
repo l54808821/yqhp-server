@@ -1,9 +1,16 @@
 package router
 
 import (
+	"time"
+
+	"yqhp/gulu/internal/client"
+	"yqhp/gulu/internal/executor"
 	"yqhp/gulu/internal/handler"
 	"yqhp/gulu/internal/middleware"
+	"yqhp/gulu/internal/scheduler"
+	"yqhp/gulu/internal/websocket"
 
+	ws "github.com/gofiber/contrib/websocket"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	fiberLogger "github.com/gofiber/fiber/v2/middleware/logger"
@@ -43,6 +50,13 @@ func Setup(app *fiber.App) {
 	executorHandler := handler.NewExecutorHandler()
 	workflowHandler := handler.NewWorkflowHandler()
 	executionHandler := handler.NewExecutionHandler()
+
+	// 创建调试相关组件
+	wsHub := websocket.NewHub()
+	engineClient := client.NewWorkflowEngineClient()
+	sched := scheduler.NewScheduler(engineClient)
+	masterExec := executor.NewMasterExecutor(wsHub, 30*time.Minute)
+	debugHandler := handler.NewDebugHandler(wsHub, sched, masterExec)
 
 	// API 路由组 (需要认证)
 	api := app.Group("/api", middleware.AuthMiddleware(), middleware.ProjectMiddleware())
@@ -177,9 +191,23 @@ func Setup(app *fiber.App) {
 	executions.Post("", executionHandler.Execute)
 	executions.Get("", executionHandler.List)
 	executions.Post("/webhook", executionHandler.Webhook)
+	executions.Get("/by-execution-id/:executionId", executionHandler.GetByExecutionID)
 	executions.Get("/:id", executionHandler.GetByID)
 	executions.Get("/:id/logs", executionHandler.GetLogs)
+	executions.Get("/:id/status", executionHandler.GetStatus)
 	executions.Delete("/:id", executionHandler.Stop)
 	executions.Post("/:id/pause", executionHandler.Pause)
 	executions.Post("/:id/resume", executionHandler.Resume)
+
+	// 调试相关路由
+	workflows.Post("/:id/debug", debugHandler.StartDebug)
+
+	debug := api.Group("/debug")
+	debug.Get("/sessions", debugHandler.ListDebugSessions)
+	debug.Get("/:sessionId", debugHandler.GetDebugSession)
+	debug.Delete("/:sessionId", debugHandler.StopDebug)
+
+	// WebSocket 路由 (不需要认证中间件)
+	app.Use("/ws", debugHandler.WebSocketUpgrade)
+	app.Get("/ws/debug/:sessionId", ws.New(debugHandler.WebSocketHandler))
 }

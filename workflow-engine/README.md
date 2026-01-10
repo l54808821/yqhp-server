@@ -45,7 +45,7 @@ go build -o workflow-engine ./cmd/main.go
 #### 启动 Master 节点
 
 ```bash
-./workflow-engine master start --address :8080 --grpc-address :9090
+./workflow-engine master start --address :8080
 ```
 
 使用配置文件：
@@ -57,14 +57,14 @@ go build -o workflow-engine ./cmd/main.go
 #### 启动 Slave 节点
 
 ```bash
-./workflow-engine slave start --master localhost:9090
+./workflow-engine slave start --master http://localhost:8080
 ```
 
 带参数启动：
 
 ```bash
 ./workflow-engine slave start \
-  --master localhost:9090 \
+  --master http://localhost:8080 \
   --id slave-1 \
   --type worker \
   --max-vus 100 \
@@ -186,7 +186,6 @@ workflow-engine master <subcommand> [options]
 master start 选项:
   -config string           配置文件路径
   -address string          HTTP 服务地址 (默认 :8080)
-  -grpc-address string     gRPC 服务地址 (默认 :9090)
   -standalone              独立模式运行 (无需 Slave)
   -heartbeat-timeout       Slave 心跳超时 (默认 30s)
   -max-executions int      最大并发执行数 (默认 100)
@@ -206,7 +205,7 @@ slave start 选项:
   -id string           Slave ID (自动生成如不指定)
   -type string         Slave 类型: worker, gateway, aggregator (默认 worker)
   -address string      监听地址 (默认 :9091)
-  -master string       Master 地址 (默认 localhost:9090)
+  -master string       Master HTTP 地址 (默认 http://localhost:8080)
   -max-vus int         最大虚拟用户数 (默认 100)
   -capabilities string 能力列表，逗号分隔
   -labels string       标签，key=value 格式，逗号分隔
@@ -248,8 +247,8 @@ workflow-engine/
 │   ├── slave/             # Slave 命令
 │   └── run/               # Run 命令
 ├── api/                   # API 定义
-│   ├── grpc/              # gRPC API
 │   └── rest/              # REST API
+│       └── client/        # HTTP 客户端
 ├── internal/              # 内部包
 │   ├── config/            # 配置管理
 │   ├── execution/         # 执行模式
@@ -277,11 +276,6 @@ server:
   read_timeout: 30s
   write_timeout: 30s
 
-grpc:
-  address: ":9090"
-  max_recv_msg_size: 4194304
-  max_send_msg_size: 4194304
-
 master:
   heartbeat_interval: 5s
   heartbeat_timeout: 15s
@@ -294,7 +288,7 @@ slave:
     - http_executor
     - script_executor
   max_vus: 100
-  master_addr: "localhost:9090"
+  master_addr: "http://localhost:8080"
 
 logging:
   level: info

@@ -10,7 +10,5 @@ import (
 	_ "github.com/gofiber/fiber/v2"
 	_ "github.com/leanovate/gopter"
 	_ "github.com/stretchr/testify/assert"
-	_ "google.golang.org/grpc"
-	_ "google.golang.org/protobuf/proto"
 	_ "gopkg.in/yaml.v3"
 )

@@ -3,12 +3,14 @@ package rest
 
 import (
 	"context"
+	"fmt"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
 	"yqhp/workflow-engine/internal/master"
 	"yqhp/workflow-engine/internal/parser"
 	"yqhp/workflow-engine/pkg/types"
+
+	"github.com/gofiber/fiber/v2"
 )
 
 // healthCheck handles GET /health
@@ -475,5 +477,407 @@ func WrapMasterWithListExecutions(m master.Master, listFn func(ctx context.Conte
 	return &workflowMasterWrapper{
 		Master: m,
 		listFn: listFn,
+	}
+}
+
+// ============================================================================
+// Slave 通信相关的处理函数
+// ============================================================================
+
+// registerSlave handles POST /api/v1/slaves/register
+// Requirements: 2.1
+func (s *Server) registerSlave(c *fiber.Ctx) error {
+	ctx := context.Background()
+
+	var req SlaveRegisterRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+			Error:   "invalid_request",
+			Message: "Failed to parse request body: " + err.Error(),
+		})
+	}
+
+	// 验证必填字段
+	if req.SlaveID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+			Error:   "invalid_request",
+			Message: "Slave ID is required",
+		})
+	}
+
+	if req.Address == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+			Error:   "invalid_request",
+			Message: "Address is required",
+		})
+	}
+
+	if s.registry == nil {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(ErrorResponse{
+			Error:   "service_unavailable",
+			Message: "Slave registry is not available",
+		})
+	}
+
+	// 转换为内部类型
+	slaveInfo := &types.SlaveInfo{
+		ID:           req.SlaveID,
+		Type:         types.SlaveType(req.SlaveType),
+		Address:      req.Address,
+		Capabilities: req.Capabilities,
+		Labels:       req.Labels,
+	}
+
+	if req.Resources != nil {
+		slaveInfo.Resources = &types.ResourceInfo{
+			CPUCores:    req.Resources.CPUCores,
+			MemoryMB:    req.Resources.MemoryMB,
+			MaxVUs:      req.Resources.MaxVUs,
+			CurrentLoad: req.Resources.CurrentLoad,
+		}
+	}
+
+	// 注册 Slave
+	if err := s.registry.Register(ctx, slaveInfo); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(SlaveRegisterResponse{
+			Accepted: false,
+			Error:    "Registration failed: " + err.Error(),
+		})
+	}
+
+	// 返回成功响应
+	return c.Status(fiber.StatusCreated).JSON(SlaveRegisterResponse{
+		Accepted:          true,
+		AssignedID:        req.SlaveID,
+		HeartbeatInterval: 5000, // 默认 5 秒心跳间隔
+		MasterID:          "master-1",
+		Version:           "1.0.0",
+	})
+}
+
+// slaveHeartbeat handles POST /api/v1/slaves/:id/heartbeat
+// Requirements: 2.2
+func (s *Server) slaveHeartbeat(c *fiber.Ctx) error {
+	ctx := context.Background()
+	slaveID := c.Params("id")
+
+	if slaveID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+			Error:   "invalid_request",
+			Message: "Slave ID is required",
+		})
+	}
+
+	var req SlaveHeartbeatRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+			Error:   "invalid_request",
+			Message: "Failed to parse request body: " + err.Error(),
+		})
+	}
+
+	if s.registry == nil {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(ErrorResponse{
+			Error:   "service_unavailable",
+			Message: "Slave registry is not available",
+		})
+	}
+
+	// 验证 Slave 是否存在
+	_, err := s.registry.GetSlave(ctx, slaveID)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(ErrorResponse{
+			Error:   "not_found",
+			Message: "Slave not found: " + err.Error(),
+		})
+	}
+
+	// 更新 Slave 状态
+	if req.Status != nil {
+		status := &types.SlaveStatus{
+			State:       types.SlaveState(req.Status.State),
+			Load:        req.Status.Load,
+			ActiveTasks: req.Status.ActiveTasks,
+			LastSeen:    time.Now(),
+		}
+
+		if req.Status.Metrics != nil {
+			status.Metrics = &types.SlaveMetrics{
+				CPUUsage:    req.Status.Metrics.CPUUsage,
+				MemoryUsage: req.Status.Metrics.MemoryUsage,
+				ActiveVUs:   req.Status.Metrics.ActiveVUs,
+				Throughput:  req.Status.Metrics.Throughput,
+			}
+		}
+
+		if err := s.registry.UpdateStatus(ctx, slaveID, status); err != nil {
+			return c.Status(fiber.StatusInternalServerError).JSON(ErrorResponse{
+				Error:   "update_failed",
+				Message: "Failed to update slave status: " + err.Error(),
+			})
+		}
+	}
+
+	// 获取待执行的命令（从命令队列）
+	commands := s.getPendingCommands(slaveID)
+
+	return c.JSON(SlaveHeartbeatResponse{
+		Commands:  commands,
+		Timestamp: time.Now().UnixNano(),
+	})
+}
+
+// getPendingCommands 获取 Slave 的待执行命令
+func (s *Server) getPendingCommands(slaveID string) []*ControlCommand {
+	s.commandQueuesMu.RLock()
+	defer s.commandQueuesMu.RUnlock()
+
+	queue, ok := s.commandQueues[slaveID]
+	if !ok || queue == nil {
+		return nil
+	}
+
+	var commands []*ControlCommand
+	// 非阻塞地获取所有待执行命令
+	for {
+		select {
+		case cmd := <-queue:
+			commands = append(commands, cmd)
+		default:
+			return commands
+		}
+	}
+}
+
+// getSlaveTasks handles GET /api/v1/slaves/:id/tasks
+// Requirements: 2.5
+func (s *Server) getSlaveTasks(c *fiber.Ctx) error {
+	ctx := context.Background()
+	slaveID := c.Params("id")
+
+	if slaveID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+			Error:   "invalid_request",
+			Message: "Slave ID is required",
+		})
+	}
+
+	if s.registry == nil {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(ErrorResponse{
+			Error:   "service_unavailable",
+			Message: "Slave registry is not available",
+		})
+	}
+
+	// 验证 Slave 是否存在
+	_, err := s.registry.GetSlave(ctx, slaveID)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).JSON(ErrorResponse{
+			Error:   "not_found",
+			Message: "Slave not found: " + err.Error(),
+		})
+	}
+
+	// 获取待执行任务
+	tasks := s.getPendingTasks(slaveID)
+
+	return c.JSON(PendingTasksResponse{
+		Tasks: tasks,
+	})
+}
+
+// getPendingTasks 获取 Slave 的待执行任务
+func (s *Server) getPendingTasks(slaveID string) []*TaskAssignment {
+	s.taskQueuesMu.RLock()
+	defer s.taskQueuesMu.RUnlock()
+
+	queue, ok := s.taskQueues[slaveID]
+	if !ok || queue == nil {
+		return nil
+	}
+
+	var tasks []*TaskAssignment
+	// 非阻塞地获取所有待执行任务
+	for {
+		select {
+		case task := <-queue:
+			tasks = append(tasks, task)
+		default:
+			return tasks
+		}
+	}
+}
+
+// receiveTaskResult handles POST /api/v1/tasks/:id/result
+// Requirements: 2.3
+func (s *Server) receiveTaskResult(c *fiber.Ctx) error {
+	ctx := context.Background()
+	taskID := c.Params("id")
+
+	if taskID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+			Error:   "invalid_request",
+			Message: "Task ID is required",
+		})
+	}
+
+	var req TaskResultRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+			Error:   "invalid_request",
+			Message: "Failed to parse request body: " + err.Error(),
+		})
+	}
+
+	// 验证必填字段
+	if req.ExecutionID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+			Error:   "invalid_request",
+			Message: "Execution ID is required",
+		})
+	}
+
+	if req.SlaveID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+			Error:   "invalid_request",
+			Message: "Slave ID is required",
+		})
+	}
+
+	// 处理任务结果
+	// 这里可以调用 master 的方法来更新执行状态
+	// 目前简单记录并返回成功
+	_ = ctx // 预留给后续实现
+
+	return c.JSON(TaskResultResponse{
+		Success: true,
+		Message: "Task result received successfully",
+	})
+}
+
+// receiveMetricsReport handles POST /api/v1/executions/:id/metrics/report
+// Requirements: 2.4
+func (s *Server) receiveMetricsReport(c *fiber.Ctx) error {
+	executionID := c.Params("id")
+
+	if executionID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+			Error:   "invalid_request",
+			Message: "Execution ID is required",
+		})
+	}
+
+	var req MetricsReportRequest
+	if err := c.BodyParser(&req); err != nil {
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+			Error:   "invalid_request",
+			Message: "Failed to parse request body: " + err.Error(),
+		})
+	}
+
+	// 验证必填字段
+	if req.SlaveID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+			Error:   "invalid_request",
+			Message: "Slave ID is required",
+		})
+	}
+
+	// 处理指标报告
+	// 这里可以调用 MetricsAggregator 来聚合指标
+	// 目前简单记录并返回成功
+
+	return c.JSON(MetricsReportResponse{
+		Success: true,
+	})
+}
+
+// unregisterSlave handles POST /api/v1/slaves/:id/unregister
+// Requirements: 2.1
+func (s *Server) unregisterSlave(c *fiber.Ctx) error {
+	ctx := context.Background()
+	slaveID := c.Params("id")
+
+	if slaveID == "" {
+		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
+			Error:   "invalid_request",
+			Message: "Slave ID is required",
+		})
+	}
+
+	if s.registry == nil {
+		return c.Status(fiber.StatusServiceUnavailable).JSON(ErrorResponse{
+			Error:   "service_unavailable",
+			Message: "Slave registry is not available",
+		})
+	}
+
+	// 注销 Slave
+	if err := s.registry.Unregister(ctx, slaveID); err != nil {
+		return c.Status(fiber.StatusInternalServerError).JSON(ErrorResponse{
+			Error:   "unregister_failed",
+			Message: "Failed to unregister slave: " + err.Error(),
+		})
+	}
+
+	// 清理任务和命令队列
+	s.cleanupSlaveQueues(slaveID)
+
+	return c.JSON(SlaveUnregisterResponse{
+		Success: true,
+		Message: "Slave unregistered successfully",
+	})
+}
+
+// cleanupSlaveQueues 清理 Slave 的任务和命令队列
+func (s *Server) cleanupSlaveQueues(slaveID string) {
+	s.taskQueuesMu.Lock()
+	if queue, ok := s.taskQueues[slaveID]; ok {
+		close(queue)
+		delete(s.taskQueues, slaveID)
+	}
+	s.taskQueuesMu.Unlock()
+
+	s.commandQueuesMu.Lock()
+	if queue, ok := s.commandQueues[slaveID]; ok {
+		close(queue)
+		delete(s.commandQueues, slaveID)
+	}
+	s.commandQueuesMu.Unlock()
+}
+
+// AssignTask 分配任务给 Slave
+func (s *Server) AssignTask(slaveID string, task *TaskAssignment) error {
+	s.taskQueuesMu.Lock()
+	queue, ok := s.taskQueues[slaveID]
+	if !ok {
+		queue = make(chan *TaskAssignment, 100)
+		s.taskQueues[slaveID] = queue
+	}
+	s.taskQueuesMu.Unlock()
+
+	select {
+	case queue <- task:
+		return nil
+	case <-time.After(5 * time.Second):
+		return fmt.Errorf("timeout sending task to slave: %s", slaveID)
+	}
+}
+
+// SendCommand 发送命令给 Slave
+func (s *Server) SendCommand(slaveID string, cmd *ControlCommand) error {
+	s.commandQueuesMu.Lock()
+	queue, ok := s.commandQueues[slaveID]
+	if !ok {
+		queue = make(chan *ControlCommand, 100)
+		s.commandQueues[slaveID] = queue
+	}
+	s.commandQueuesMu.Unlock()
+
+	select {
+	case queue <- cmd:
+		return nil
+	case <-time.After(5 * time.Second):
+		return fmt.Errorf("timeout sending command to slave: %s", slaveID)
 	}
 }

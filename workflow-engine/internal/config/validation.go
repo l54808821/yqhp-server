@@ -58,7 +58,6 @@ func (v *Validator) Validate(cfg *Config) error {
 	v.errors = make(ValidationErrors, 0)
 
 	v.validateServerConfig(&cfg.Server)
-	v.validateGRPCConfig(&cfg.GRPC)
 	v.validateMasterConfig(&cfg.Master)
 	v.validateSlaveConfig(&cfg.Slave)
 	v.validateLoggingConfig(&cfg.Logging)
@@ -90,29 +89,6 @@ func (v *Validator) validateServerConfig(cfg *ServerConfig) {
 	}
 	if cfg.WriteTimeout > 0 && cfg.WriteTimeout < time.Second {
 		v.addError("server.write_timeout", "write timeout should be at least 1 second")
-	}
-}
-
-// validateGRPCConfig validates the gRPC configuration.
-func (v *Validator) validateGRPCConfig(cfg *GRPCConfig) {
-	// Validate address
-	if cfg.Address == "" {
-		v.addError("grpc.address", "address is required")
-	} else if !isValidAddress(cfg.Address) {
-		v.addError("grpc.address", "invalid address format, expected host:port or :port")
-	}
-
-	// Validate message sizes
-	if cfg.MaxRecvMsgSize < 0 {
-		v.addError("grpc.max_recv_msg_size", "max receive message size must be non-negative")
-	}
-	if cfg.MaxSendMsgSize < 0 {
-		v.addError("grpc.max_send_msg_size", "max send message size must be non-negative")
-	}
-
-	// Validate connection timeout
-	if cfg.ConnectionTimeout < 0 {
-		v.addError("grpc.connection_timeout", "connection timeout must be non-negative")
 	}
 }
 
@@ -343,10 +319,6 @@ func GetSchema() *Schema {
 			{Path: "server.write_timeout", Type: "duration", Required: false, Default: "30s", Description: "HTTP write timeout", EnvVar: "WE_SERVER_WRITE_TIMEOUT", Constraints: []string{"non-negative", "at least 1s if set"}},
 			{Path: "server.enable_cors", Type: "bool", Required: false, Default: "false", Description: "Enable CORS", EnvVar: "WE_SERVER_ENABLE_CORS"},
 			{Path: "server.enable_swagger", Type: "bool", Required: false, Default: "false", Description: "Enable Swagger documentation", EnvVar: "WE_SERVER_ENABLE_SWAGGER"},
-			{Path: "grpc.address", Type: "string", Required: true, Default: ":9090", Description: "gRPC server listen address", EnvVar: "WE_GRPC_ADDRESS", Constraints: []string{"valid host:port format"}},
-			{Path: "grpc.max_recv_msg_size", Type: "int", Required: false, Default: "4194304", Description: "Max receive message size in bytes", EnvVar: "WE_GRPC_MAX_RECV_MSG_SIZE", Constraints: []string{"non-negative"}},
-			{Path: "grpc.max_send_msg_size", Type: "int", Required: false, Default: "4194304", Description: "Max send message size in bytes", EnvVar: "WE_GRPC_MAX_SEND_MSG_SIZE", Constraints: []string{"non-negative"}},
-			{Path: "grpc.connection_timeout", Type: "duration", Required: false, Default: "10s", Description: "Connection timeout", EnvVar: "WE_GRPC_CONNECTION_TIMEOUT", Constraints: []string{"non-negative"}},
 			{Path: "master.heartbeat_interval", Type: "duration", Required: true, Default: "5s", Description: "Heartbeat interval", EnvVar: "WE_MASTER_HEARTBEAT_INTERVAL", Constraints: []string{"positive"}},
 			{Path: "master.heartbeat_timeout", Type: "duration", Required: true, Default: "15s", Description: "Heartbeat timeout", EnvVar: "WE_MASTER_HEARTBEAT_TIMEOUT", Constraints: []string{"positive", "greater than heartbeat_interval"}},
 			{Path: "master.task_queue_size", Type: "int", Required: false, Default: "1000", Description: "Task queue size", EnvVar: "WE_MASTER_TASK_QUEUE_SIZE", Constraints: []string{"non-negative"}},
@@ -354,7 +326,7 @@ func GetSchema() *Schema {
 			{Path: "slave.type", Type: "string", Required: true, Default: "worker", Description: "Slave type", EnvVar: "WE_SLAVE_TYPE", Constraints: []string{"one of: worker, gateway, aggregator"}},
 			{Path: "slave.capabilities", Type: "[]string", Required: false, Default: "http_executor,script_executor", Description: "Slave capabilities", EnvVar: "WE_SLAVE_CAPABILITIES", Constraints: []string{"required for worker type"}},
 			{Path: "slave.max_vus", Type: "int", Required: false, Default: "100", Description: "Maximum VUs", EnvVar: "WE_SLAVE_MAX_VUS", Constraints: []string{"non-negative"}},
-			{Path: "slave.master_addr", Type: "string", Required: false, Default: "localhost:9090", Description: "Master address", EnvVar: "WE_SLAVE_MASTER_ADDR", Constraints: []string{"valid host:port format"}},
+			{Path: "slave.master_addr", Type: "string", Required: false, Default: "http://localhost:8080", Description: "Master HTTP address", EnvVar: "WE_SLAVE_MASTER_ADDR", Constraints: []string{"valid URL format"}},
 			{Path: "logging.level", Type: "string", Required: true, Default: "info", Description: "Log level", EnvVar: "WE_LOG_LEVEL", Constraints: []string{"one of: debug, info, warn, error, fatal"}},
 			{Path: "logging.format", Type: "string", Required: true, Default: "json", Description: "Log format", EnvVar: "WE_LOG_FORMAT", Constraints: []string{"one of: json, text"}},
 			{Path: "logging.output", Type: "string", Required: false, Default: "stdout", Description: "Log output", EnvVar: "WE_LOG_OUTPUT", Constraints: []string{"stdout, stderr, or file path"}},

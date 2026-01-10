@@ -5,13 +5,15 @@ package rest
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
+
+	"yqhp/workflow-engine/internal/master"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/gofiber/fiber/v2/middleware/logger"
 	fiberrecover "github.com/gofiber/fiber/v2/middleware/recover"
-	"yqhp/workflow-engine/internal/master"
 )
 
 // Server represents the REST API server.
@@ -20,6 +22,12 @@ type Server struct {
 	master   master.Master
 	registry master.SlaveRegistry
 	config   *Config
+
+	// 任务和命令队列管理
+	taskQueues      map[string]chan *TaskAssignment // slaveID -> task queue
+	taskQueuesMu    sync.RWMutex
+	commandQueues   map[string]chan *ControlCommand // slaveID -> command queue
+	commandQueuesMu sync.RWMutex
 }
 
 // Config holds the configuration for the REST API server.
@@ -93,10 +101,12 @@ func NewServer(m master.Master, registry master.SlaveRegistry, config *Config) *
 	})
 
 	server := &Server{
-		app:      app,
-		master:   m,
-		registry: registry,
-		config:   config,
+		app:           app,
+		master:        m,
+		registry:      registry,
+		config:        config,
+		taskQueues:    make(map[string]chan *TaskAssignment),
+		commandQueues: make(map[string]chan *ControlCommand),
 	}
 
 	server.setupMiddleware()
@@ -238,6 +248,18 @@ func (s *Server) setupRoutes() {
 	api.Get("/slaves", s.listSlaves)
 	api.Get("/slaves/:id", s.getSlave)
 	api.Post("/slaves/:id/drain", s.drainSlave)
+
+	// Slave 通信路由 (HTTP REST API)
+	api.Post("/slaves/register", s.registerSlave)
+	api.Post("/slaves/:id/heartbeat", s.slaveHeartbeat)
+	api.Get("/slaves/:id/tasks", s.getSlaveTasks)
+	api.Post("/slaves/:id/unregister", s.unregisterSlave)
+
+	// 任务结果路由
+	api.Post("/tasks/:id/result", s.receiveTaskResult)
+
+	// 指标报告路由
+	api.Post("/executions/:id/metrics/report", s.receiveMetricsReport)
 
 	// WebSocket routes
 	s.setupWebSocketRoutes()

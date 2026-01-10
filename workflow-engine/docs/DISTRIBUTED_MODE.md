@@ -30,7 +30,6 @@ Workflow Engine 采用 Master-Slave 架构，支持水平扩展：
                     │     Master      │
                     │   (调度中心)     │
                     │  HTTP: :8080    │
-                    │  gRPC: :9090    │
                     └────────┬────────┘
                              │
            ┌─────────────────┼─────────────────┐
@@ -68,7 +67,7 @@ Workflow Engine 采用 Master-Slave 架构，支持水平扩展：
 ./workflow-engine master start
 
 # 指定端口启动
-./workflow-engine master start --address :8080 --grpc-address :9090
+./workflow-engine master start --address :8080
 
 # 使用配置文件启动
 ./workflow-engine master start --config configs/config.yaml
@@ -80,13 +79,13 @@ Workflow Engine 采用 Master-Slave 架构，支持水平扩展：
 
 ```bash
 # 连接到 Master
-./workflow-engine slave start --master localhost:9090
+./workflow-engine slave start --master http://localhost:8080
 
 # 指定 Slave ID 和最大 VU 数
-./workflow-engine slave start --master localhost:9090 --id slave-1 --max-vus 200
+./workflow-engine slave start --master http://localhost:8080 --id slave-1 --max-vus 200
 
 # 带标签启动（用于任务路由）
-./workflow-engine slave start --master localhost:9090 --labels region=cn-east,env=prod
+./workflow-engine slave start --master http://localhost:8080 --labels region=cn-east,env=prod
 ```
 
 ### 3. 提交工作流
@@ -138,7 +137,6 @@ curl http://localhost:8080/api/v1/executions/{execution_id}/metrics
 选项:
   --config string           配置文件路径
   --address string          HTTP 服务地址 (默认 ":8080")
-  --grpc-address string     gRPC 服务地址 (默认 ":9090")
   --standalone              独立模式运行（无需 Slave）
   --heartbeat-timeout       Slave 心跳超时时间 (默认 30s)
   --max-executions int      最大并发执行数 (默认 100)
@@ -151,7 +149,6 @@ curl http://localhost:8080/api/v1/executions/{execution_id}/metrics
 ./workflow-engine master start \
   --config /etc/workflow-engine/config.yaml \
   --address 0.0.0.0:8080 \
-  --grpc-address 0.0.0.0:9090 \
   --max-executions 500
 
 # 开发环境（独立模式，无需 Slave）
@@ -181,7 +178,7 @@ curl http://localhost:8080/api/v1/slaves
   --id string           Slave ID（不指定则自动生成）
   --type string         Slave 类型: worker, gateway, aggregator (默认 "worker")
   --address string      Slave 监听地址 (默认 ":9091")
-  --master string       Master 节点地址 (默认 "localhost:9090")
+  --master string       Master HTTP 地址 (默认 "http://localhost:8080")
   --max-vus int         最大虚拟用户数 (默认 100)
   --capabilities string 能力列表，逗号分隔 (默认 "http_executor,script_executor")
   --labels string       标签，key=value 格式，逗号分隔
@@ -191,18 +188,18 @@ curl http://localhost:8080/api/v1/slaves
 
 ```bash
 # 基本启动
-./workflow-engine slave start --master 192.168.1.100:9090
+./workflow-engine slave start --master http://192.168.1.100:8080
 
 # 高性能节点
 ./workflow-engine slave start \
-  --master 192.168.1.100:9090 \
+  --master http://192.168.1.100:8080 \
   --id high-perf-slave-1 \
   --max-vus 500 \
   --capabilities http_executor,script_executor,db_executor
 
 # 带标签的节点（用于定向调度）
 ./workflow-engine slave start \
-  --master 192.168.1.100:9090 \
+  --master http://192.168.1.100:8080 \
   --id cn-east-slave-1 \
   --labels region=cn-east,zone=a,env=prod
 ```
@@ -231,13 +228,6 @@ server:
   write_timeout: 30s
   enable_cors: true
 
-# gRPC 配置
-grpc:
-  address: ":9090"
-  max_recv_msg_size: 4194304 # 4MB
-  max_send_msg_size: 4194304 # 4MB
-  connection_timeout: 10s
-
 # Master 配置
 master:
   heartbeat_interval: 5s # 心跳检查间隔
@@ -255,7 +245,7 @@ slave:
     region: cn-east
     env: prod
   max_vus: 100
-  master_addr: "localhost:9090"
+  master_addr: "http://localhost:8080"
 
 # 日志配置
 logging:
@@ -270,9 +260,6 @@ logging:
 # master-config.yaml
 server:
   address: "0.0.0.0:8080"
-
-grpc:
-  address: "0.0.0.0:9090"
 
 master:
   heartbeat_interval: 5s
@@ -299,7 +286,7 @@ slave:
     region: cn-east
     zone: a
   max_vus: 200
-  master_addr: "master.example.com:9090"
+  master_addr: "http://master.example.com:8080"
 
 logging:
   level: info
@@ -708,7 +695,7 @@ sudo systemctl start workflow-engine-slave
 ### 2. 网络配置
 
 - Master 和 Slave 之间建议使用内网通信
-- 确保 gRPC 端口（默认 9090）可访问
+- 确保 HTTP 端口（默认 8080）可访问
 - 建议配置心跳超时为网络延迟的 3-5 倍
 
 ### 3. 高可用部署
@@ -735,7 +722,7 @@ sudo systemctl start workflow-engine-slave
 ### 4. 安全建议
 
 - 生产环境启用 API 认证
-- 使用 TLS 加密 gRPC 通信
+- 使用 TLS 加密 HTTP 通信
 - 限制 Master API 的访问来源
 - 定期轮换 API Key
 
@@ -747,11 +734,11 @@ sudo systemctl start workflow-engine-slave
 # 检查 Master 是否运行
 curl http://master-host:8080/health
 
-# 检查 gRPC 端口是否可达
-nc -zv master-host 9090
+# 检查 HTTP 端口是否可达
+nc -zv master-host 8080
 
 # 检查防火墙规则
-sudo iptables -L -n | grep 9090
+sudo iptables -L -n | grep 8080
 ```
 
 ### Slave 频繁断开
@@ -799,19 +786,18 @@ curl -X DELETE http://localhost:8080/api/v1/executions/{execution_id}
 # 节点 1: Master
 ./workflow-engine master start \
   --address 0.0.0.0:8080 \
-  --grpc-address 0.0.0.0:9090 \
   --max-executions 200
 
 # 节点 2: Slave 1
 ./workflow-engine slave start \
-  --master 192.168.1.1:9090 \
+  --master http://192.168.1.1:8080 \
   --id slave-1 \
   --max-vus 200 \
   --labels region=cn-east,zone=a
 
 # 节点 3: Slave 2
 ./workflow-engine slave start \
-  --master 192.168.1.1:9090 \
+  --master http://192.168.1.1:8080 \
   --id slave-2 \
   --max-vus 200 \
   --labels region=cn-east,zone=b

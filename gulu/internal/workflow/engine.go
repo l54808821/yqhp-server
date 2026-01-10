@@ -55,7 +55,7 @@ func (e *Engine) startEmbeddedEngine() error {
 
 	// 创建引擎配置
 	cfg := &engine.Config{
-		GRPCAddress:      e.config.GRPCAddress,
+		HTTPAddress:      e.config.HTTPAddress,
 		Standalone:       e.config.Standalone,
 		MaxExecutions:    e.config.MaxExecutions,
 		HeartbeatTimeout: e.config.HeartbeatTimeout,

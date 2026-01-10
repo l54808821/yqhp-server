@@ -57,7 +57,6 @@ func executeStart(args []string) error {
 	// 配置选项
 	configPath := fs.String("config", "", "配置文件路径")
 	address := fs.String("address", ":8080", "HTTP 服务地址")
-	grpcAddress := fs.String("grpc-address", ":9090", "gRPC 服务地址")
 	standalone := fs.Bool("standalone", false, "独立模式运行（无需 Slave）")
 	heartbeatTimeout := fs.Duration("heartbeat-timeout", 30*time.Second, "Slave 心跳超时时间")
 	maxExecutions := fs.Int("max-executions", 100, "最大并发执行数")
@@ -90,9 +89,6 @@ func executeStart(args []string) error {
 	// 应用命令行参数覆盖
 	if *address != ":8080" {
 		cfg.Server.Address = *address
-	}
-	if *grpcAddress != ":9090" {
-		cfg.GRPC.Address = *grpcAddress
 	}
 	if *heartbeatTimeout != 30*time.Second {
 		cfg.Master.HeartbeatTimeout = *heartbeatTimeout
@@ -130,7 +126,6 @@ func executeStart(args []string) error {
 
 	fmt.Printf("正在启动 Master 节点...\n")
 	fmt.Printf("  HTTP 地址: %s\n", cfg.Server.Address)
-	fmt.Printf("  gRPC 地址: %s\n", cfg.GRPC.Address)
 	fmt.Printf("  独立模式: %v\n", *standalone)
 	fmt.Printf("  最大并发执行数: %d\n", *maxExecutions)
 	fmt.Println()

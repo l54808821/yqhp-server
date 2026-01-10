@@ -20,7 +20,7 @@ type GuluConfig struct {
 type WorkflowEngineConfig struct {
 	Embedded         bool          `yaml:"embedded"`          // 是否使用内置 Master
 	ExternalURL      string        `yaml:"external_url"`      // 外部 Master 地址
-	GRPCAddress      string        `yaml:"grpc_address"`      // gRPC 服务地址
+	HTTPAddress      string        `yaml:"http_address"`      // HTTP 服务地址
 	Standalone       bool          `yaml:"standalone"`        // 独立模式
 	MaxExecutions    int           `yaml:"max_executions"`    // 最大并发执行数
 	HeartbeatTimeout time.Duration `yaml:"heartbeat_timeout"` // 心跳超时

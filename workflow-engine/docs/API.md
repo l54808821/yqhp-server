@@ -686,7 +686,7 @@ curl -X DELETE http://localhost:8080/api/v1/executions/$EXECUTION_ID
 ./workflow-engine master start
 
 # 2. 启动 Slave (另一个终端)
-./workflow-engine slave start --master localhost:9090
+./workflow-engine slave start --master http://localhost:8080
 
 # 3. 查看 Slave 列表
 curl http://localhost:8080/api/v1/slaves

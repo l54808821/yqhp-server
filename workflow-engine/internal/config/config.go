@@ -14,7 +14,6 @@ import (
 // Config represents the complete configuration for the workflow engine.
 type Config struct {
 	Server  ServerConfig  `yaml:"server"`
-	GRPC    GRPCConfig    `yaml:"grpc"`
 	Master  MasterConfig  `yaml:"master"`
 	Slave   SlaveConfig   `yaml:"slave"`
 	Logging LoggingConfig `yaml:"logging"`
@@ -27,14 +26,6 @@ type ServerConfig struct {
 	WriteTimeout  time.Duration `yaml:"write_timeout" env:"WE_SERVER_WRITE_TIMEOUT"`
 	EnableCORS    bool          `yaml:"enable_cors" env:"WE_SERVER_ENABLE_CORS"`
 	EnableSwagger bool          `yaml:"enable_swagger" env:"WE_SERVER_ENABLE_SWAGGER"`
-}
-
-// GRPCConfig holds gRPC server configuration.
-type GRPCConfig struct {
-	Address           string        `yaml:"address" env:"WE_GRPC_ADDRESS"`
-	MaxRecvMsgSize    int           `yaml:"max_recv_msg_size" env:"WE_GRPC_MAX_RECV_MSG_SIZE"`
-	MaxSendMsgSize    int           `yaml:"max_send_msg_size" env:"WE_GRPC_MAX_SEND_MSG_SIZE"`
-	ConnectionTimeout time.Duration `yaml:"connection_timeout" env:"WE_GRPC_CONNECTION_TIMEOUT"`
 }
 
 // MasterConfig holds master node configuration.
@@ -71,12 +62,6 @@ func DefaultConfig() *Config {
 			EnableCORS:    false,
 			EnableSwagger: false,
 		},
-		GRPC: GRPCConfig{
-			Address:           ":9090",
-			MaxRecvMsgSize:    4 * 1024 * 1024, // 4MB
-			MaxSendMsgSize:    4 * 1024 * 1024, // 4MB
-			ConnectionTimeout: 10 * time.Second,
-		},
 		Master: MasterConfig{
 			HeartbeatInterval: 5 * time.Second,
 			HeartbeatTimeout:  15 * time.Second,
@@ -88,7 +73,7 @@ func DefaultConfig() *Config {
 			Capabilities: []string{"http_executor", "script_executor"},
 			Labels:       make(map[string]string),
 			MaxVUs:       100,
-			MasterAddr:   "localhost:9090",
+			MasterAddr:   "http://localhost:8080",
 		},
 		Logging: LoggingConfig{
 			Level:  "info",

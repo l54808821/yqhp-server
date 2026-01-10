@@ -579,10 +579,10 @@ func (m *WorkflowMaster) distributeExecution(ctx context.Context, execInfo *Exec
 
 			var result *slaveResult
 
-			// 尝试通过 gRPC 发送任务到 Slave
+			// 尝试通过 HTTP 发送任务到 Slave
 			if m.taskAssigner != nil {
 				if err := m.taskAssigner.AssignTask(assign.SlaveID, task); err != nil {
-					fmt.Printf("通过 gRPC 分发任务失败: %v，使用本地执行\n", err)
+					fmt.Printf("通过 HTTP 分发任务失败: %v，使用本地执行\n", err)
 					result = m.executeTaskLocally(ctx, task, assign.SlaveID)
 				} else {
 					// 任务已发送，等待结果（这里简化处理，实际应该通过回调接收结果）

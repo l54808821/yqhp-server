@@ -9,9 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
 	"yqhp/workflow-engine/internal/master"
 	"yqhp/workflow-engine/pkg/types"
+
+	"github.com/gofiber/fiber/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -614,4 +615,390 @@ func TestMetricsStreamer(t *testing.T) {
 	assert.NotNil(t, streamer)
 	assert.NotNil(t, streamer.connections)
 	assert.Equal(t, time.Second, streamer.config.Interval)
+}
+
+// ============================================================================
+// Slave 通信端点测试
+// ============================================================================
+
+func TestRegisterSlave(t *testing.T) {
+	mockM := newMockMaster()
+	mockR := newMockRegistry()
+	server := NewServer(mockM, mockR, nil)
+
+	registerJSON := `{
+		"slave_id": "slave-test-1",
+		"slave_type": "worker",
+		"capabilities": ["http_executor", "script_executor"],
+		"address": "localhost:9001",
+		"resources": {
+			"cpu_cores": 4,
+			"memory_mb": 8192,
+			"max_vus": 100
+		}
+	}`
+
+	req := httptest.NewRequest("POST", "/api/v1/slaves/register", strings.NewReader(registerJSON))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := server.App().Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, fiber.StatusCreated, resp.StatusCode)
+
+	body, _ := io.ReadAll(resp.Body)
+	var result SlaveRegisterResponse
+	err = json.Unmarshal(body, &result)
+	require.NoError(t, err)
+	assert.True(t, result.Accepted)
+	assert.Equal(t, "slave-test-1", result.AssignedID)
+	assert.Greater(t, result.HeartbeatInterval, int64(0))
+}
+
+func TestRegisterSlaveWithoutID(t *testing.T) {
+	mockM := newMockMaster()
+	mockR := newMockRegistry()
+	server := NewServer(mockM, mockR, nil)
+
+	registerJSON := `{
+		"slave_type": "worker",
+		"address": "localhost:9001"
+	}`
+
+	req := httptest.NewRequest("POST", "/api/v1/slaves/register", strings.NewReader(registerJSON))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := server.App().Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, fiber.StatusBadRequest, resp.StatusCode)
+}
+
+func TestRegisterSlaveWithoutRegistry(t *testing.T) {
+	mockM := newMockMaster()
+	server := NewServer(mockM, nil, nil)
+
+	registerJSON := `{
+		"slave_id": "slave-test-1",
+		"slave_type": "worker",
+		"address": "localhost:9001"
+	}`
+
+	req := httptest.NewRequest("POST", "/api/v1/slaves/register", strings.NewReader(registerJSON))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := server.App().Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, fiber.StatusServiceUnavailable, resp.StatusCode)
+}
+
+func TestSlaveHeartbeat(t *testing.T) {
+	mockM := newMockMaster()
+	mockR := newMockRegistry()
+	server := NewServer(mockM, mockR, nil)
+
+	// 先注册 Slave
+	mockR.Register(context.Background(), &types.SlaveInfo{
+		ID:      "slave-test-1",
+		Type:    types.SlaveTypeWorker,
+		Address: "localhost:9001",
+	})
+
+	heartbeatJSON := `{
+		"slave_id": "slave-test-1",
+		"status": {
+			"state": "online",
+			"load": 25.5,
+			"active_tasks": 2,
+			"metrics": {
+				"cpu_usage": 30.0,
+				"memory_usage": 45.0,
+				"active_vus": 10,
+				"throughput": 100.5
+			}
+		},
+		"timestamp": 1234567890
+	}`
+
+	req := httptest.NewRequest("POST", "/api/v1/slaves/slave-test-1/heartbeat", strings.NewReader(heartbeatJSON))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := server.App().Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, fiber.StatusOK, resp.StatusCode)
+
+	body, _ := io.ReadAll(resp.Body)
+	var result SlaveHeartbeatResponse
+	err = json.Unmarshal(body, &result)
+	require.NoError(t, err)
+	assert.Greater(t, result.Timestamp, int64(0))
+}
+
+func TestSlaveHeartbeatNotFound(t *testing.T) {
+	mockM := newMockMaster()
+	mockR := newMockRegistry()
+	server := NewServer(mockM, mockR, nil)
+
+	heartbeatJSON := `{
+		"slave_id": "non-existent-slave",
+		"status": {
+			"state": "online"
+		}
+	}`
+
+	req := httptest.NewRequest("POST", "/api/v1/slaves/non-existent-slave/heartbeat", strings.NewReader(heartbeatJSON))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := server.App().Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, fiber.StatusNotFound, resp.StatusCode)
+}
+
+func TestGetSlaveTasks(t *testing.T) {
+	mockM := newMockMaster()
+	mockR := newMockRegistry()
+	server := NewServer(mockM, mockR, nil)
+
+	// 先注册 Slave
+	mockR.Register(context.Background(), &types.SlaveInfo{
+		ID:      "slave-test-1",
+		Type:    types.SlaveTypeWorker,
+		Address: "localhost:9001",
+	})
+
+	req := httptest.NewRequest("GET", "/api/v1/slaves/slave-test-1/tasks", nil)
+	resp, err := server.App().Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, fiber.StatusOK, resp.StatusCode)
+
+	body, _ := io.ReadAll(resp.Body)
+	var result PendingTasksResponse
+	err = json.Unmarshal(body, &result)
+	require.NoError(t, err)
+	// 初始应该没有任务
+	assert.Empty(t, result.Tasks)
+}
+
+func TestGetSlaveTasksNotFound(t *testing.T) {
+	mockM := newMockMaster()
+	mockR := newMockRegistry()
+	server := NewServer(mockM, mockR, nil)
+
+	req := httptest.NewRequest("GET", "/api/v1/slaves/non-existent-slave/tasks", nil)
+	resp, err := server.App().Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, fiber.StatusNotFound, resp.StatusCode)
+}
+
+func TestReceiveTaskResult(t *testing.T) {
+	mockM := newMockMaster()
+	mockR := newMockRegistry()
+	server := NewServer(mockM, mockR, nil)
+
+	resultJSON := `{
+		"task_id": "task-1",
+		"execution_id": "exec-1",
+		"slave_id": "slave-test-1",
+		"status": "completed",
+		"result": {
+			"iterations": 100,
+			"success_count": 98,
+			"failure_count": 2
+		}
+	}`
+
+	req := httptest.NewRequest("POST", "/api/v1/tasks/task-1/result", strings.NewReader(resultJSON))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := server.App().Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, fiber.StatusOK, resp.StatusCode)
+
+	body, _ := io.ReadAll(resp.Body)
+	var result TaskResultResponse
+	err = json.Unmarshal(body, &result)
+	require.NoError(t, err)
+	assert.True(t, result.Success)
+}
+
+func TestReceiveTaskResultMissingFields(t *testing.T) {
+	mockM := newMockMaster()
+	mockR := newMockRegistry()
+	server := NewServer(mockM, mockR, nil)
+
+	// 缺少 execution_id
+	resultJSON := `{
+		"task_id": "task-1",
+		"slave_id": "slave-test-1",
+		"status": "completed"
+	}`
+
+	req := httptest.NewRequest("POST", "/api/v1/tasks/task-1/result", strings.NewReader(resultJSON))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := server.App().Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, fiber.StatusBadRequest, resp.StatusCode)
+}
+
+func TestReceiveMetricsReport(t *testing.T) {
+	mockM := newMockMaster()
+	mockR := newMockRegistry()
+	server := NewServer(mockM, mockR, nil)
+
+	metricsJSON := `{
+		"slave_id": "slave-test-1",
+		"execution_id": "exec-1",
+		"timestamp": 1234567890,
+		"metrics": {
+			"total_vus": 10,
+			"total_iterations": 1000,
+			"duration_ms": 60000
+		},
+		"step_metrics": {
+			"step-1": {
+				"step_id": "step-1",
+				"count": 500,
+				"success_count": 490,
+				"failure_count": 10
+			}
+		}
+	}`
+
+	req := httptest.NewRequest("POST", "/api/v1/executions/exec-1/metrics/report", strings.NewReader(metricsJSON))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := server.App().Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, fiber.StatusOK, resp.StatusCode)
+
+	body, _ := io.ReadAll(resp.Body)
+	var result MetricsReportResponse
+	err = json.Unmarshal(body, &result)
+	require.NoError(t, err)
+	assert.True(t, result.Success)
+}
+
+func TestReceiveMetricsReportMissingSlaveID(t *testing.T) {
+	mockM := newMockMaster()
+	mockR := newMockRegistry()
+	server := NewServer(mockM, mockR, nil)
+
+	metricsJSON := `{
+		"execution_id": "exec-1",
+		"timestamp": 1234567890,
+		"metrics": {
+			"total_vus": 10
+		}
+	}`
+
+	req := httptest.NewRequest("POST", "/api/v1/executions/exec-1/metrics/report", strings.NewReader(metricsJSON))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := server.App().Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, fiber.StatusBadRequest, resp.StatusCode)
+}
+
+func TestUnregisterSlave(t *testing.T) {
+	mockM := newMockMaster()
+	mockR := newMockRegistry()
+	server := NewServer(mockM, mockR, nil)
+
+	// 先注册 Slave
+	mockR.Register(context.Background(), &types.SlaveInfo{
+		ID:      "slave-test-1",
+		Type:    types.SlaveTypeWorker,
+		Address: "localhost:9001",
+	})
+
+	req := httptest.NewRequest("POST", "/api/v1/slaves/slave-test-1/unregister", nil)
+	resp, err := server.App().Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, fiber.StatusOK, resp.StatusCode)
+
+	body, _ := io.ReadAll(resp.Body)
+	var result SlaveUnregisterResponse
+	err = json.Unmarshal(body, &result)
+	require.NoError(t, err)
+	assert.True(t, result.Success)
+
+	// 验证 Slave 已被注销
+	_, err = mockR.GetSlave(context.Background(), "slave-test-1")
+	assert.Error(t, err)
+}
+
+func TestAssignTaskAndGetTasks(t *testing.T) {
+	mockM := newMockMaster()
+	mockR := newMockRegistry()
+	server := NewServer(mockM, mockR, nil)
+
+	// 先注册 Slave
+	mockR.Register(context.Background(), &types.SlaveInfo{
+		ID:      "slave-test-1",
+		Type:    types.SlaveTypeWorker,
+		Address: "localhost:9001",
+	})
+
+	// 分配任务
+	task := &TaskAssignment{
+		TaskID:      "task-1",
+		ExecutionID: "exec-1",
+		Segment: &ExecutionSegment{
+			Start: 0.0,
+			End:   0.5,
+		},
+		Options: &ExecutionOptions{
+			VUs:        10,
+			DurationMs: 60000,
+		},
+	}
+	err := server.AssignTask("slave-test-1", task)
+	require.NoError(t, err)
+
+	// 获取任务
+	req := httptest.NewRequest("GET", "/api/v1/slaves/slave-test-1/tasks", nil)
+	resp, err := server.App().Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, fiber.StatusOK, resp.StatusCode)
+
+	body, _ := io.ReadAll(resp.Body)
+	var result PendingTasksResponse
+	err = json.Unmarshal(body, &result)
+	require.NoError(t, err)
+	assert.Len(t, result.Tasks, 1)
+	assert.Equal(t, "task-1", result.Tasks[0].TaskID)
+}
+
+func TestSendCommandAndHeartbeat(t *testing.T) {
+	mockM := newMockMaster()
+	mockR := newMockRegistry()
+	server := NewServer(mockM, mockR, nil)
+
+	// 先注册 Slave
+	mockR.Register(context.Background(), &types.SlaveInfo{
+		ID:      "slave-test-1",
+		Type:    types.SlaveTypeWorker,
+		Address: "localhost:9001",
+	})
+
+	// 发送命令
+	cmd := &ControlCommand{
+		Type:        "stop",
+		ExecutionID: "exec-1",
+		Params:      map[string]string{"reason": "user_request"},
+	}
+	err := server.SendCommand("slave-test-1", cmd)
+	require.NoError(t, err)
+
+	// 通过心跳获取命令
+	heartbeatJSON := `{
+		"slave_id": "slave-test-1",
+		"status": {
+			"state": "online"
+		}
+	}`
+
+	req := httptest.NewRequest("POST", "/api/v1/slaves/slave-test-1/heartbeat", strings.NewReader(heartbeatJSON))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := server.App().Test(req)
+	require.NoError(t, err)
+	assert.Equal(t, fiber.StatusOK, resp.StatusCode)
+
+	body, _ := io.ReadAll(resp.Body)
+	var result SlaveHeartbeatResponse
+	err = json.Unmarshal(body, &result)
+	require.NoError(t, err)
+	assert.Len(t, result.Commands, 1)
+	assert.Equal(t, "stop", result.Commands[0].Type)
+	assert.Equal(t, "exec-1", result.Commands[0].ExecutionID)
 }

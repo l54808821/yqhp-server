@@ -2,20 +2,16 @@
 package engine
 
 import (
-	"context"
-	"fmt"
 	"sync"
 	"time"
 
-	grpcserver "yqhp/workflow-engine/api/grpc/server"
 	"yqhp/workflow-engine/internal/master"
-	"yqhp/workflow-engine/pkg/types"
 )
 
 // Config 引擎配置
 type Config struct {
-	// GRPCAddress gRPC 服务地址
-	GRPCAddress string
+	// HTTPAddress HTTP 服务地址
+	HTTPAddress string
 	// Standalone 独立模式（无需 Slave 即可执行）
 	Standalone bool
 	// MaxExecutions 最大并发执行数
@@ -27,7 +23,7 @@ type Config struct {
 // DefaultConfig 返回默认配置
 func DefaultConfig() *Config {
 	return &Config{
-		GRPCAddress:      ":9090",
+		HTTPAddress:      ":8080",
 		Standalone:       true,
 		MaxExecutions:    100,
 		HeartbeatTimeout: 30 * time.Second,
@@ -36,12 +32,11 @@ func DefaultConfig() *Config {
 
 // Engine 工作流引擎
 type Engine struct {
-	config     *Config
-	master     *master.WorkflowMaster
-	registry   master.SlaveRegistry
-	grpcServer *grpcserver.Server
-	started    bool
-	mu         sync.RWMutex
+	config   *Config
+	master   *master.WorkflowMaster
+	registry master.SlaveRegistry
+	started  bool
+	mu       sync.RWMutex
 }
 
 // New 创建新的工作流引擎
@@ -65,7 +60,7 @@ func (e *Engine) Start() error {
 
 	// 创建 Master 配置
 	masterCfg := &master.Config{
-		Address:                 e.config.GRPCAddress,
+		Address:                 e.config.HTTPAddress,
 		HeartbeatTimeout:        e.config.HeartbeatTimeout,
 		HealthCheckInterval:     10 * time.Second,
 		StandaloneMode:          e.config.Standalone,
@@ -85,24 +80,6 @@ func (e *Engine) Start() error {
 		return fmt.Errorf("启动 Master 失败: %w", err)
 	}
 
-	// 创建并启动 gRPC 服务器
-	grpcCfg := &grpcserver.Config{
-		Address:           e.config.GRPCAddress,
-		MaxRecvMsgSize:    16 * 1024 * 1024, // 16MB
-		MaxSendMsgSize:    16 * 1024 * 1024, // 16MB
-		HeartbeatInterval: 5 * time.Second,
-		ConnectionTimeout: e.config.HeartbeatTimeout,
-	}
-	e.grpcServer = grpcserver.NewServer(grpcCfg, e.registry, scheduler, aggregator, e.master)
-
-	// 将 gRPC 服务器设置为任务分配器
-	e.master.SetTaskAssigner(e.grpcServer)
-
-	if err := e.grpcServer.Start(ctx); err != nil {
-		e.master.Stop(ctx)
-		return fmt.Errorf("启动 gRPC 服务器失败: %w", err)
-	}
-
 	e.started = true
 	return nil
 }
@@ -118,13 +95,6 @@ func (e *Engine) Stop() error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-
-	// 停止 gRPC 服务器
-	if e.grpcServer != nil {
-		if err := e.grpcServer.Stop(ctx); err != nil {
-			return fmt.Errorf("停止 gRPC 服务器失败: %w", err)
-		}
-	}
 
 	// 停止 Master
 	if e.master != nil {

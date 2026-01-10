@@ -98,55 +98,6 @@ func TestValidateServerConfig(t *testing.T) {
 	}
 }
 
-func TestValidateGRPCConfig(t *testing.T) {
-	tests := []struct {
-		name        string
-		modify      func(*Config)
-		expectError bool
-		errorField  string
-	}{
-		{
-			name: "empty address",
-			modify: func(c *Config) {
-				c.GRPC.Address = ""
-			},
-			expectError: true,
-			errorField:  "grpc.address",
-		},
-		{
-			name: "negative max recv msg size",
-			modify: func(c *Config) {
-				c.GRPC.MaxRecvMsgSize = -1
-			},
-			expectError: true,
-			errorField:  "grpc.max_recv_msg_size",
-		},
-		{
-			name: "negative connection timeout",
-			modify: func(c *Config) {
-				c.GRPC.ConnectionTimeout = -1 * time.Second
-			},
-			expectError: true,
-			errorField:  "grpc.connection_timeout",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg := DefaultConfig()
-			tt.modify(cfg)
-			err := cfg.Validate()
-
-			if tt.expectError {
-				require.Error(t, err)
-				assert.Contains(t, err.Error(), tt.errorField)
-			} else {
-				assert.NoError(t, err)
-			}
-		})
-	}
-}
-
 func TestValidateMasterConfig(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -383,7 +334,6 @@ func TestValidateLoggingConfig(t *testing.T) {
 func TestMultipleValidationErrors(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Server.Address = ""
-	cfg.GRPC.Address = ""
 	cfg.Logging.Level = "invalid"
 
 	err := cfg.Validate()
@@ -391,7 +341,6 @@ func TestMultipleValidationErrors(t *testing.T) {
 
 	errStr := err.Error()
 	assert.Contains(t, errStr, "server.address")
-	assert.Contains(t, errStr, "grpc.address")
 	assert.Contains(t, errStr, "logging.level")
 }
 
@@ -432,7 +381,6 @@ func TestGetSchema(t *testing.T) {
 
 	expectedPaths := []string{
 		"server.address",
-		"grpc.address",
 		"master.heartbeat_interval",
 		"slave.type",
 		"logging.level",

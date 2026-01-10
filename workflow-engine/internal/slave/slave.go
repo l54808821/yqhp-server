@@ -7,7 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	grpcclient "yqhp/workflow-engine/api/grpc/client"
+	"yqhp/workflow-engine/api/rest"
+	httpclient "yqhp/workflow-engine/api/rest/client"
 	"yqhp/workflow-engine/internal/executor"
 	"yqhp/workflow-engine/pkg/types"
 )
@@ -91,8 +92,8 @@ type WorkerSlave struct {
 	config   *Config
 	registry *executor.Registry
 
-	// gRPC 客户端
-	grpcClient *grpcclient.Client
+	// HTTP 客户端
+	httpClient *httpclient.Client
 
 	// 状态管理
 	state       atomic.Value // types.SlaveState
@@ -188,74 +189,135 @@ func (s *WorkerSlave) Connect(ctx context.Context, masterAddr string) error {
 
 	s.masterAddr = masterAddr
 
-	// 创建 gRPC 客户端配置
-	clientCfg := &grpcclient.Config{
-		MasterAddress:     masterAddr,
+	// 创建 HTTP 客户端配置
+	clientCfg := &httpclient.Config{
+		MasterURL:         masterAddr,
 		SlaveID:           s.config.ID,
 		SlaveType:         s.config.Type,
 		Address:           s.config.Address,
 		Capabilities:      s.config.Capabilities,
 		Labels:            s.config.Labels,
 		HeartbeatInterval: s.config.HeartbeatInterval,
-		ConnectionTimeout: s.config.HeartbeatTimeout,
-		Resources: &types.ResourceInfo{
+		RequestTimeout:    s.config.HeartbeatTimeout,
+		ReconnectInterval: 5 * time.Second,
+		ResultBufferSize:  1000,
+		MetricsBufferSize: 1000,
+		TaskPollInterval:  1 * time.Second,
+		Resources: &rest.ResourceInfo{
 			CPUCores: s.config.CPUCores,
 			MemoryMB: s.config.MemoryMB,
 			MaxVUs:   s.config.MaxVUs,
 		},
 	}
 
-	// 创建 gRPC 客户端
-	s.grpcClient = grpcclient.NewClient(clientCfg)
+	// 创建 HTTP 客户端
+	s.httpClient = httpclient.NewClient(clientCfg)
 
 	// 设置任务处理回调
-	s.grpcClient.SetTaskHandler(func(ctx context.Context, task *types.Task) error {
-		fmt.Printf("收到任务: %s, 执行ID: %s\n", task.ID, task.ExecutionID)
-		result, err := s.ExecuteTask(ctx, task)
+	s.httpClient.SetTaskHandler(func(ctx context.Context, task *rest.TaskAssignment) error {
+		fmt.Printf("收到任务: %s, 执行ID: %s\n", task.TaskID, task.ExecutionID)
+
+		// 转换任务格式
+		internalTask := &types.Task{
+			ID:          task.TaskID,
+			ExecutionID: task.ExecutionID,
+			Workflow:    task.Workflow,
+		}
+		if task.Segment != nil {
+			internalTask.Segment = &types.ExecutionSegment{
+				Start: task.Segment.Start,
+				End:   task.Segment.End,
+			}
+		}
+
+		result, err := s.ExecuteTask(ctx, internalTask)
 		if err != nil {
 			fmt.Printf("任务执行失败: %v\n", err)
 			return err
 		}
+
 		// 发送结果回 Master
-		if err := s.grpcClient.SendTaskResult(result); err != nil {
+		bufferedResult := &httpclient.BufferedResult{
+			TaskID:      result.TaskID,
+			ExecutionID: result.ExecutionID,
+			Status:      string(result.Status),
+			Result:      result.Result,
+		}
+		if len(result.Errors) > 0 {
+			bufferedResult.Errors = make([]*rest.ExecutionErrorRequest, len(result.Errors))
+			for i, e := range result.Errors {
+				bufferedResult.Errors[i] = &rest.ExecutionErrorRequest{
+					Code:      string(e.Code),
+					Message:   e.Message,
+					StepID:    e.StepID,
+					Timestamp: e.Timestamp.UnixMilli(),
+				}
+			}
+		}
+
+		if err := s.httpClient.SendTaskResult(bufferedResult); err != nil {
 			fmt.Printf("发送任务结果失败: %v\n", err)
 			return err
 		}
-		fmt.Printf("任务完成: %s, 状态: %s\n", task.ID, result.Status)
+		fmt.Printf("任务完成: %s, 状态: %s\n", result.TaskID, result.Status)
 		return nil
 	})
 
 	// 设置命令处理回调
-	s.grpcClient.SetCommandHandler(func(ctx context.Context, cmdType string, executionID string, params map[string]string) error {
-		fmt.Printf("收到命令: %s, 执行ID: %s\n", cmdType, executionID)
+	s.httpClient.SetCommandHandler(func(ctx context.Context, cmd *rest.ControlCommand) error {
+		fmt.Printf("收到命令: %s, 执行ID: %s\n", cmd.Type, cmd.ExecutionID)
 		// TODO: 处理控制命令（停止、暂停、恢复等）
 		return nil
 	})
 
+	// 设置断开连接回调
+	s.httpClient.SetDisconnectHandler(func(err error) {
+		fmt.Printf("与 Master 断开连接: %v\n", err)
+		s.connected.Store(false)
+	})
+
+	// 设置重连回调
+	s.httpClient.SetReconnectHandler(func() {
+		fmt.Println("已重新连接到 Master")
+		s.connected.Store(true)
+	})
+
 	// 连接到 Master
-	if err := s.grpcClient.Connect(ctx); err != nil {
+	if err := s.httpClient.Connect(ctx); err != nil {
 		return fmt.Errorf("连接 Master 失败: %w", err)
 	}
 
 	// 注册到 Master
-	if err := s.grpcClient.Register(ctx); err != nil {
-		s.grpcClient.Disconnect(ctx)
+	if err := s.httpClient.Register(ctx); err != nil {
+		s.httpClient.Disconnect(ctx)
 		return fmt.Errorf("注册到 Master 失败: %w", err)
 	}
 
 	// 启动心跳
 	s.heartbeatCtx, s.heartbeatCancel = context.WithCancel(context.Background())
-	if err := s.grpcClient.StartHeartbeat(s.heartbeatCtx, func() *types.SlaveStatus {
-		return s.GetStatus()
+	if err := s.httpClient.StartHeartbeat(s.heartbeatCtx, func() *rest.SlaveStatusInfo {
+		status := s.GetStatus()
+		return &rest.SlaveStatusInfo{
+			State:       string(status.State),
+			Load:        status.Load,
+			ActiveTasks: status.ActiveTasks,
+			LastSeen:    status.LastSeen.UnixMilli(),
+			Metrics: &rest.SlaveMetrics{
+				CPUUsage:    status.Metrics.CPUUsage,
+				MemoryUsage: status.Metrics.MemoryUsage,
+				ActiveVUs:   status.Metrics.ActiveVUs,
+				Throughput:  status.Metrics.Throughput,
+			},
+		}
 	}); err != nil {
-		s.grpcClient.Disconnect(ctx)
+		s.httpClient.Disconnect(ctx)
 		return fmt.Errorf("启动心跳失败: %w", err)
 	}
 
-	// 启动任务流
-	if err := s.grpcClient.StartTaskStream(s.heartbeatCtx); err != nil {
-		fmt.Printf("启动任务流失败: %v (将通过心跳接收任务)\n", err)
-		// 任务流启动失败不是致命错误，可以通过心跳接收命令
+	// 启动任务轮询
+	if err := s.httpClient.StartTaskPolling(s.heartbeatCtx); err != nil {
+		fmt.Printf("启动任务轮询失败: %v\n", err)
+		// 任务轮询启动失败不是致命错误
 	}
 
 	s.connected.Store(true)
@@ -278,10 +340,10 @@ func (s *WorkerSlave) Disconnect(ctx context.Context) error {
 		s.heartbeatCancel()
 	}
 
-	// 断开 gRPC 连接
-	if s.grpcClient != nil {
-		if err := s.grpcClient.Disconnect(ctx); err != nil {
-			return fmt.Errorf("断开 gRPC 连接失败: %w", err)
+	// 断开 HTTP 连接
+	if s.httpClient != nil {
+		if err := s.httpClient.Disconnect(ctx); err != nil {
+			return fmt.Errorf("断开 HTTP 连接失败: %w", err)
 		}
 	}
 
@@ -405,7 +467,7 @@ func (s *WorkerSlave) sendHeartbeat() {
 	// 更新负载指标
 	s.updateLoad()
 
-	// 在实际实现中，这里会通过 gRPC 发送心跳
+	// 心跳通过 HTTP 客户端发送
 	// 目前只更新本地状态
 }
 

@@ -201,6 +201,17 @@ func ConvertToEngineWorkflowWithOptions(def *WorkflowDefinition, executionID str
 		},
 	}
 
+	// 从全局配置获取输出配置
+	if globalEngine != nil && globalEngine.config != nil && len(globalEngine.config.Outputs) > 0 {
+		for _, out := range globalEngine.config.Outputs {
+			workflow.Options.Outputs = append(workflow.Options.Outputs, types.OutputConfig{
+				Type:    out.Type,
+				URL:     out.URL,
+				Options: out.Options,
+			})
+		}
+	}
+
 	return workflow
 }
 

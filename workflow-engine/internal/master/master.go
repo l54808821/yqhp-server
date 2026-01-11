@@ -10,6 +10,7 @@ import (
 	"yqhp/workflow-engine/internal/executor"
 	"yqhp/workflow-engine/internal/slave"
 	"yqhp/workflow-engine/pkg/logger"
+	"yqhp/workflow-engine/pkg/output"
 	"yqhp/workflow-engine/pkg/types"
 
 	"github.com/google/uuid"
@@ -407,6 +408,19 @@ func (m *WorkflowMaster) simulateExecution(ctx context.Context, execInfo *Execut
 	}
 
 	taskEngine := slave.NewTaskEngine(registry, maxVUs)
+
+	// 配置输出（如果有）
+	if len(execInfo.Workflow.Options.Outputs) > 0 {
+		outputParams := output.Params{
+			ExecutionID:  execInfo.ID,
+			WorkflowName: execInfo.Workflow.Name,
+			Tags:         execInfo.Workflow.Options.Tags,
+		}
+		if err := taskEngine.SetupOutputs(ctx, execInfo.Workflow.Options.Outputs, outputParams); err != nil {
+			logger.Debug("simulateExecution] 配置输出失败: %v\n", err)
+			// 输出配置失败不影响执行，继续执行
+		}
+	}
 
 	// 创建执行任务
 	task := &types.Task{

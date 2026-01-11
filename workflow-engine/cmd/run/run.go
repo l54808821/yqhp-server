@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -15,6 +16,26 @@ import (
 	"yqhp/workflow-engine/pkg/logger"
 	"yqhp/workflow-engine/pkg/types"
 )
+
+// outputFlags 实现 flag.Value 接口，支持多次指定 --out 参数
+type outputFlags []types.OutputConfig
+
+func (o *outputFlags) String() string {
+	return fmt.Sprintf("%v", *o)
+}
+
+func (o *outputFlags) Set(value string) error {
+	// 解析格式: type=config 或 type
+	parts := strings.SplitN(value, "=", 2)
+	cfg := types.OutputConfig{
+		Type: parts[0],
+	}
+	if len(parts) > 1 {
+		cfg.URL = parts[1]
+	}
+	*o = append(*o, cfg)
+	return nil
+}
 
 // Execute 执行 run 命令
 func Execute(args []string) error {
@@ -30,6 +51,12 @@ func Execute(args []string) error {
 	quiet := fs.Bool("quiet", false, "静默模式，不输出进度")
 	jsonOutput := fs.String("out-json", "", "输出 JSON 结果到文件")
 	debug := fs.Bool("debug", false, "启用调试日志")
+
+	// 指标输出选项（类似 k6 的 --out 参数）
+	var outputs outputFlags
+	fs.Var(&outputs, "out", "指标输出目标 (可多次指定)，格式: type=config\n"+
+		"        支持的类型: json, influxdb, kafka, console\n"+
+		"        示例: -out json=metrics.json -out influxdb=http://localhost:8086?db=metrics")
 
 	// 帮助
 	help := fs.Bool("help", false, "显示帮助信息")
@@ -88,6 +115,11 @@ func Execute(args []string) error {
 	}
 	if workflow.Options.Duration <= 0 && workflow.Options.Iterations <= 0 {
 		workflow.Options.Iterations = 1
+	}
+
+	// 合并命令行指定的输出配置
+	for _, out := range outputs {
+		workflow.Options.Outputs = append(workflow.Options.Outputs, out)
 	}
 
 	// 创建可取消的上下文
@@ -157,6 +189,10 @@ func printUsage() {
         静默模式，不输出进度
   -debug
         启用调试日志
+  -out string
+        指标输出目标 (可多次指定)，格式: type=config
+        支持的类型: json, influxdb, kafka, console
+        示例: -out json=metrics.json -out influxdb=http://localhost:8086?db=metrics
   -out-json string
         输出 JSON 结果到文件
   -help
@@ -166,7 +202,9 @@ func printUsage() {
   workflow-engine run workflow.yaml
   workflow-engine run -vus 10 -duration 30s workflow.yaml
   workflow-engine run -iterations 100 -mode shared-iterations workflow.yaml
-  workflow-engine run -debug workflow.yaml`)
+  workflow-engine run -debug workflow.yaml
+  workflow-engine run -out json=metrics.json -out console workflow.yaml
+  workflow-engine run -out influxdb=http://localhost:8086?db=workflow_metrics workflow.yaml`)
 }
 
 func printExecutionInfo(workflow *types.Workflow) {

@@ -10,6 +10,8 @@ import (
 	"yqhp/workflow-engine/internal/executor"
 	"yqhp/workflow-engine/internal/hook"
 	"yqhp/workflow-engine/pkg/logger"
+	"yqhp/workflow-engine/pkg/metrics"
+	"yqhp/workflow-engine/pkg/output"
 	"yqhp/workflow-engine/pkg/types"
 )
 
@@ -28,6 +30,12 @@ type TaskEngine struct {
 	// 指标收集
 	collector *MetricsCollector
 
+	// 输出管理
+	outputManager *output.Manager
+	samplesChan   chan metrics.SampleContainer
+	outputWait    func()
+	outputFinish  func(error)
+
 	// 状态
 	running atomic.Bool
 	mu      sync.RWMutex
@@ -42,6 +50,44 @@ func NewTaskEngine(registry *executor.Registry, maxVUs int) *TaskEngine {
 		vuPool:     NewVUPool(maxVUs),
 		collector:  NewMetricsCollector(),
 	}
+}
+
+// SetupOutputs 配置输出插件
+func (e *TaskEngine) SetupOutputs(ctx context.Context, configs []types.OutputConfig, params output.Params) error {
+	if len(configs) == 0 {
+		return nil
+	}
+
+	// 创建输出实例
+	outputs, err := output.CreateOutputsFromConfig(ctx, configs, params)
+	if err != nil {
+		return err
+	}
+
+	// 创建样本通道
+	e.samplesChan = output.NewSamplesChannel(1000)
+
+	// 设置收集器的样本通道
+	e.collector.SetSamplesChannel(e.samplesChan, params.Tags)
+
+	// 创建输出管理器
+	e.outputManager = output.NewManager(outputs, params.Logger)
+
+	// 启动输出管理器
+	wait, finish, err := e.outputManager.Start(e.samplesChan)
+	if err != nil {
+		return err
+	}
+
+	e.outputWait = wait
+	e.outputFinish = finish
+
+	return nil
+}
+
+// GetSamplesChannel 获取样本通道（用于外部发送指标）
+func (e *TaskEngine) GetSamplesChannel() chan metrics.SampleContainer {
+	return e.samplesChan
 }
 
 // Execute 执行任务并返回结果。
@@ -119,6 +165,16 @@ func (e *TaskEngine) Execute(ctx context.Context, task *types.Task) (*types.Task
 func (e *TaskEngine) Stop(ctx context.Context) error {
 	e.running.Store(false)
 	e.vuPool.StopAll()
+
+	// 关闭样本通道并等待输出完成
+	if e.samplesChan != nil {
+		close(e.samplesChan)
+		e.samplesChan = nil
+	}
+	if e.outputFinish != nil {
+		e.outputFinish(nil)
+	}
+
 	return nil
 }
 

@@ -1,0 +1,55 @@
+# 示例：配置多种输出方式
+# 支持将压测指标输出到 InfluxDB、Kafka、JSON 文件等
+
+name: output-example
+description: 演示如何配置指标输出
+
+# 执行选项
+options:
+  vus: 5
+  duration: 30s
+  mode: constant-vus
+
+  # 全局标签，会附加到所有指标
+  tags:
+    env: test
+    app: demo
+
+  # 输出配置列表
+  outputs:
+    # JSON 文件输出
+    - type: json
+      url: metrics_output.json
+
+    # InfluxDB 输出 (1.x 版本)
+    # - type: influxdb
+    #   url: http://localhost:8086?db=workflow_metrics
+
+    # InfluxDB 输出 (2.x 版本)
+    # - type: influxdb
+    #   url: http://localhost:8086?token=your-token&org=your-org&bucket=workflow-metrics
+
+    # Kafka 输出
+    # - type: kafka
+    #   url: localhost:9092?topic=workflow-metrics&format=json
+
+    # 控制台输出（打印汇总）
+    - type: console
+
+  # 阈值配置
+  thresholds:
+    - metric: http_req_duration
+      condition: "p(95) < 500"
+    - metric: http_req_failed
+      condition: "rate < 0.1"
+
+# 工作流步骤
+steps:
+  - id: api-call
+    name: 调用 API
+    type: http
+    config:
+      method: GET
+      url: https://httpbin.org/get
+      headers:
+        Accept: application/json

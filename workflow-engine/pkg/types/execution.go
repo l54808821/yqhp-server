@@ -4,16 +4,28 @@ import "time"
 
 // ExecutionOptions defines load testing parameters.
 type ExecutionOptions struct {
-	VUs           int            `yaml:"vus,omitempty"`
-	Duration      time.Duration  `yaml:"duration,omitempty"`
-	Iterations    int            `yaml:"iterations,omitempty"`
-	RampUp        *RampConfig    `yaml:"ramp_up,omitempty"`
-	Thresholds    []Threshold    `yaml:"thresholds,omitempty"`
-	SlaveType     string         `yaml:"slave_type,omitempty"`
-	TargetSlaves  *SlaveSelector `yaml:"target_slaves,omitempty"`
-	ExecutionMode ExecutionMode  `yaml:"mode,omitempty"`
-	Stages        []Stage        `yaml:"stages,omitempty"`
-	HTTPEngine    HTTPEngineType `yaml:"http_engine,omitempty"` // HTTP 引擎类型：fasthttp（默认）或 standard
+	VUs           int               `yaml:"vus,omitempty"`
+	Duration      time.Duration     `yaml:"duration,omitempty"`
+	Iterations    int               `yaml:"iterations,omitempty"`
+	RampUp        *RampConfig       `yaml:"ramp_up,omitempty"`
+	Thresholds    []Threshold       `yaml:"thresholds,omitempty"`
+	SlaveType     string            `yaml:"slave_type,omitempty"`
+	TargetSlaves  *SlaveSelector    `yaml:"target_slaves,omitempty"`
+	ExecutionMode ExecutionMode     `yaml:"mode,omitempty"`
+	Stages        []Stage           `yaml:"stages,omitempty"`
+	HTTPEngine    HTTPEngineType    `yaml:"http_engine,omitempty"` // HTTP 引擎类型：fasthttp（默认）或 standard
+	Outputs       []OutputConfig    `yaml:"outputs,omitempty"`     // 输出配置列表
+	Tags          map[string]string `yaml:"tags,omitempty"`        // 全局标签
+}
+
+// OutputConfig 定义输出配置
+type OutputConfig struct {
+	// Type 输出类型: json, influxdb, kafka, console, csv
+	Type string `yaml:"type"`
+	// URL 输出目标地址或文件路径
+	URL string `yaml:"url,omitempty"`
+	// Options 额外配置选项
+	Options map[string]string `yaml:"options,omitempty"`
 }
 
 // HTTPEngineType 定义 HTTP 引擎类型

@@ -18,13 +18,21 @@ type GuluConfig struct {
 
 // WorkflowEngineConfig Workflow Engine 配置
 type WorkflowEngineConfig struct {
-	Embedded         bool          `yaml:"embedded"`          // 是否使用内置 Master
-	ExternalURL      string        `yaml:"external_url"`      // 外部 Master 地址
-	HTTPAddress      string        `yaml:"http_address"`      // HTTP 服务地址
-	Standalone       bool          `yaml:"standalone"`        // 独立模式
-	MaxExecutions    int           `yaml:"max_executions"`    // 最大并发执行数
-	HeartbeatTimeout time.Duration `yaml:"heartbeat_timeout"` // 心跳超时
-	Debug            bool          `yaml:"debug"`             // 是否启用调试日志
+	Embedded         bool           `yaml:"embedded"`          // 是否使用内置 Master
+	ExternalURL      string         `yaml:"external_url"`      // 外部 Master 地址
+	HTTPAddress      string         `yaml:"http_address"`      // HTTP 服务地址
+	Standalone       bool           `yaml:"standalone"`        // 独立模式
+	MaxExecutions    int            `yaml:"max_executions"`    // 最大并发执行数
+	HeartbeatTimeout time.Duration  `yaml:"heartbeat_timeout"` // 心跳超时
+	Debug            bool           `yaml:"debug"`             // 是否启用调试日志
+	Outputs          []OutputConfig `yaml:"outputs"`           // 默认输出配置
+}
+
+// OutputConfig 输出配置
+type OutputConfig struct {
+	Type    string            `yaml:"type"`    // 输出类型: json, influxdb, kafka, console
+	URL     string            `yaml:"url"`     // 输出目标地址
+	Options map[string]string `yaml:"options"` // 额外配置选项
 }
 
 // Config 应用配置

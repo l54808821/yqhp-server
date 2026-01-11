@@ -8,6 +8,9 @@ import (
 	"yqhp/workflow-engine/cmd/master"
 	"yqhp/workflow-engine/cmd/run"
 	"yqhp/workflow-engine/cmd/slave"
+
+	// 导入所有输出插件
+	_ "yqhp/workflow-engine/pkg/output/all"
 )
 
 const version = "0.1.0"

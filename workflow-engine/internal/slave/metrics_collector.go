@@ -5,6 +5,8 @@ import (
 	"sync"
 	"time"
 
+	"yqhp/workflow-engine/pkg/metrics"
+	"yqhp/workflow-engine/pkg/output"
 	"yqhp/workflow-engine/pkg/types"
 )
 
@@ -14,6 +16,10 @@ type MetricsCollector struct {
 	stepMetrics map[string]*stepMetricsData
 	startTime   time.Time
 	mu          sync.RWMutex
+
+	// 输出相关
+	samplesChan chan metrics.SampleContainer
+	emitter     *output.SampleEmitter
 }
 
 // stepMetricsData 保存步骤的原始指标数据。
@@ -31,6 +37,23 @@ func NewMetricsCollector() *MetricsCollector {
 		stepMetrics: make(map[string]*stepMetricsData),
 		startTime:   time.Now(),
 	}
+}
+
+// SetSamplesChannel 设置样本输出通道
+func (c *MetricsCollector) SetSamplesChannel(ch chan metrics.SampleContainer, tags map[string]string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.samplesChan = ch
+	if ch != nil {
+		c.emitter = output.NewSampleEmitter(ch, tags)
+	}
+}
+
+// GetSamplesChannel 获取样本输出通道
+func (c *MetricsCollector) GetSamplesChannel() chan metrics.SampleContainer {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.samplesChan
 }
 
 // RecordStep 记录步骤执行的指标。
@@ -68,6 +91,28 @@ func (c *MetricsCollector) RecordStep(stepID string, result *types.StepResult) {
 			data.customMetrics[k] = make([]float64, 0, 100)
 		}
 		data.customMetrics[k] = append(data.customMetrics[k], v)
+	}
+
+	// 发送样本到输出通道
+	if c.emitter != nil {
+		tags := map[string]string{
+			"step_id": stepID,
+		}
+
+		// 步骤执行计数
+		c.emitter.EmitCounter("step_reqs", 1, tags)
+
+		// 步骤执行时长
+		c.emitter.EmitTrend("step_duration", float64(result.Duration.Milliseconds()), tags)
+
+		// 步骤成功率
+		success := result.Status == types.ResultStatusSuccess
+		c.emitter.EmitRate("step_failed", !success, tags)
+
+		// 发送自定义指标
+		for k, v := range result.Metrics {
+			c.emitter.EmitGauge("custom_"+k, v, tags)
+		}
 	}
 }
 

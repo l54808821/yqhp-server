@@ -67,3 +67,23 @@ workflow_engine:
   max_executions: 100 # 最大并发执行数
   heartbeat_timeout: 30s # Slave 心跳超时
   debug: false # 是否启用调试日志
+
+
+  # 指标输出配置（可选）
+  # 支持将压测指标输出到 InfluxDB、Kafka、JSON 文件等
+  # outputs:
+  #   # InfluxDB 输出 (1.x 版本)
+  #   - type: influxdb
+  #     url: http://localhost:8086?db=workflow_metrics
+  #
+  #   # InfluxDB 输出 (2.x 版本)
+  #   # - type: influxdb
+  #   #   url: http://localhost:8086?token=your-token&org=your-org&bucket=workflow-metrics
+  #
+  #   # Kafka 输出
+  #   # - type: kafka
+  #   #   url: localhost:9092?topic=workflow-metrics&format=json
+  #
+  #   # JSON 文件输出
+  #   # - type: json
+  #   #   url: /var/log/workflow-metrics.json

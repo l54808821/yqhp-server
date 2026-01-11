@@ -41,6 +41,60 @@ type ExecutionCallback interface {
 	OnExecutionComplete(ctx context.Context, summary *ExecutionSummary)
 }
 
+// AICallback AI 节点回调接口（可选实现）
+type AICallback interface {
+	// OnAIChunk AI 流式输出块
+	OnAIChunk(ctx context.Context, stepID string, chunk string, index int)
+
+	// OnAIComplete AI 完成
+	OnAIComplete(ctx context.Context, stepID string, result *AIResult)
+
+	// OnAIError AI 错误
+	OnAIError(ctx context.Context, stepID string, err error)
+
+	// OnAIInteractionRequired AI 需要交互
+	// 返回用户响应，如果超时返回 nil
+	OnAIInteractionRequired(ctx context.Context, stepID string, request *InteractionRequest) (*InteractionResponse, error)
+}
+
+// AIResult AI 执行结果
+type AIResult struct {
+	Content          string `json:"content"`
+	PromptTokens     int    `json:"prompt_tokens"`
+	CompletionTokens int    `json:"completion_tokens"`
+	TotalTokens      int    `json:"total_tokens"`
+}
+
+// InteractionType 交互类型
+type InteractionType string
+
+const (
+	InteractionTypeConfirm InteractionType = "confirm"
+	InteractionTypeInput   InteractionType = "input"
+	InteractionTypeSelect  InteractionType = "select"
+)
+
+// InteractionOption 交互选项
+type InteractionOption struct {
+	Value string `json:"value"`
+	Label string `json:"label"`
+}
+
+// InteractionRequest 交互请求
+type InteractionRequest struct {
+	Type         InteractionType     `json:"type"`
+	Prompt       string              `json:"prompt"`
+	Options      []InteractionOption `json:"options,omitempty"`
+	DefaultValue string              `json:"default_value,omitempty"`
+	Timeout      int                 `json:"timeout"`
+}
+
+// InteractionResponse 交互响应
+type InteractionResponse struct {
+	Value   string `json:"value"`
+	Skipped bool   `json:"skipped"`
+}
+
 // ExecutionSummary 执行汇总
 type ExecutionSummary struct {
 	ExecutionID   string        `json:"execution_id"`

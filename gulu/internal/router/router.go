@@ -8,9 +8,7 @@ import (
 	"yqhp/gulu/internal/handler"
 	"yqhp/gulu/internal/middleware"
 	"yqhp/gulu/internal/scheduler"
-	"yqhp/gulu/internal/websocket"
 
-	ws "github.com/gofiber/contrib/websocket"
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
 	fiberLogger "github.com/gofiber/fiber/v2/middleware/logger"
@@ -51,12 +49,12 @@ func Setup(app *fiber.App) {
 	workflowHandler := handler.NewWorkflowHandler()
 	executionHandler := handler.NewExecutionHandler()
 
-	// 创建调试相关组件
-	wsHub := websocket.NewHub()
+	// 创建 SSE 调试相关组件
 	engineClient := client.NewWorkflowEngineClient()
 	sched := scheduler.NewScheduler(engineClient)
-	masterExec := executor.NewMasterExecutor(wsHub, 30*time.Minute)
-	debugHandler := handler.NewDebugHandler(wsHub, sched, masterExec)
+	sessionManager := executor.NewSessionManager()
+	streamExecutor := executor.NewStreamExecutor(sessionManager, 30*time.Minute)
+	sseDebugHandler := handler.NewSSEDebugHandler(sched, streamExecutor, sessionManager)
 
 	// API 路由组 (需要认证)
 	api := app.Group("/api", middleware.AuthMiddleware(), middleware.ProjectMiddleware())
@@ -199,15 +197,13 @@ func Setup(app *fiber.App) {
 	executions.Post("/:id/pause", executionHandler.Pause)
 	executions.Post("/:id/resume", executionHandler.Resume)
 
-	// 调试相关路由
-	workflows.Post("/:id/debug", debugHandler.StartDebug)
+	// SSE 流式执行路由
+	workflows.Get("/:id/run/stream", sseDebugHandler.RunStream)
+	workflows.Post("/:id/run", sseDebugHandler.RunBlocking)
 
-	debug := api.Group("/debug")
-	debug.Get("/sessions", debugHandler.ListDebugSessions)
-	debug.Get("/:sessionId", debugHandler.GetDebugSession)
-	debug.Delete("/:sessionId", debugHandler.StopDebug)
-
-	// WebSocket 路由 (不需要认证中间件)
-	app.Use("/ws", debugHandler.WebSocketUpgrade)
-	app.Get("/ws/debug/:sessionId", ws.New(debugHandler.WebSocketHandler))
+	// 执行会话管理路由
+	sseExecutions := api.Group("/executions")
+	sseExecutions.Get("/:sessionId/status", sseDebugHandler.GetExecutionStatus)
+	sseExecutions.Delete("/:sessionId/stop", sseDebugHandler.StopExecution)
+	sseExecutions.Post("/:sessionId/interaction", sseDebugHandler.SubmitInteraction)
 }

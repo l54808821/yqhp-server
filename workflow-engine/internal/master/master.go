@@ -432,6 +432,14 @@ func (m *WorkflowMaster) simulateExecution(ctx context.Context, execInfo *Execut
 	totalIterations := execInfo.Workflow.Options.Iterations
 	totalDuration := execInfo.Workflow.Options.Duration
 
+	// 对于 ramping-vus 模式，计算所有 stages 的总时长
+	if execInfo.Workflow.Options.ExecutionMode == types.ModeRampingVUs && len(execInfo.Workflow.Options.Stages) > 0 {
+		totalDuration = 0
+		for _, stage := range execInfo.Workflow.Options.Stages {
+			totalDuration += stage.Duration
+		}
+	}
+
 	for {
 		select {
 		case <-ticker.C:

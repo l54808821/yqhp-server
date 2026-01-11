@@ -82,5 +82,5 @@ steps:
     type: http
     config:
       method: GET
-      url: "https://httpbin.org/get"
+      url: "https://www.baidu.com"
     timeout: 30s

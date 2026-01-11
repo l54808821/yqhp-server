@@ -466,7 +466,12 @@ func (e *TaskEngine) runVU(ctx context.Context, task *types.Task, vu *types.Virt
 			err := e.executeWorkflowIteration(ctx, task, vu)
 			if err != nil {
 				logger.Debug("runVU] VU %d 迭代 %d 执行失败: %v\n", vu.ID, iteration, err)
-				return err
+				// 对于持续运行模式（maxIterations=0），迭代失败不退出，继续下一次迭代
+				// 对于固定迭代次数模式，迭代失败则退出
+				if maxIterations > 0 {
+					return err
+				}
+				// 持续运行模式下，记录错误但继续执行
 			}
 
 			iteration++

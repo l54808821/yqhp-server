@@ -392,7 +392,21 @@ func (m *WorkflowMaster) simulateExecution(ctx context.Context, execInfo *Execut
 	registry := executor.DefaultRegistry
 	logger.Debug("simulateExecution] 注册表中的执行器类型: %v\n", registry.Types())
 
-	taskEngine := slave.NewTaskEngine(registry, execInfo.Workflow.Options.VUs)
+	// 计算最大 VU 数量
+	// 对于 ramping-vus 模式，使用 stages 中的最大 target 值
+	maxVUs := execInfo.Workflow.Options.VUs
+	if execInfo.Workflow.Options.ExecutionMode == types.ModeRampingVUs && len(execInfo.Workflow.Options.Stages) > 0 {
+		for _, stage := range execInfo.Workflow.Options.Stages {
+			if stage.Target > maxVUs {
+				maxVUs = stage.Target
+			}
+		}
+	}
+	if maxVUs <= 0 {
+		maxVUs = 1
+	}
+
+	taskEngine := slave.NewTaskEngine(registry, maxVUs)
 
 	// 创建执行任务
 	task := &types.Task{
@@ -692,7 +706,21 @@ func (m *WorkflowMaster) executeTaskLocally(ctx context.Context, task *types.Tas
 
 	// 使用默认执行器注册表创建任务引擎
 	registry := executor.DefaultRegistry
-	taskEngine := slave.NewTaskEngine(registry, task.Workflow.Options.VUs)
+
+	// 计算最大 VU 数量
+	maxVUs := task.Workflow.Options.VUs
+	if task.Workflow.Options.ExecutionMode == types.ModeRampingVUs && len(task.Workflow.Options.Stages) > 0 {
+		for _, stage := range task.Workflow.Options.Stages {
+			if stage.Target > maxVUs {
+				maxVUs = stage.Target
+			}
+		}
+	}
+	if maxVUs <= 0 {
+		maxVUs = 1
+	}
+
+	taskEngine := slave.NewTaskEngine(registry, maxVUs)
 
 	// 执行任务
 	taskResult, err := taskEngine.Execute(ctx, task)

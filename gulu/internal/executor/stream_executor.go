@@ -2,9 +2,11 @@ package executor
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
+	"yqhp/gulu/internal/client"
 	"yqhp/gulu/internal/sse"
 	"yqhp/gulu/internal/workflow"
 	"yqhp/workflow-engine/pkg/types"
@@ -42,8 +44,11 @@ type ExecutionSummary struct {
 
 // StreamExecutor 流式执行器
 type StreamExecutor struct {
-	sessionManager *SessionManager
-	defaultTimeout time.Duration
+	sessionManager     *SessionManager
+	slaveClientManager *client.SlaveClientManager
+	engineClient       *client.WorkflowEngineClient
+	callbackBaseURL    string // 回调基础 URL
+	defaultTimeout     time.Duration
 }
 
 // NewStreamExecutor 创建流式执行器
@@ -52,9 +57,16 @@ func NewStreamExecutor(sessionManager *SessionManager, defaultTimeout time.Durat
 		defaultTimeout = 30 * time.Minute
 	}
 	return &StreamExecutor{
-		sessionManager: sessionManager,
-		defaultTimeout: defaultTimeout,
+		sessionManager:     sessionManager,
+		slaveClientManager: client.NewSlaveClientManager(),
+		engineClient:       client.NewWorkflowEngineClient(),
+		defaultTimeout:     defaultTimeout,
 	}
+}
+
+// SetCallbackBaseURL 设置回调基础 URL
+func (e *StreamExecutor) SetCallbackBaseURL(url string) {
+	e.callbackBaseURL = url
 }
 
 // ExecuteStream 流式执行（SSE）
@@ -174,7 +186,14 @@ func (e *StreamExecutor) ExecuteBlocking(ctx context.Context, req *ExecuteReques
 	var execErr error
 	switch req.ExecutorType {
 	case ExecutorTypeRemote:
-		execErr = e.executeRemote(ctx, req, wf, callback)
+		// 远程阻塞式执行
+		summary, err := e.executeRemoteBlocking(ctx, req, wf)
+		if err != nil {
+			execErr = err
+		} else {
+			// 直接返回远程执行结果
+			return summary, nil
+		}
 	default:
 		execErr = e.executeLocal(ctx, wf, session, callback)
 	}
@@ -249,12 +268,211 @@ func (e *StreamExecutor) executeLocal(ctx context.Context, wf *types.Workflow, s
 	return e.waitForCompletion(ctx, engine, execID, session)
 }
 
-// executeRemote 远程执行
+// executeRemote 远程流式执行
+// Slave 返回 SSE 流，Gulu 作为 SSE 客户端接收事件并转发给前端
 func (e *StreamExecutor) executeRemote(ctx context.Context, req *ExecuteRequest, wf *types.Workflow, callback *SSECallback) error {
-	// TODO: 实现远程 Slave 执行
-	// 这里需要调用 SlaveClient 发送执行请求
-	// 并通过回调 URL 接收执行事件
-	return fmt.Errorf("远程执行暂未实现")
+	fmt.Printf("[DEBUG] executeRemote 开始: WorkflowID=%s, SlaveID=%s\n", wf.ID, req.SlaveID)
+
+	// 获取 Slave 信息
+	slaveStatus, err := e.engineClient.GetExecutorStatus(req.SlaveID)
+	if err != nil {
+		return fmt.Errorf("获取 Slave 状态失败: %w", err)
+	}
+
+	if slaveStatus.State != "online" {
+		return fmt.Errorf("Slave 不可用: %s (状态: %s)", req.SlaveID, slaveStatus.State)
+	}
+
+	// 获取或创建 Slave 客户端
+	slaveClient := e.slaveClientManager.GetClient(req.SlaveID, slaveStatus.Address)
+
+	// 检查 Slave 连接
+	if err := slaveClient.Ping(ctx); err != nil {
+		return fmt.Errorf("Slave 连接失败: %w", err)
+	}
+
+	// 获取会话
+	session, ok := e.sessionManager.GetSession(wf.ID)
+	if !ok {
+		return fmt.Errorf("会话不存在: %s", wf.ID)
+	}
+
+	// 构建交互 URL（用于人机交互时 Slave 等待 Gulu 的响应）
+	interactionURL := fmt.Sprintf("%s/api/executions/%s/interaction", e.callbackBaseURL, wf.ID)
+
+	// 构建流式执行请求
+	slaveReq := &client.SlaveStreamExecuteRequest{
+		Workflow:       wf,
+		Variables:      req.Variables,
+		SessionID:      wf.ID,
+		Timeout:        req.Timeout,
+		InteractionURL: interactionURL,
+	}
+
+	fmt.Printf("[DEBUG] 开始 SSE 流式执行: SlaveID=%s, SessionID=%s\n", req.SlaveID, wf.ID)
+
+	// 启动心跳（在 SSE 流中可能不需要，但保留以防万一）
+	heartbeatDone := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-heartbeatDone:
+				return
+			case <-ticker.C:
+				// 只在没有收到事件时发送心跳
+				callback.WriteHeartbeat()
+			}
+		}
+	}()
+	defer close(heartbeatDone)
+
+	// 执行流式请求，接收 SSE 事件并转发
+	var execErr error
+	err = slaveClient.ExecuteStream(ctx, slaveReq, func(eventType string, data []byte) error {
+		fmt.Printf("[DEBUG] 收到 Slave SSE 事件: type=%s\n", eventType)
+
+		// 处理特殊事件
+		switch eventType {
+		case "workflow_completed":
+			// 解析完成数据，更新会话状态
+			var completedData struct {
+				Status       string `json:"status"`
+				TotalSteps   int    `json:"total_steps"`
+				SuccessSteps int    `json:"success_steps"`
+				FailedSteps  int    `json:"failed_steps"`
+			}
+			if err := json.Unmarshal(data, &completedData); err == nil {
+				if completedData.FailedSteps > 0 || completedData.Status == "failed" {
+					session.SetStatus(SessionStatusFailed)
+				} else {
+					session.SetStatus(SessionStatusCompleted)
+				}
+			}
+
+		case "ai_interaction_required":
+			// 人机交互：设置会话状态为等待
+			session.SetStatus(SessionStatusWaiting)
+
+			// 转发事件到前端
+			if err := client.ForwardSSEEvent(callback.writer, eventType, data); err != nil {
+				return err
+			}
+
+			// 等待前端响应（通过 session.InteractionCh）
+			// 注意：这里会阻塞直到收到响应或超时
+			var interactionData struct {
+				StepID  string `json:"step_id"`
+				Timeout int    `json:"timeout"`
+			}
+			if err := json.Unmarshal(data, &interactionData); err != nil {
+				return fmt.Errorf("解析交互数据失败: %w", err)
+			}
+
+			timeout := time.Duration(interactionData.Timeout) * time.Second
+			if timeout == 0 {
+				timeout = 5 * time.Minute // 默认 5 分钟
+			}
+
+			resp, err := session.WaitForInteraction(ctx, timeout)
+			if err != nil {
+				return fmt.Errorf("等待交互响应失败: %w", err)
+			}
+
+			// 将响应发送给 Slave
+			interactionReq := &client.InteractionSubmitRequest{
+				SessionID: wf.ID,
+				StepID:    interactionData.StepID,
+				Value:     resp.Value,
+				Skipped:   resp.Skipped,
+			}
+			if err := slaveClient.SubmitInteraction(ctx, interactionReq); err != nil {
+				return fmt.Errorf("提交交互响应到 Slave 失败: %w", err)
+			}
+
+			// 恢复运行状态
+			session.SetStatus(SessionStatusRunning)
+			return nil
+
+		case "error":
+			// 解析错误，设置执行错误
+			var errorData struct {
+				Code    string `json:"code"`
+				Message string `json:"message"`
+			}
+			if err := json.Unmarshal(data, &errorData); err == nil {
+				execErr = fmt.Errorf("%s: %s", errorData.Code, errorData.Message)
+			}
+		}
+
+		// 转发事件到前端
+		return client.ForwardSSEEvent(callback.writer, eventType, data)
+	})
+
+	if err != nil {
+		return fmt.Errorf("SSE 流执行失败: %w", err)
+	}
+
+	return execErr
+}
+
+// executeRemoteBlocking 远程阻塞式执行
+func (e *StreamExecutor) executeRemoteBlocking(ctx context.Context, req *ExecuteRequest, wf *types.Workflow) (*ExecutionSummary, error) {
+	fmt.Printf("[DEBUG] executeRemoteBlocking 开始: WorkflowID=%s, SlaveID=%s\n", wf.ID, req.SlaveID)
+
+	// 获取 Slave 信息
+	slaveStatus, err := e.engineClient.GetExecutorStatus(req.SlaveID)
+	if err != nil {
+		return nil, fmt.Errorf("获取 Slave 状态失败: %w", err)
+	}
+
+	if slaveStatus.State != "online" {
+		return nil, fmt.Errorf("Slave 不可用: %s (状态: %s)", req.SlaveID, slaveStatus.State)
+	}
+
+	// 获取或创建 Slave 客户端
+	slaveClient := e.slaveClientManager.GetClient(req.SlaveID, slaveStatus.Address)
+
+	// 检查 Slave 连接
+	if err := slaveClient.Ping(ctx); err != nil {
+		return nil, fmt.Errorf("Slave 连接失败: %w", err)
+	}
+
+	// 构建阻塞式执行请求
+	slaveReq := &client.SlaveBlockingExecuteRequest{
+		Workflow:  wf,
+		Variables: req.Variables,
+		SessionID: wf.ID,
+		Timeout:   req.Timeout,
+	}
+
+	// 执行阻塞式请求
+	resp, err := slaveClient.ExecuteBlocking(ctx, slaveReq)
+	if err != nil {
+		return nil, fmt.Errorf("阻塞式执行失败: %w", err)
+	}
+
+	// 转换响应
+	status := resp.Status
+	if resp.FailedSteps > 0 && status == "" {
+		status = "failed"
+	} else if status == "" {
+		status = "success"
+	}
+
+	return &ExecutionSummary{
+		SessionID:     resp.SessionID,
+		TotalSteps:    resp.TotalSteps,
+		SuccessSteps:  resp.SuccessSteps,
+		FailedSteps:   resp.FailedSteps,
+		TotalDuration: resp.TotalDuration,
+		Status:        status,
+		StartTime:     time.Now(), // Slave 应该返回实际时间
+		EndTime:       time.Now(),
+	}, nil
 }
 
 // waitForCompletion 等待执行完成

@@ -1,6 +1,7 @@
 package sse
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -75,19 +76,25 @@ func (sw *Writer) WriteEvent(event *Event) error {
 	}
 
 	// 序列化为 JSON（单行格式）
-	data, err := json.Marshal(event)
-	if err != nil {
+	// 使用 Encoder 并禁用 HTML 转义，保持 UTF-8 原样输出
+	var buf bytes.Buffer
+	encoder := json.NewEncoder(&buf)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(event); err != nil {
 		return fmt.Errorf("failed to marshal event: %w", err)
 	}
 
+	// Encode 会添加换行符，需要去掉
+	jsonStr := strings.TrimSuffix(buf.String(), "\n")
+
 	// 转义换行符确保 JSON 在单行
-	jsonStr := escapeNewlines(string(data))
+	jsonStr = escapeNewlines(jsonStr)
 
 	// 写入 SSE 格式
 	// event: <type>
 	// data: <json>
 	// (空行表示事件结束)
-	_, err = fmt.Fprintf(sw.w, "event: %s\ndata: %s\n\n", event.Type, jsonStr)
+	_, err := fmt.Fprintf(sw.w, "event: %s\ndata: %s\n\n", event.Type, jsonStr)
 	if err != nil {
 		return fmt.Errorf("failed to write event: %w", err)
 	}

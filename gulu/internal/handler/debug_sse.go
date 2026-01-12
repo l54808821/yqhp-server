@@ -131,11 +131,12 @@ func (h *SSEDebugHandler) RunStream(c *fiber.Ctx) error {
 	}
 
 	// 设置 SSE 响应头
-	c.Set("Content-Type", "text/event-stream")
+	c.Set("Content-Type", "text/event-stream; charset=utf-8")
 	c.Set("Cache-Control", "no-cache")
 	c.Set("Connection", "keep-alive")
 	c.Set("Transfer-Encoding", "chunked")
 	c.Set("X-Accel-Buffering", "no") // 禁用 nginx 缓冲
+	c.Set("X-Content-Type-Options", "nosniff")
 
 	// 【重要】在 SetBodyStreamWriter 之前捕获上下文
 	// SetBodyStreamWriter 的回调在独立 goroutine 中运行，此时 Fiber context 已失效

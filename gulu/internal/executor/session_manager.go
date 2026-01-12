@@ -233,11 +233,24 @@ func (m *SessionManager) IsRunning(sessionID string) bool {
 
 // ============ Session 方法 ============
 
+// GetSSEWriter 获取 SSE Writer
+func (s *Session) GetSSEWriter() *sse.Writer {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.SSEWriter
+}
+
+// IncrementTotal 增加总步骤计数（不增加成功/失败）
+func (s *Session) IncrementTotal() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.TotalSteps++
+}
+
 // IncrementSuccess 增加成功步骤计数
 func (s *Session) IncrementSuccess() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.TotalSteps++
 	s.SuccessSteps++
 }
 

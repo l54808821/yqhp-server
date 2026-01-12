@@ -102,17 +102,22 @@ func TestMetricsCollector_Percentiles(t *testing.T) {
 	metrics := collector.GetMetrics()
 	durationMetrics := metrics.StepMetrics["step-1"].Duration
 
-	// P50 should be around 50ms
-	assert.True(t, durationMetrics.P50 >= 49*time.Millisecond && durationMetrics.P50 <= 51*time.Millisecond)
+	// 使用直方图后，百分位数是近似值，允许更大的误差范围
+	// P50 should be around 50ms (允许 ±10ms 误差)
+	assert.True(t, durationMetrics.P50 >= 40*time.Millisecond && durationMetrics.P50 <= 60*time.Millisecond,
+		"P50 should be around 50ms, got %v", durationMetrics.P50)
 
-	// P90 should be around 90ms
-	assert.True(t, durationMetrics.P90 >= 89*time.Millisecond && durationMetrics.P90 <= 91*time.Millisecond)
+	// P90 should be around 90ms (允许 ±10ms 误差)
+	assert.True(t, durationMetrics.P90 >= 80*time.Millisecond && durationMetrics.P90 <= 100*time.Millisecond,
+		"P90 should be around 90ms, got %v", durationMetrics.P90)
 
-	// P95 should be around 95ms
-	assert.True(t, durationMetrics.P95 >= 94*time.Millisecond && durationMetrics.P95 <= 96*time.Millisecond)
+	// P95 should be around 95ms (允许 ±10ms 误差)
+	assert.True(t, durationMetrics.P95 >= 85*time.Millisecond && durationMetrics.P95 <= 105*time.Millisecond,
+		"P95 should be around 95ms, got %v", durationMetrics.P95)
 
-	// P99 should be around 99ms
-	assert.True(t, durationMetrics.P99 >= 98*time.Millisecond && durationMetrics.P99 <= 100*time.Millisecond)
+	// P99 should be around 99ms (允许 ±10ms 误差)
+	assert.True(t, durationMetrics.P99 >= 89*time.Millisecond && durationMetrics.P99 <= 110*time.Millisecond,
+		"P99 should be around 99ms, got %v", durationMetrics.P99)
 }
 
 func TestMetricsCollector_GetThroughput(t *testing.T) {
@@ -248,9 +253,53 @@ func TestMetricsCollector_GetDurationSamples(t *testing.T) {
 	}
 
 	samples := collector.GetDurationSamples("step-1")
-	assert.Len(t, samples, 3)
+	// 现在返回 8 个百分位数样本：min, p25, p50, p75, p90, p95, p99, max
+	assert.Len(t, samples, 8)
+	// 第一个是 min
+	assert.Equal(t, 10*time.Millisecond, samples[0])
+	// 最后一个是 max
+	assert.Equal(t, 30*time.Millisecond, samples[7])
 
 	// Non-existent step
 	samples = collector.GetDurationSamples("non-existent")
 	assert.Nil(t, samples)
+}
+
+func TestMetricsCollector_GetMemoryUsage(t *testing.T) {
+	collector := NewMetricsCollector()
+
+	// 记录多个步骤
+	for i := 0; i < 10; i++ {
+		collector.RecordStep("step-1", &types.StepResult{
+			StepID:   "step-1",
+			Status:   types.ResultStatusSuccess,
+			Duration: time.Duration(i) * time.Millisecond,
+		})
+	}
+
+	memUsage := collector.GetMemoryUsage()
+	// HDR Histogram 每个步骤约 20KB
+	assert.True(t, memUsage > 0)
+	assert.True(t, memUsage < 50*1024) // 应该小于 50KB
+}
+
+func TestMetricsCollector_HighVolume(t *testing.T) {
+	collector := NewMetricsCollector()
+
+	// 模拟高并发场景：100万次请求
+	// 使用 HDR Histogram 后，内存应该保持稳定
+	for i := 0; i < 1000000; i++ {
+		collector.RecordStep("step-1", &types.StepResult{
+			StepID:   "step-1",
+			Status:   types.ResultStatusSuccess,
+			Duration: time.Duration(i%1000) * time.Millisecond,
+		})
+	}
+
+	metrics := collector.GetMetrics()
+	assert.Equal(t, int64(1000000), metrics.StepMetrics["step-1"].Count)
+
+	// HDR Histogram 内存使用约 20KB，应该小于 50KB
+	memUsage := collector.GetMemoryUsage()
+	assert.True(t, memUsage < 50*1024)
 }

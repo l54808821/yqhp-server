@@ -10,6 +10,7 @@ import (
 	"yqhp/workflow-engine/internal/config"
 	"yqhp/workflow-engine/internal/executor"
 	"yqhp/workflow-engine/internal/script"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -276,6 +277,7 @@ func (p *ParserV2) validateStep(step *StepV2, stepIDs map[string]bool) error {
 		"if": true, "while": true, "for": true, "foreach": true,
 		"parallel": true, "sleep": true, "wait_until": true, "retry": true,
 		"break": true, "continue": true,
+		"ai": true,
 	}
 
 	if !validTypes[step.Type] {

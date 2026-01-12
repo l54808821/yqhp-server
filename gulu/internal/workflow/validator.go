@@ -15,6 +15,7 @@ var ValidNodeTypes = map[string]bool{
 	"database":  true, // 数据库操作
 	"wait":      true, // 等待/延时
 	"mq":        true, // MQ 操作
+	"ai":        true, // AI 调用
 }
 
 // ValidationError 验证错误
@@ -135,6 +136,8 @@ func validateStep(step *Step, index int, stepIDs map[string]bool) []ValidationEr
 		errs = append(errs, validateWaitStep(step, prefix)...)
 	case "mq":
 		errs = append(errs, validateMQStep(step, prefix)...)
+	case "ai":
+		errs = append(errs, validateAIStep(step, prefix)...)
 	}
 
 	return errs
@@ -337,6 +340,29 @@ func validateMQStep(step *Step, prefix string) []ValidationError {
 		errs = append(errs, ValidationError{
 			Field:   prefix + ".config.action",
 			Message: "MQ 步骤必须指定操作类型 (send/receive)",
+		})
+	}
+
+	return errs
+}
+
+// validateAIStep 验证 AI 步骤
+func validateAIStep(step *Step, prefix string) []ValidationError {
+	var errs []ValidationError
+
+	if step.Config == nil {
+		errs = append(errs, ValidationError{
+			Field:   prefix + ".config",
+			Message: "AI 步骤必须包含配置",
+		})
+		return errs
+	}
+
+	// 验证 prompt（AI 调用必须有提示词）
+	if _, ok := step.Config["prompt"]; !ok {
+		errs = append(errs, ValidationError{
+			Field:   prefix + ".config.prompt",
+			Message: "AI 步骤必须指定 prompt",
 		})
 	}
 

@@ -28,11 +28,20 @@ const (
 	EventError             EventType = "error"
 )
 
+// Timestamp 自定义时间戳类型，格式化为 "2006-01-02 15:04:05.000"
+type Timestamp time.Time
+
+// MarshalJSON 自定义 JSON 序列化
+func (t Timestamp) MarshalJSON() ([]byte, error) {
+	formatted := time.Time(t).Format("2006-01-02 15:04:05.000")
+	return []byte(`"` + formatted + `"`), nil
+}
+
 // Event SSE 事件结构
 type Event struct {
 	Type      EventType   `json:"type"`
 	SessionID string      `json:"session_id"`
-	Timestamp time.Time   `json:"timestamp"`
+	Timestamp Timestamp   `json:"timestamp"`
 	Data      interface{} `json:"data"`
 }
 
@@ -68,8 +77,8 @@ func (sw *Writer) WriteEvent(event *Event) error {
 	}
 
 	// 设置时间戳和会话ID
-	if event.Timestamp.IsZero() {
-		event.Timestamp = time.Now()
+	if time.Time(event.Timestamp).IsZero() {
+		event.Timestamp = Timestamp(time.Now())
 	}
 	if event.SessionID == "" {
 		event.SessionID = sw.sessionID

@@ -15,8 +15,7 @@
 ### 构建
 
 ```bash
-
-go build -o workflow-engine ./cmd/main.go
+go build -o workflow-engine .
 ```
 
 ### 独立模式运行
@@ -31,13 +30,16 @@ go build -o workflow-engine ./cmd/main.go
 
 ```bash
 # 指定虚拟用户数和持续时间
-./workflow-engine run -vus 10 -duration 30s workflow.yaml
+./workflow-engine run -u 10 -d 30s workflow.yaml
 
 # 指定迭代次数
-./workflow-engine run -iterations 100 workflow.yaml
+./workflow-engine run -i 100 workflow.yaml
 
 # 输出 JSON 结果
-./workflow-engine run -out-json results.json workflow.yaml
+./workflow-engine run --out-json results.json workflow.yaml
+
+# 输出指标到多个目标
+./workflow-engine run -o json=metrics.json -o console workflow.yaml
 ```
 
 ### 分布式模式运行
@@ -147,16 +149,22 @@ steps:
 workflow-engine - 分布式工作流执行引擎
 
 用法:
-  workflow-engine <command> [options]
+  workflow-engine [command]
 
 命令:
   master    管理 Master 节点
   slave     管理 Slave 节点
   run       独立模式执行工作流
-  version   显示版本信息
   help      显示帮助信息
 
-使用 "workflow-engine <command> --help" 获取命令详细帮助。
+全局选项:
+  --config string   配置文件路径
+  --debug           启用调试日志
+  -q, --quiet       静默模式
+  -v, --version     显示版本信息
+  -h, --help        显示帮助
+
+使用 "workflow-engine [command] --help" 获取命令详细帮助。
 ```
 
 ### run 命令
@@ -165,50 +173,48 @@ workflow-engine - 分布式工作流执行引擎
 workflow-engine run [options] <workflow.yaml>
 
 选项:
-  -vus int           虚拟用户数 (覆盖工作流配置)
-  -duration duration 测试持续时间 (如 30s, 5m)
-  -iterations int    迭代次数
-  -mode string       执行模式 (constant-vus, ramping-vus 等)
-  -quiet             静默模式，不输出进度
-  -out-json string   输出 JSON 结果到文件
-  -help              显示帮助
+  -u, --vus int           虚拟用户数 (覆盖工作流配置)
+  -d, --duration duration 测试持续时间 (如 30s, 5m)
+  -i, --iterations int    迭代次数
+      --mode string       执行模式 (constant-vus, ramping-vus 等)
+  -o, --out stringArray   指标输出目标 (可多次指定)，格式: type=config
+      --out-json string   输出 JSON 结果到文件
+  -h, --help              显示帮助
 ```
 
 ### master 命令
 
 ```bash
-workflow-engine master <subcommand> [options]
+workflow-engine master [command]
 
 子命令:
   start     启动 Master 节点
   status    查看 Master 状态
 
 master start 选项:
-  -config string           配置文件路径
-  -address string          HTTP 服务地址 (默认 :8080)
-  -standalone              独立模式运行 (无需 Slave)
-  -heartbeat-timeout       Slave 心跳超时 (默认 30s)
-  -max-executions int      最大并发执行数 (默认 100)
+  --address string          HTTP 服务地址 (默认 :8080)
+  --standalone              独立模式运行 (无需 Slave)
+  --heartbeat-timeout       Slave 心跳超时 (默认 30s)
+  --max-executions int      最大并发执行数 (默认 100)
 ```
 
 ### slave 命令
 
 ```bash
-workflow-engine slave <subcommand> [options]
+workflow-engine slave [command]
 
 子命令:
   start     启动 Slave 节点
   status    查看 Slave 状态
 
 slave start 选项:
-  -config string       配置文件路径
-  -id string           Slave ID (自动生成如不指定)
-  -type string         Slave 类型: worker, gateway, aggregator (默认 worker)
-  -address string      监听地址 (默认 :9091)
-  -master string       Master HTTP 地址 (默认 http://localhost:8080)
-  -max-vus int         最大虚拟用户数 (默认 100)
-  -capabilities string 能力列表，逗号分隔
-  -labels string       标签，key=value 格式，逗号分隔
+  --id string           Slave ID (自动生成如不指定)
+  --type string         Slave 类型: worker, gateway, aggregator (默认 worker)
+  --address string      监听地址 (默认 :9091)
+  --master string       Master 地址 (默认 localhost:9090)
+  --max-vus int         最大虚拟用户数 (默认 100)
+  --capabilities string 能力列表，逗号分隔
+  --labels string       标签，key=value 格式，逗号分隔
 ```
 
 ## REST API
@@ -241,11 +247,12 @@ curl http://localhost:8080/api/v1/slaves
 
 ```
 workflow-engine/
-├── cmd/                    # 命令行入口
-│   ├── main.go            # 主入口
-│   ├── master/            # Master 命令
-│   ├── slave/             # Slave 命令
-│   └── run/               # Run 命令
+├── main.go                # 主入口
+├── cmd/                   # Cobra 命令定义
+│   ├── root.go           # 根命令
+│   ├── run.go            # run 命令
+│   ├── master.go         # master 命令
+│   └── slave.go          # slave 命令
 ├── api/                   # API 定义
 │   └── rest/              # REST API
 │       └── client/        # HTTP 客户端
@@ -255,15 +262,20 @@ workflow-engine/
 │   ├── executor/          # 步骤执行器
 │   ├── expression/        # 表达式求值
 │   ├── master/            # Master 实现
-│   ├── metrics/           # 指标收集
 │   ├── parser/            # YAML 解析器
-│   ├── scheduler/         # 任务调度
+│   ├── reporter/          # 报告生成
 │   └── slave/             # Slave 实现
-├── pkg/types/             # 公共类型定义
+├── pkg/                   # 公共包
+│   ├── types/             # 类型定义
+│   ├── metrics/           # 指标定义
+│   ├── output/            # 输出插件
+│   └── logger/            # 日志
 ├── configs/               # 配置文件示例
+├── examples/              # 工作流示例
 └── docs/                  # 文档
     ├── USER_MANUAL.md     # 用户手册
-    └── API.md             # API 文档
+    ├── API.md             # API 文档
+    └── k6_comparison.md   # K6 对比分析
 ```
 
 ## 配置文件

@@ -261,6 +261,9 @@ func (s *Server) setupRoutes() {
 	// 指标报告路由
 	api.Post("/executions/:id/metrics/report", s.receiveMetricsReport)
 
+	// 调试路由
+	api.Post("/debug/step", s.debugStep)
+
 	// WebSocket routes
 	s.setupWebSocketRoutes()
 }

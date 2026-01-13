@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"yqhp/gulu/internal/model"
 	"yqhp/gulu/internal/scheduler"
 	"yqhp/gulu/internal/sse"
+	"yqhp/workflow-engine/pkg/types"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -37,11 +39,13 @@ func NewSSEDebugHandler(sched scheduler.Scheduler, streamExec *executor.StreamEx
 
 // RunStreamRequest 流式执行请求
 type RunStreamRequest struct {
-	EnvID        int64                  `json:"env_id" query:"env_id"`
-	Variables    map[string]interface{} `json:"variables,omitempty" query:"variables"`
-	Timeout      int                    `json:"timeout,omitempty" query:"timeout"`
-	ExecutorType string                 `json:"executor_type,omitempty" query:"executor_type"`
-	SlaveID      string                 `json:"slave_id,omitempty" query:"slave_id"`
+	EnvID         int64                  `json:"env_id" query:"env_id"`
+	Variables     map[string]interface{} `json:"variables,omitempty" query:"variables"`
+	Timeout       int                    `json:"timeout,omitempty" query:"timeout"`
+	ExecutorType  string                 `json:"executor_type,omitempty" query:"executor_type"`
+	SlaveID       string                 `json:"slave_id,omitempty" query:"slave_id"`
+	Definition    string                 `json:"definition,omitempty" query:"definition"`         // 工作流定义（用于调试未保存的工作流）
+	SelectedSteps string                 `json:"selected_steps,omitempty" query:"selected_steps"` // 选中的步骤 ID JSON 数组（用于选择性调试）
 }
 
 // RunBlockingRequest 阻塞式执行请求
@@ -116,12 +120,33 @@ func (h *SSEDebugHandler) RunStream(c *fiber.Ctx) error {
 		return response.Error(c, "创建调试会话失败: "+err.Error())
 	}
 
+	// 确定使用的工作流定义：优先使用请求中的 definition，否则使用数据库中的
+	definitionToUse := wf.Definition
+	if req.Definition != "" {
+		definitionToUse = req.Definition
+		fmt.Printf("[DEBUG] 使用请求中的工作流定义\n")
+	} else {
+		fmt.Printf("[DEBUG] 使用数据库中的工作流定义\n")
+	}
+
 	// 转换工作流定义（调试模式：失败立即停止）
-	fmt.Printf("[DEBUG] 原始工作流定义: %s\n", wf.Definition)
-	engineWf, err := logic.ConvertToEngineWorkflowForDebug(wf.Definition, sessionID)
+	fmt.Printf("[DEBUG] 原始工作流定义: %s\n", definitionToUse)
+	engineWf, err := logic.ConvertToEngineWorkflowForDebug(definitionToUse, sessionID)
 	if err != nil {
 		// 返回 HTTP 错误，因为 SSE 连接还未建立
 		return response.Error(c, "工作流转换失败: "+err.Error())
+	}
+
+	// 解析选中的步骤 ID 并过滤
+	if req.SelectedSteps != "" {
+		var selectedIDs []string
+		if err := json.Unmarshal([]byte(req.SelectedSteps), &selectedIDs); err != nil {
+			return response.Error(c, "选中步骤解析失败: "+err.Error())
+		}
+		if len(selectedIDs) > 0 {
+			fmt.Printf("[DEBUG] 过滤选中的步骤: %v\n", selectedIDs)
+			engineWf.Steps = filterSteps(engineWf.Steps, selectedIDs)
+		}
 	}
 
 	// 调试日志：打印工作流信息
@@ -402,4 +427,70 @@ func (fw *fasthttpFlushWriter) Write(p []byte) (n int, err error) {
 
 func (fw *fasthttpFlushWriter) Flush() {
 	// fasthttp 会自动 flush
+}
+
+// filterSteps 过滤选中的步骤
+// 当选中父步骤（循环/条件）时，自动包含其子步骤
+func filterSteps(steps []types.Step, selectedIDs []string) []types.Step {
+	if len(selectedIDs) == 0 {
+		return steps
+	}
+
+	// 构建选中 ID 集合
+	idSet := make(map[string]bool)
+	for _, id := range selectedIDs {
+		idSet[id] = true
+	}
+
+	var filtered []types.Step
+	for _, step := range steps {
+		if idSet[step.ID] {
+			// 步骤被选中，添加到结果（包含其所有子步骤）
+			filtered = append(filtered, step)
+		} else {
+			// 步骤未被选中，但需要检查其子步骤是否被选中
+			// 对于循环步骤，递归过滤子步骤
+			if step.Loop != nil && len(step.Loop.Steps) > 0 {
+				filteredChildren := filterSteps(step.Loop.Steps, selectedIDs)
+				if len(filteredChildren) > 0 {
+					// 有子步骤被选中，创建新的步骤副本并替换子步骤
+					newStep := step
+					newStep.Loop = &types.Loop{
+						Mode:              step.Loop.Mode,
+						Count:             step.Loop.Count,
+						Items:             step.Loop.Items,
+						ItemVar:           step.Loop.ItemVar,
+						Condition:         step.Loop.Condition,
+						MaxIterations:     step.Loop.MaxIterations,
+						BreakCondition:    step.Loop.BreakCondition,
+						ContinueCondition: step.Loop.ContinueCondition,
+						Steps:             filteredChildren,
+					}
+					filtered = append(filtered, newStep)
+				}
+			}
+			// 对于条件步骤，递归过滤 then/else 分支
+			if step.Condition != nil {
+				var filteredThen, filteredElse []types.Step
+				if len(step.Condition.Then) > 0 {
+					filteredThen = filterSteps(step.Condition.Then, selectedIDs)
+				}
+				if len(step.Condition.Else) > 0 {
+					filteredElse = filterSteps(step.Condition.Else, selectedIDs)
+				}
+				if len(filteredThen) > 0 || len(filteredElse) > 0 {
+					// 有子步骤被选中，创建新的步骤副本并替换子步骤
+					newStep := step
+					newStep.Condition = &types.Condition{
+						Expression: step.Condition.Expression,
+						Then:       filteredThen,
+						Else:       filteredElse,
+					}
+					filtered = append(filtered, newStep)
+				}
+			}
+		}
+	}
+
+	return filtered
 }

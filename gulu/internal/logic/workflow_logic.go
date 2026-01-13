@@ -147,7 +147,19 @@ func (l *WorkflowLogic) Update(id int64, req *UpdateWorkflowReq, userID int64) e
 	updates["status"] = req.Status
 
 	_, err = w.WithContext(l.ctx).Where(w.ID.Eq(id)).Updates(updates)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// 如果名称被修改，同步更新关联的分类名称
+	if req.Name != "" && req.Name != wf.Name {
+		c := q.TCategoryWorkflow
+		_, _ = c.WithContext(l.ctx).
+			Where(c.SourceID.Eq(id), c.Type.Eq("workflow"), c.IsDelete.Is(false)).
+			Update(c.Name, req.Name)
+	}
+
+	return nil
 }
 
 // Delete 删除工作流（软删除）

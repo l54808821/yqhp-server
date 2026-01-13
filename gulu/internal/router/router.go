@@ -55,6 +55,7 @@ func Setup(app *fiber.App) {
 	sessionManager := executor.NewSessionManager()
 	streamExecutor := executor.NewStreamExecutor(sessionManager, 30*time.Minute)
 	sseDebugHandler := handler.NewSSEDebugHandler(sched, streamExecutor, sessionManager)
+	debugStepHandler := handler.NewDebugStepHandler(sessionManager)
 
 	// API 路由组 (需要认证)
 	api := app.Group("/api", middleware.AuthMiddleware(), middleware.ProjectMiddleware())
@@ -200,6 +201,10 @@ func Setup(app *fiber.App) {
 	// SSE 流式执行路由
 	workflows.Get("/:id/run/stream", sseDebugHandler.RunStream)
 	workflows.Post("/:id/run", sseDebugHandler.RunBlocking)
+
+	// 单步调试路由
+	debug := api.Group("/debug")
+	debug.Post("/step", debugStepHandler.DebugStep)
 
 	// 执行会话管理路由
 	sseExecutions := api.Group("/executions")

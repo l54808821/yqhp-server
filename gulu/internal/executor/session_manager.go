@@ -41,6 +41,9 @@ type Session struct {
 	SuccessSteps int
 	FailedSteps  int
 
+	// 变量上下文（用于单步调试时获取会话变量）
+	Variables map[string]interface{}
+
 	mu sync.Mutex
 }
 
@@ -79,6 +82,7 @@ func (m *SessionManager) CreateSession(workflowID int64, writer *sse.Writer) (*S
 		StartTime:     time.Now(),
 		SSEWriter:     writer,
 		InteractionCh: make(chan *InteractionResponse, 1),
+		Variables:     make(map[string]interface{}),
 	}
 
 	m.sessions[sessionID] = session
@@ -314,5 +318,53 @@ func (s *Session) WaitForInteraction(ctx context.Context, timeout time.Duration)
 			return nil, fmt.Errorf("interaction channel closed")
 		}
 		return resp, nil
+	}
+}
+
+// SetVariable 设置变量
+func (s *Session) SetVariable(key string, value interface{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.Variables == nil {
+		s.Variables = make(map[string]interface{})
+	}
+	s.Variables[key] = value
+}
+
+// GetVariable 获取变量
+func (s *Session) GetVariable(key string) (interface{}, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.Variables == nil {
+		return nil, false
+	}
+	v, ok := s.Variables[key]
+	return v, ok
+}
+
+// GetVariables 获取所有变量
+func (s *Session) GetVariables() map[string]interface{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.Variables == nil {
+		return make(map[string]interface{})
+	}
+	// 返回副本
+	result := make(map[string]interface{}, len(s.Variables))
+	for k, v := range s.Variables {
+		result[k] = v
+	}
+	return result
+}
+
+// SetVariables 批量设置变量
+func (s *Session) SetVariables(vars map[string]interface{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.Variables == nil {
+		s.Variables = make(map[string]interface{})
+	}
+	for k, v := range vars {
+		s.Variables[k] = v
 	}
 }

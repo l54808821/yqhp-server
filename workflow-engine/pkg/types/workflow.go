@@ -20,7 +20,8 @@ type Workflow struct {
 type Step struct {
 	ID        string         `yaml:"id"`
 	Name      string         `yaml:"name"`
-	Type      string         `yaml:"type"` // http, script, grpc, condition, loop
+	Type      string         `yaml:"type"`               // http, script, grpc, condition, loop
+	Disabled  bool           `yaml:"disabled,omitempty"` // 是否禁用，禁用的步骤将被跳过
 	Config    map[string]any `yaml:"config"`
 	PreHook   *Hook          `yaml:"pre_hook,omitempty"`
 	PostHook  *Hook          `yaml:"post_hook,omitempty"`

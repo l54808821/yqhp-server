@@ -223,10 +223,11 @@ func convertStep(s Step) types.Step {
 // convertStepWithOptions 转换单个步骤，支持调试模式选项
 func convertStepWithOptions(s Step, debugMode bool) types.Step {
 	step := types.Step{
-		ID:     s.ID,
-		Type:   s.Type,
-		Name:   s.Name,
-		Config: s.Config,
+		ID:       s.ID,
+		Type:     s.Type,
+		Name:     s.Name,
+		Config:   s.Config,
+		Disabled: s.Disabled,
 	}
 
 	// 转换超时

@@ -610,6 +610,16 @@ func (e *TaskEngine) executeStepsWithContext(ctx context.Context, steps []types.
 		default:
 		}
 
+		// 跳过禁用的步骤
+		if step.Disabled {
+			logger.Debug("executeStepsWithContext] 跳过禁用的步骤[%d]: id=%s, name=%s\n", i, step.ID, step.Name)
+			// 触发步骤跳过回调
+			if callback != nil {
+				callback.OnStepSkipped(ctx, step, "步骤已禁用", parentID, iteration)
+			}
+			continue
+		}
+
 		logger.Debug("executeStepsWithContext] 执行步骤[%d]: id=%s, type=%s, name=%s\n", i, step.ID, step.Type, step.Name)
 
 		// 触发步骤开始回调

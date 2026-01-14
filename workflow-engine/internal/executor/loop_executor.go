@@ -363,6 +363,14 @@ func (e *LoopExecutor) executeLoopBody(ctx context.Context, parentStep *types.St
 	for i := range steps {
 		step := &steps[i]
 
+		// 跳过禁用的步骤
+		if step.Disabled {
+			if callback != nil {
+				callback.OnStepSkipped(ctx, step, "步骤已禁用", parentStep.ID, iteration+1)
+			}
+			continue
+		}
+
 		// 触发步骤开始回调
 		if callback != nil {
 			callback.OnStepStart(ctx, step, parentStep.ID, iteration+1) // iteration 从1开始

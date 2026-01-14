@@ -179,8 +179,19 @@ func (e *ConditionExecutor) buildEvaluationContext(execCtx *ExecutionContext) *e
 func (e *ConditionExecutor) executeBranch(ctx context.Context, steps []types.Step, execCtx *ExecutionContext) ([]*types.StepResult, error) {
 	results := make([]*types.StepResult, 0, len(steps))
 
+	// 获取回调
+	callback := execCtx.GetCallback()
+
 	for i := range steps {
 		step := &steps[i]
+
+		// 跳过禁用的步骤
+		if step.Disabled {
+			if callback != nil {
+				callback.OnStepSkipped(ctx, step, "步骤已禁用", "", 0)
+			}
+			continue
+		}
 
 		// 获取步骤类型的执行器
 		executor, err := e.getExecutor(step.Type)

@@ -18,6 +18,7 @@ const (
 	EventStepStarted       EventType = "step_started"
 	EventStepCompleted     EventType = "step_completed"
 	EventStepFailed        EventType = "step_failed"
+	EventStepSkipped       EventType = "step_skipped"
 	EventProgress          EventType = "progress"
 	EventWorkflowCompleted EventType = "workflow_completed"
 	EventAIChunk           EventType = "ai_chunk"
@@ -206,6 +207,16 @@ type StepFailedData struct {
 	Error     string `json:"error"`
 	Details   string `json:"details,omitempty"`
 	Duration  int64  `json:"duration_ms"`
+}
+
+// StepSkippedData 步骤跳过数据
+type StepSkippedData struct {
+	StepID    string `json:"step_id"`
+	StepName  string `json:"step_name"`
+	StepType  string `json:"step_type,omitempty"`
+	ParentID  string `json:"parent_id,omitempty"`
+	Iteration int    `json:"iteration,omitempty"`
+	Reason    string `json:"reason"`
 }
 
 // ProgressData 进度数据

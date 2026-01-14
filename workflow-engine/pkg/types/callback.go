@@ -30,6 +30,13 @@ type ExecutionCallback interface {
 	// iteration: 迭代次数
 	OnStepFailed(ctx context.Context, step *Step, err error, duration time.Duration, parentID string, iteration int)
 
+	// OnStepSkipped 步骤被跳过时调用
+	// step: 当前步骤
+	// reason: 跳过原因
+	// parentID: 父步骤ID
+	// iteration: 迭代次数
+	OnStepSkipped(ctx context.Context, step *Step, reason string, parentID string, iteration int)
+
 	// OnProgress 进度更新时调用
 	// current: 当前步骤序号
 	// total: 总步骤数（动态执行时可能不准确）
@@ -117,6 +124,9 @@ func (n *NoopCallback) OnStepComplete(ctx context.Context, step *Step, result *S
 }
 
 func (n *NoopCallback) OnStepFailed(ctx context.Context, step *Step, err error, duration time.Duration, parentID string, iteration int) {
+}
+
+func (n *NoopCallback) OnStepSkipped(ctx context.Context, step *Step, reason string, parentID string, iteration int) {
 }
 
 func (n *NoopCallback) OnProgress(ctx context.Context, current, total int, stepName string) {}

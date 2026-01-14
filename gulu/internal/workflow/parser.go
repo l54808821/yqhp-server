@@ -21,6 +21,7 @@ type Step struct {
 	ID        string                 `json:"id" yaml:"id"`
 	Type      string                 `json:"type" yaml:"type"`
 	Name      string                 `json:"name" yaml:"name"`
+	Disabled  bool                   `json:"disabled,omitempty" yaml:"disabled,omitempty"` // 是否禁用
 	Config    map[string]interface{} `json:"config,omitempty" yaml:"config,omitempty"`
 	Timeout   string                 `json:"timeout,omitempty" yaml:"timeout,omitempty"`
 	OnError   string                 `json:"on_error,omitempty" yaml:"on_error,omitempty"`

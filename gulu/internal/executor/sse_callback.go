@@ -94,6 +94,21 @@ func (c *SSECallback) OnStepFailed(ctx context.Context, step *types.Step, err er
 	})
 }
 
+// OnStepSkipped 步骤被跳过
+func (c *SSECallback) OnStepSkipped(ctx context.Context, step *types.Step, reason string, parentID string, iteration int) {
+	c.writer.WriteEvent(&sse.Event{
+		Type: sse.EventStepSkipped,
+		Data: &sse.StepSkippedData{
+			StepID:    step.ID,
+			StepName:  step.Name,
+			StepType:  step.Type,
+			ParentID:  parentID,
+			Iteration: iteration,
+			Reason:    reason,
+		},
+	})
+}
+
 // OnProgress 进度更新
 func (c *SSECallback) OnProgress(ctx context.Context, current, total int, stepName string) {
 	percentage := 0

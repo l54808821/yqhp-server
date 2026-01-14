@@ -1,15 +1,11 @@
 package executor
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"os"
-	"os/exec"
-	"runtime"
-	"strings"
 	"time"
 
+	"yqhp/workflow-engine/pkg/script"
 	"yqhp/workflow-engine/pkg/types"
 )
 
@@ -19,73 +15,26 @@ const (
 
 	// 脚本执行的默认超时时间。
 	defaultScriptTimeout = 60 * time.Second
+
+	// 支持的脚本语言
+	LanguageJavaScript = "javascript"
 )
 
 // ScriptExecutor 执行脚本步骤。
 type ScriptExecutor struct {
 	*BaseExecutor
-	shell     string
-	shellArgs []string
 }
 
 // NewScriptExecutor 创建一个新的脚本执行器。
 func NewScriptExecutor() *ScriptExecutor {
-	executor := &ScriptExecutor{
+	return &ScriptExecutor{
 		BaseExecutor: NewBaseExecutor(ScriptExecutorType),
 	}
-	// 根据操作系统设置默认 shell
-	if runtime.GOOS == "windows" {
-		executor.shell = "cmd"
-		executor.shellArgs = []string{"/C"}
-	} else {
-		executor.shell = "/bin/sh"
-		executor.shellArgs = []string{"-c"}
-	}
-	return executor
 }
 
 // Init 使用配置初始化脚本执行器。
 func (e *ScriptExecutor) Init(ctx context.Context, config map[string]any) error {
-	if err := e.BaseExecutor.Init(ctx, config); err != nil {
-		return err
-	}
-
-	// 根据操作系统确定 shell
-	e.shell = e.GetConfigString("shell", "")
-	if e.shell == "" {
-		if runtime.GOOS == "windows" {
-			e.shell = "cmd"
-			e.shellArgs = []string{"/C"}
-		} else {
-			e.shell = "/bin/sh"
-			e.shellArgs = []string{"-c"}
-		}
-	} else {
-		// 从配置解析 shell 参数
-		if args, ok := config["shell_args"].([]any); ok {
-			for _, arg := range args {
-				if s, ok := arg.(string); ok {
-					e.shellArgs = append(e.shellArgs, s)
-				}
-			}
-		} else {
-			// 常见 shell 的默认参数
-			switch {
-			case strings.Contains(e.shell, "bash"):
-				e.shellArgs = []string{"-c"}
-			case strings.Contains(e.shell, "sh"):
-				e.shellArgs = []string{"-c"}
-			case strings.Contains(e.shell, "cmd"):
-				e.shellArgs = []string{"/C"}
-			case strings.Contains(e.shell, "powershell"):
-				e.shellArgs = []string{"-Command"}
-			default:
-				e.shellArgs = []string{"-c"}
-			}
-		}
-	}
-
-	return nil
+	return e.BaseExecutor.Init(ctx, config)
 }
 
 // Execute 执行脚本步骤。
@@ -98,80 +47,101 @@ func (e *ScriptExecutor) Execute(ctx context.Context, step *types.Step, execCtx 
 		return CreateFailedResult(step.ID, startTime, err), nil
 	}
 
-	// 解析脚本中的变量
-	script := e.resolveVariables(config.Script, execCtx)
+	// 根据语言选择执行方式
+	switch config.Language {
+	case LanguageJavaScript, "js", "":
+		return e.executeJavaScript(ctx, step, execCtx, config, startTime)
+	default:
+		return CreateFailedResult(step.ID, startTime,
+			NewConfigError(fmt.Sprintf("不支持的脚本语言: %s，当前仅支持 javascript", config.Language), nil)), nil
+	}
+}
 
-	// 如果指定了步骤超时则应用
-	timeout := step.Timeout
-	if timeout <= 0 {
-		timeout = e.GetConfigDuration("timeout", defaultScriptTimeout)
+// executeJavaScript 执行 JavaScript 脚本
+func (e *ScriptExecutor) executeJavaScript(ctx context.Context, step *types.Step, execCtx *ExecutionContext, config *ScriptConfig, startTime time.Time) (*types.StepResult, error) {
+	// 准备运行时配置
+	rtConfig := &script.JSRuntimeConfig{
+		Variables: make(map[string]interface{}),
+		EnvVars:   make(map[string]interface{}),
 	}
 
-	// 创建带超时的命令上下文
-	cmdCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	// 构建命令
-	args := append(e.shellArgs, script)
-	cmd := exec.CommandContext(cmdCtx, e.shell, args...)
-
-	// 设置环境变量
-	cmd.Env = os.Environ()
-	for k, v := range config.Env {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("%s=%s", k, v))
-	}
-
-	// 将执行上下文变量添加到环境变量
+	// 注入执行上下文变量
 	if execCtx != nil {
+		// 复制变量
 		for k, v := range execCtx.Variables {
-			cmd.Env = append(cmd.Env, fmt.Sprintf("WF_%s=%v", strings.ToUpper(k), v))
+			rtConfig.Variables[k] = v
+		}
+
+		// 从变量中提取环境变量（以 env_ 开头的变量）
+		for k, v := range execCtx.Variables {
+			if len(k) > 4 && k[:4] == "env_" {
+				rtConfig.EnvVars[k[4:]] = v
+			}
+		}
+
+		// 查找上一步骤的结果作为 response
+		if len(execCtx.Results) > 0 {
+			// 获取最近的 HTTP 步骤结果
+			for _, result := range execCtx.Results {
+				if result.Output != nil {
+					rtConfig.Response = result.Output
+					rtConfig.PrevResult = result.Output
+				}
+			}
 		}
 	}
 
-	// 设置工作目录
-	if config.WorkDir != "" {
-		cmd.Dir = config.WorkDir
+	// 创建 JS 运行时
+	runtime := script.NewJSRuntime(rtConfig)
+
+	// 确定超时时间
+	timeout := step.Timeout
+	if timeout <= 0 {
+		if config.Timeout > 0 {
+			timeout = time.Duration(config.Timeout) * time.Second
+		} else {
+			timeout = e.GetConfigDuration("timeout", defaultScriptTimeout)
+		}
 	}
 
-	// 捕获输出
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	// 执行命令
-	err = cmd.Run()
+	// 执行脚本
+	result, err := runtime.Execute(config.Script, timeout)
 
 	// 构建输出
 	output := &ScriptOutput{
-		Script:   script,
-		Stdout:   stdout.String(),
-		Stderr:   stderr.String(),
-		ExitCode: 0,
+		Script:      config.Script,
+		Language:    config.Language,
+		ConsoleLogs: result.ConsoleLogs,
+		Variables:   result.Variables,
+		DurationMs:  time.Since(startTime).Milliseconds(),
 	}
 
 	if err != nil {
-		// 检查是否超时
-		if cmdCtx.Err() == context.DeadlineExceeded {
-			return CreateTimeoutResult(step.ID, startTime, timeout), nil
-		}
+		output.Error = err.Error()
+		stepResult := CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "脚本执行失败", err))
+		stepResult.Output = output
+		return stepResult, nil
+	}
 
-		// 如果可用则获取退出码
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			output.ExitCode = exitErr.ExitCode()
-		} else {
-			output.ExitCode = -1
-		}
+	// 设置返回值
+	output.Result = result.Value
 
-		result := CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "脚本执行失败", err))
-		result.Output = output
-		return result, nil
+	// 将脚本设置的变量更新到执行上下文
+	if execCtx != nil {
+		for k, v := range result.Variables {
+			execCtx.SetVariable(k, v)
+		}
+		// 将环境变量也保存到变量中（以 env_ 前缀）
+		for k, v := range result.EnvVars {
+			execCtx.SetVariable("env_"+k, v)
+		}
 	}
 
 	// 创建成功结果
-	result := CreateSuccessResult(step.ID, startTime, output)
-	result.Metrics["script_exit_code"] = float64(output.ExitCode)
+	stepResult := CreateSuccessResult(step.ID, startTime, output)
+	stepResult.Metrics["script_duration_ms"] = float64(output.DurationMs)
 
-	return result, nil
+	return stepResult, nil
 }
 
 // Cleanup 释放脚本执行器持有的资源。
@@ -181,94 +151,51 @@ func (e *ScriptExecutor) Cleanup(ctx context.Context) error {
 
 // ScriptConfig 表示脚本步骤的配置。
 type ScriptConfig struct {
-	Script  string            // 内联脚本内容
-	File    string            // 脚本文件路径（内联的替代方式）
-	Env     map[string]string // 环境变量
-	WorkDir string            // 工作目录
+	Language string `json:"language"` // 脚本语言: javascript
+	Script   string `json:"script"`   // 脚本代码
+	Timeout  int    `json:"timeout"`  // 超时时间（秒）
 }
 
 // ScriptOutput 表示脚本执行的输出。
 type ScriptOutput struct {
-	Script   string `json:"script"` // 执行的脚本内容
-	Stdout   string `json:"stdout"`
-	Stderr   string `json:"stderr"`
-	ExitCode int    `json:"exit_code"`
+	Script      string                 `json:"script"`          // 执行的脚本内容
+	Language    string                 `json:"language"`        // 脚本语言
+	Result      interface{}            `json:"result"`          // 脚本返回值
+	ConsoleLogs []string               `json:"console_logs"`    // 控制台日志
+	Error       string                 `json:"error,omitempty"` // 错误信息
+	Variables   map[string]interface{} `json:"variables"`       // 修改的变量
+	DurationMs  int64                  `json:"duration_ms"`     // 执行耗时（毫秒）
 }
 
 // parseConfig 将步骤配置解析为 ScriptConfig。
 func (e *ScriptExecutor) parseConfig(config map[string]any) (*ScriptConfig, error) {
 	scriptConfig := &ScriptConfig{
-		Env: make(map[string]string),
+		Language: LanguageJavaScript, // 默认 JavaScript
 	}
 
-	// 获取脚本内容（使用 script 字段）
-	if script, ok := config["script"].(string); ok {
-		scriptConfig.Script = script
+	// 获取脚本语言
+	if lang, ok := config["language"].(string); ok && lang != "" {
+		scriptConfig.Language = lang
 	}
 
-	// 获取脚本文件
-	if file, ok := config["file"].(string); ok {
-		scriptConfig.File = file
-	}
-
-	// 如果指定了文件，读取其内容
-	if scriptConfig.File != "" && scriptConfig.Script == "" {
-		content, err := os.ReadFile(scriptConfig.File)
-		if err != nil {
-			return nil, NewConfigError(fmt.Sprintf("读取脚本文件失败: %s", scriptConfig.File), err)
-		}
-		scriptConfig.Script = string(content)
+	// 获取脚本内容
+	if scriptStr, ok := config["script"].(string); ok {
+		scriptConfig.Script = scriptStr
 	}
 
 	// 验证是否有脚本
 	if scriptConfig.Script == "" {
-		return nil, NewConfigError("脚本步骤需要配置 'script'（脚本内容）或 'file'（脚本文件路径）", nil)
+		return nil, NewConfigError("脚本步骤需要配置 'script'（脚本内容）", nil)
 	}
 
-	// 获取环境变量
-	if env, ok := config["env"].(map[string]any); ok {
-		for k, v := range env {
-			if s, ok := v.(string); ok {
-				scriptConfig.Env[k] = s
-			}
-		}
-	}
-
-	// 获取工作目录
-	if workDir, ok := config["work_dir"].(string); ok {
-		scriptConfig.WorkDir = workDir
+	// 获取超时时间
+	if timeout, ok := config["timeout"].(int); ok {
+		scriptConfig.Timeout = timeout
+	} else if timeout, ok := config["timeout"].(float64); ok {
+		scriptConfig.Timeout = int(timeout)
 	}
 
 	return scriptConfig, nil
-}
-
-// resolveVariables 解析脚本中的变量引用。
-func (e *ScriptExecutor) resolveVariables(script string, execCtx *ExecutionContext) string {
-	if execCtx == nil {
-		return script
-	}
-
-	result := script
-	evalCtx := execCtx.ToEvaluationContext()
-
-	for key, value := range evalCtx {
-		placeholder := fmt.Sprintf("${%s}", key)
-		if strings.Contains(result, placeholder) {
-			result = strings.ReplaceAll(result, placeholder, fmt.Sprintf("%v", value))
-		}
-
-		// 处理嵌套访问
-		if m, ok := value.(map[string]any); ok {
-			for subKey, subValue := range m {
-				nestedPlaceholder := fmt.Sprintf("${%s.%s}", key, subKey)
-				if strings.Contains(result, nestedPlaceholder) {
-					result = strings.ReplaceAll(result, nestedPlaceholder, fmt.Sprintf("%v", subValue))
-				}
-			}
-		}
-	}
-
-	return result
 }
 
 // init 在默认注册表中注册脚本执行器。

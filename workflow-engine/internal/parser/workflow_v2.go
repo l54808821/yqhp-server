@@ -9,7 +9,7 @@ import (
 
 	"yqhp/workflow-engine/internal/config"
 	"yqhp/workflow-engine/internal/executor"
-	"yqhp/workflow-engine/internal/script"
+	"yqhp/workflow-engine/pkg/script"
 
 	"gopkg.in/yaml.v3"
 )

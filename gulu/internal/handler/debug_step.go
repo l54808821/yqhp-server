@@ -14,6 +14,7 @@ import (
 	"yqhp/common/response"
 	"yqhp/gulu/internal/executor"
 	"yqhp/gulu/internal/logic"
+	"yqhp/workflow-engine/pkg/script"
 
 	"github.com/gofiber/fiber/v2"
 )
@@ -40,12 +41,12 @@ type DebugStepRequest struct {
 
 // DebugNodeConfig 调试节点配置
 type DebugNodeConfig struct {
-	ID             string           `json:"id"`
-	Type           string           `json:"type"`
-	Name           string           `json:"name"`
-	Config         *DebugHTTPConfig `json:"config"`
-	PreProcessors  []KeywordConfig  `json:"preProcessors,omitempty"`
-	PostProcessors []KeywordConfig  `json:"postProcessors,omitempty"`
+	ID             string                 `json:"id"`
+	Type           string                 `json:"type"`
+	Name           string                 `json:"name"`
+	Config         map[string]interface{} `json:"config"` // 通用配置，根据 Type 解析
+	PreProcessors  []KeywordConfig        `json:"preProcessors,omitempty"`
+	PostProcessors []KeywordConfig        `json:"postProcessors,omitempty"`
 }
 
 // DebugHTTPConfig HTTP 配置
@@ -126,14 +127,26 @@ type KeywordConfig struct {
 
 // DebugStepResponse 单步调试响应
 type DebugStepResponse struct {
-	Success              bool              `json:"success"`
-	Response             *DebugHTTPResp    `json:"response,omitempty"`
-	PreProcessorResults  []KeywordResult   `json:"preProcessorResults,omitempty"`
-	PostProcessorResults []KeywordResult   `json:"postProcessorResults,omitempty"`
-	AssertionResults     []AssertionResult `json:"assertionResults,omitempty"`
-	ConsoleLogs          []string          `json:"consoleLogs,omitempty"`
-	ActualRequest        *ActualRequest    `json:"actualRequest,omitempty"`
-	Error                string            `json:"error,omitempty"`
+	Success              bool               `json:"success"`
+	Response             *DebugHTTPResp     `json:"response,omitempty"`
+	ScriptResult         *DebugScriptResult `json:"scriptResult,omitempty"`
+	PreProcessorResults  []KeywordResult    `json:"preProcessorResults,omitempty"`
+	PostProcessorResults []KeywordResult    `json:"postProcessorResults,omitempty"`
+	AssertionResults     []AssertionResult  `json:"assertionResults,omitempty"`
+	ConsoleLogs          []string           `json:"consoleLogs,omitempty"`
+	ActualRequest        *ActualRequest     `json:"actualRequest,omitempty"`
+	Error                string             `json:"error,omitempty"`
+}
+
+// DebugScriptResult 脚本执行结果
+type DebugScriptResult struct {
+	Script      string                 `json:"script"`          // 执行的脚本内容
+	Language    string                 `json:"language"`        // 脚本语言
+	Result      interface{}            `json:"result"`          // 脚本返回值
+	ConsoleLogs []string               `json:"console_logs"`    // 控制台日志
+	Error       string                 `json:"error,omitempty"` // 错误信息
+	Variables   map[string]interface{} `json:"variables"`       // 修改的变量
+	DurationMs  int64                  `json:"duration_ms"`     // 执行耗时（毫秒）
 }
 
 // DebugHTTPResp HTTP 响应
@@ -186,8 +199,8 @@ func (h *DebugStepHandler) DebugStep(c *fiber.Ctx) error {
 		return response.Error(c, "节点配置不能为空")
 	}
 
-	if req.NodeConfig.Type != "http" {
-		return response.Error(c, "目前只支持 HTTP 节点的单步调试")
+	if req.NodeConfig.Type != "http" && req.NodeConfig.Type != "script" {
+		return response.Error(c, "目前只支持 HTTP 和脚本节点的单步调试")
 	}
 
 	// 合并变量：会话变量 + 请求变量
@@ -244,16 +257,44 @@ func (h *DebugStepHandler) executeDebugStep(ctx context.Context, nodeConfig *Deb
 		ConsoleLogs:          make([]string, 0),
 	}
 
-	// 执行 HTTP 请求
-	httpResult, actualReq, err := h.executeHTTPRequest(ctx, nodeConfig.Config, variables)
-	if err != nil {
-		result.Success = false
-		result.Error = "HTTP 请求执行失败: " + err.Error()
-		return result, nil
-	}
+	switch nodeConfig.Type {
+	case "http":
+		// 解析 HTTP 配置
+		httpConfig, err := parseHTTPConfig(nodeConfig.Config)
+		if err != nil {
+			result.Success = false
+			result.Error = "解析 HTTP 配置失败: " + err.Error()
+			return result, nil
+		}
+		// 执行 HTTP 请求
+		httpResult, actualReq, err := h.executeHTTPRequest(ctx, httpConfig, variables)
+		if err != nil {
+			result.Success = false
+			result.Error = "HTTP 请求执行失败: " + err.Error()
+			return result, nil
+		}
+		result.Response = httpResult
+		result.ActualRequest = actualReq
 
-	result.Response = httpResult
-	result.ActualRequest = actualReq
+	case "script":
+		// 执行脚本
+		scriptResult, err := h.executeScript(ctx, nodeConfig, variables)
+		if err != nil {
+			result.Success = false
+			result.Error = "脚本执行失败: " + err.Error()
+			return result, nil
+		}
+		result.ScriptResult = scriptResult
+		result.ConsoleLogs = scriptResult.ConsoleLogs
+		if scriptResult.Error != "" {
+			result.Success = false
+			result.Error = scriptResult.Error
+		}
+
+	default:
+		result.Success = false
+		result.Error = fmt.Sprintf("不支持的节点类型: %s", nodeConfig.Type)
+	}
 
 	return result, nil
 }
@@ -467,6 +508,166 @@ func replaceVariables(s string, variables map[string]interface{}) string {
 	return result
 }
 
+// parseHTTPConfig 从 map 解析 HTTP 配置
+func parseHTTPConfig(config map[string]interface{}) (*DebugHTTPConfig, error) {
+	if config == nil {
+		return nil, fmt.Errorf("配置为空")
+	}
+
+	httpConfig := &DebugHTTPConfig{}
+
+	// 解析基本字段
+	if method, ok := config["method"].(string); ok {
+		httpConfig.Method = method
+	}
+	if urlStr, ok := config["url"].(string); ok {
+		httpConfig.URL = urlStr
+	}
+	if domainCode, ok := config["domainCode"].(string); ok {
+		httpConfig.DomainCode = domainCode
+	}
+
+	// 解析 params
+	if params, ok := config["params"].([]interface{}); ok {
+		httpConfig.Params = parseParamItems(params)
+	}
+
+	// 解析 headers
+	if headers, ok := config["headers"].([]interface{}); ok {
+		httpConfig.Headers = parseParamItems(headers)
+	}
+
+	// 解析 cookies
+	if cookies, ok := config["cookies"].([]interface{}); ok {
+		httpConfig.Cookies = parseParamItems(cookies)
+	}
+
+	// 解析 body
+	if body, ok := config["body"].(map[string]interface{}); ok {
+		httpConfig.Body = parseBodyConfig(body)
+	}
+
+	// 解析 auth
+	if auth, ok := config["auth"].(map[string]interface{}); ok {
+		httpConfig.Auth = parseAuthConfig(auth)
+	}
+
+	// 解析 settings
+	if settings, ok := config["settings"].(map[string]interface{}); ok {
+		httpConfig.Settings = parseSettingsConfig(settings)
+	}
+
+	return httpConfig, nil
+}
+
+// parseParamItems 解析参数列表
+func parseParamItems(items []interface{}) []ParamItem {
+	result := make([]ParamItem, 0, len(items))
+	for _, item := range items {
+		if m, ok := item.(map[string]interface{}); ok {
+			p := ParamItem{}
+			if id, ok := m["id"].(string); ok {
+				p.ID = id
+			}
+			if enabled, ok := m["enabled"].(bool); ok {
+				p.Enabled = enabled
+			}
+			if key, ok := m["key"].(string); ok {
+				p.Key = key
+			}
+			if value, ok := m["value"].(string); ok {
+				p.Value = value
+			}
+			if t, ok := m["type"].(string); ok {
+				p.Type = t
+			}
+			if desc, ok := m["description"].(string); ok {
+				p.Description = desc
+			}
+			result = append(result, p)
+		}
+	}
+	return result
+}
+
+// parseBodyConfig 解析请求体配置
+func parseBodyConfig(body map[string]interface{}) *DebugBodyConfig {
+	config := &DebugBodyConfig{}
+	if t, ok := body["type"].(string); ok {
+		config.Type = t
+	}
+	if raw, ok := body["raw"].(string); ok {
+		config.Raw = raw
+	}
+	if formData, ok := body["formData"].([]interface{}); ok {
+		config.FormData = parseParamItems(formData)
+	}
+	if urlencoded, ok := body["urlencoded"].([]interface{}); ok {
+		config.URLEncoded = parseParamItems(urlencoded)
+	}
+	return config
+}
+
+// parseAuthConfig 解析认证配置
+func parseAuthConfig(auth map[string]interface{}) *DebugAuthConfig {
+	config := &DebugAuthConfig{}
+	if t, ok := auth["type"].(string); ok {
+		config.Type = t
+	}
+	if basic, ok := auth["basic"].(map[string]interface{}); ok {
+		config.Basic = &DebugBasicAuth{}
+		if username, ok := basic["username"].(string); ok {
+			config.Basic.Username = username
+		}
+		if password, ok := basic["password"].(string); ok {
+			config.Basic.Password = password
+		}
+	}
+	if bearer, ok := auth["bearer"].(map[string]interface{}); ok {
+		config.Bearer = &DebugBearerAuth{}
+		if token, ok := bearer["token"].(string); ok {
+			config.Bearer.Token = token
+		}
+	}
+	if apikey, ok := auth["apikey"].(map[string]interface{}); ok {
+		config.APIKey = &DebugAPIKeyAuthConf{}
+		if key, ok := apikey["key"].(string); ok {
+			config.APIKey.Key = key
+		}
+		if value, ok := apikey["value"].(string); ok {
+			config.APIKey.Value = value
+		}
+		if addTo, ok := apikey["addTo"].(string); ok {
+			config.APIKey.AddTo = addTo
+		}
+	}
+	return config
+}
+
+// parseSettingsConfig 解析设置配置
+func parseSettingsConfig(settings map[string]interface{}) *HTTPSettingsConf {
+	config := &HTTPSettingsConf{}
+	if connectTimeout, ok := settings["connectTimeout"].(float64); ok {
+		config.ConnectTimeout = int(connectTimeout)
+	}
+	if readTimeout, ok := settings["readTimeout"].(float64); ok {
+		config.ReadTimeout = int(readTimeout)
+	}
+	if followRedirects, ok := settings["followRedirects"].(bool); ok {
+		config.FollowRedirects = followRedirects
+	}
+	if maxRedirects, ok := settings["maxRedirects"].(float64); ok {
+		config.MaxRedirects = int(maxRedirects)
+	}
+	if verifySsl, ok := settings["verifySsl"].(bool); ok {
+		config.VerifySSL = verifySsl
+	}
+	if saveCookies, ok := settings["saveCookies"].(bool); ok {
+		config.SaveCookies = saveCookies
+	}
+	return config
+}
+
 // detectBodyType 检测响应体类型
 func detectBodyType(body string) string {
 	if len(body) == 0 {
@@ -490,4 +691,84 @@ func detectBodyType(body string) string {
 	}
 
 	return "text"
+}
+
+// executeScript 执行脚本
+func (h *DebugStepHandler) executeScript(ctx context.Context, nodeConfig *DebugNodeConfig, variables map[string]interface{}) (*DebugScriptResult, error) {
+	startTime := time.Now()
+
+	// 从 config 中获取脚本配置
+	var scriptCode string
+	var language string
+	var timeout int
+
+	if nodeConfig.Config != nil {
+		if script, ok := nodeConfig.Config["script"].(string); ok {
+			scriptCode = script
+		}
+		if lang, ok := nodeConfig.Config["language"].(string); ok {
+			language = lang
+		}
+		if t, ok := nodeConfig.Config["timeout"].(float64); ok {
+			timeout = int(t)
+		} else if t, ok := nodeConfig.Config["timeout"].(int); ok {
+			timeout = t
+		}
+	}
+
+	if scriptCode == "" {
+		return &DebugScriptResult{
+			Error:      "脚本内容为空",
+			DurationMs: time.Since(startTime).Milliseconds(),
+		}, nil
+	}
+
+	// 默认语言为 JavaScript
+	if language == "" {
+		language = "javascript"
+	}
+
+	// 默认超时 60 秒
+	if timeout <= 0 {
+		timeout = 60
+	}
+
+	// 准备运行时配置
+	rtConfig := &script.JSRuntimeConfig{
+		Variables: make(map[string]interface{}),
+		EnvVars:   make(map[string]interface{}),
+	}
+
+	// 注入变量
+	for k, v := range variables {
+		rtConfig.Variables[k] = v
+		// 提取环境变量
+		if len(k) > 4 && k[:4] == "env_" {
+			rtConfig.EnvVars[k[4:]] = v
+		}
+	}
+
+	// 创建 JS 运行时
+	runtime := script.NewJSRuntime(rtConfig)
+
+	// 执行脚本
+	execResult, err := runtime.Execute(scriptCode, time.Duration(timeout)*time.Second)
+
+	// 构建结果
+	result := &DebugScriptResult{
+		Script:      scriptCode,
+		Language:    language,
+		ConsoleLogs: execResult.ConsoleLogs,
+		Variables:   execResult.Variables,
+		DurationMs:  time.Since(startTime).Milliseconds(),
+	}
+
+	if err != nil {
+		result.Error = err.Error()
+		return result, nil
+	}
+
+	result.Result = execResult.Value
+
+	return result, nil
 }

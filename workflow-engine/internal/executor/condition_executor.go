@@ -128,7 +128,7 @@ func (e *ConditionExecutor) Execute(ctx context.Context, step *types.Step, execC
 
 	// 如果条件满足，执行子步骤
 	if shouldExecute && len(step.Children) > 0 {
-		branchResults, err := e.executeBranch(ctx, step.Children, execCtx)
+		branchResults, err := e.executeBranch(ctx, step.Children, execCtx, step.ID)
 		if err != nil {
 			failedResult := CreateFailedResult(step.ID, startTime, err)
 			failedResult.Output = output
@@ -222,7 +222,7 @@ func (e *ConditionExecutor) buildEvaluationContext(execCtx *ExecutionContext) *e
 }
 
 // executeBranch 执行分支中的步骤序列。
-func (e *ConditionExecutor) executeBranch(ctx context.Context, steps []types.Step, execCtx *ExecutionContext) ([]*types.StepResult, error) {
+func (e *ConditionExecutor) executeBranch(ctx context.Context, steps []types.Step, execCtx *ExecutionContext, parentID string) ([]*types.StepResult, error) {
 	results := make([]*types.StepResult, 0, len(steps))
 
 	// 获取回调
@@ -234,9 +234,14 @@ func (e *ConditionExecutor) executeBranch(ctx context.Context, steps []types.Ste
 		// 跳过禁用的步骤
 		if step.Disabled {
 			if callback != nil {
-				callback.OnStepSkipped(ctx, step, "步骤已禁用", "", 0)
+				callback.OnStepSkipped(ctx, step, "步骤已禁用", parentID, 0)
 			}
 			continue
+		}
+
+		// 发送步骤开始事件
+		if callback != nil {
+			callback.OnStepStart(ctx, step, parentID, 0)
 		}
 
 		// 获取步骤类型的执行器
@@ -249,6 +254,11 @@ func (e *ConditionExecutor) executeBranch(ctx context.Context, steps []types.Ste
 		result, err := executor.Execute(ctx, step, execCtx)
 		if err != nil {
 			return results, err
+		}
+
+		// 发送步骤完成事件
+		if callback != nil {
+			callback.OnStepComplete(ctx, step, result, parentID, 0)
 		}
 
 		// 将结果存储到上下文中供后续步骤使用

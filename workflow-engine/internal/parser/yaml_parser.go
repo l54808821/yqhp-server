@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"yqhp/workflow-engine/pkg/types"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -171,14 +172,15 @@ func (p *YAMLParser) validateStep(step *types.Step, stepIDs map[string]bool, pat
 		"script":    true,
 		"grpc":      true,
 		"condition": true,
+		"loop":      true,
 	}
 	if !validTypes[step.Type] {
 		return NewValidationError(path+".type", fmt.Sprintf("invalid step type: %s", step.Type))
 	}
 
-	// Validate condition if present
-	if step.Condition != nil {
-		if err := p.validateCondition(step.Condition, stepIDs, path+".condition"); err != nil {
+	// Validate children steps if present
+	for i, child := range step.Children {
+		if err := p.validateStep(&child, stepIDs, fmt.Sprintf("%s.children[%d]", path, i)); err != nil {
 			return err
 		}
 	}
@@ -191,33 +193,6 @@ func (p *YAMLParser) validateStep(step *types.Step, stepIDs map[string]bool, pat
 	}
 	if step.PostHook != nil {
 		if err := p.validateHook(step.PostHook, path+".post_hook"); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// validateCondition validates a condition block.
-func (p *YAMLParser) validateCondition(cond *types.Condition, stepIDs map[string]bool, path string) error {
-	if cond.Expression == "" {
-		return NewValidationError(path+".expression", "condition expression is required")
-	}
-
-	if len(cond.Then) == 0 {
-		return NewValidationError(path+".then", "condition must have at least one 'then' step")
-	}
-
-	// Validate then steps
-	for i, step := range cond.Then {
-		if err := p.validateStep(&step, stepIDs, fmt.Sprintf("%s.then[%d]", path, i)); err != nil {
-			return err
-		}
-	}
-
-	// Validate else steps if present
-	for i, step := range cond.Else {
-		if err := p.validateStep(&step, stepIDs, fmt.Sprintf("%s.else[%d]", path, i)); err != nil {
 			return err
 		}
 	}
@@ -270,29 +245,10 @@ func (p *YAMLParser) resolveStepVariables(step *types.Step) error {
 		step.Config = resolved
 	}
 
-	// Resolve in condition steps
-	if step.Condition != nil {
-		// Resolve expression
-		if HasVariableReferences(step.Condition.Expression) {
-			resolved, err := p.resolver.ResolveString(step.Condition.Expression)
-			if err != nil {
-				return err
-			}
-			step.Condition.Expression = resolved
-		}
-
-		// Resolve then steps
-		for i := range step.Condition.Then {
-			if err := p.resolveStepVariables(&step.Condition.Then[i]); err != nil {
-				return err
-			}
-		}
-
-		// Resolve else steps
-		for i := range step.Condition.Else {
-			if err := p.resolveStepVariables(&step.Condition.Else[i]); err != nil {
-				return err
-			}
+	// Resolve in children steps
+	for i := range step.Children {
+		if err := p.resolveStepVariables(&step.Children[i]); err != nil {
+			return err
 		}
 	}
 

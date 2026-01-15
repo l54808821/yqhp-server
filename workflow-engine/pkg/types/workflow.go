@@ -18,17 +18,17 @@ type Workflow struct {
 
 // Step represents a single execution unit in a workflow.
 type Step struct {
-	ID        string         `yaml:"id"`
-	Name      string         `yaml:"name"`
-	Type      string         `yaml:"type"`               // http, script, grpc, condition, loop
-	Disabled  bool           `yaml:"disabled,omitempty"` // 是否禁用，禁用的步骤将被跳过
-	Config    map[string]any `yaml:"config"`
-	PreHook   *Hook          `yaml:"pre_hook,omitempty"`
-	PostHook  *Hook          `yaml:"post_hook,omitempty"`
-	Condition *Condition     `yaml:"condition,omitempty"`
-	Loop      *Loop          `yaml:"loop,omitempty"`
-	OnError   ErrorStrategy  `yaml:"on_error,omitempty"`
-	Timeout   time.Duration  `yaml:"timeout,omitempty"`
+	ID       string         `yaml:"id"`
+	Name     string         `yaml:"name"`
+	Type     string         `yaml:"type"`               // http, script, grpc, condition, loop
+	Disabled bool           `yaml:"disabled,omitempty"` // 是否禁用，禁用的步骤将被跳过
+	Config   map[string]any `yaml:"config"`
+	PreHook  *Hook          `yaml:"pre_hook,omitempty"`
+	PostHook *Hook          `yaml:"post_hook,omitempty"`
+	Loop     *Loop          `yaml:"loop,omitempty"`
+	Children []Step         `yaml:"children,omitempty"` // 子步骤（用于 condition/loop）
+	OnError  ErrorStrategy  `yaml:"on_error,omitempty"`
+	Timeout  time.Duration  `yaml:"timeout,omitempty"`
 }
 
 // Loop represents loop configuration for iterative execution.
@@ -64,12 +64,12 @@ type Loop struct {
 	Steps []Step `yaml:"steps"`
 }
 
-// Condition represents conditional logic (if/else).
-type Condition struct {
-	Expression string `yaml:"expression"`
-	Then       []Step `yaml:"then"`
-	Else       []Step `yaml:"else,omitempty"`
-}
+// ConditionType 条件类型常量
+const (
+	ConditionTypeIf     = "if"
+	ConditionTypeElseIf = "else_if"
+	ConditionTypeElse   = "else"
+)
 
 // Hook represents pre/post execution scripts.
 type Hook struct {

@@ -198,8 +198,9 @@ func Setup(app *fiber.App) {
 	executions.Post("/:id/pause", executionHandler.Pause)
 	executions.Post("/:id/resume", executionHandler.Resume)
 
-	// SSE 流式执行路由
+	// SSE 流式执行路由（同时支持 GET 和 POST）
 	workflows.Get("/:id/run/stream", sseDebugHandler.RunStream)
+	workflows.Post("/:id/run/stream", sseDebugHandler.RunStream) // POST 方式，支持大数据量
 	workflows.Post("/:id/run", sseDebugHandler.RunBlocking)
 
 	// 单步调试路由

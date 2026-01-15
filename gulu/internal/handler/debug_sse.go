@@ -44,8 +44,8 @@ type RunStreamRequest struct {
 	Timeout       int                    `json:"timeout,omitempty" query:"timeout"`
 	ExecutorType  string                 `json:"executor_type,omitempty" query:"executor_type"`
 	SlaveID       string                 `json:"slave_id,omitempty" query:"slave_id"`
-	Definition    string                 `json:"definition,omitempty" query:"definition"`         // 工作流定义（用于调试未保存的工作流）
-	SelectedSteps string                 `json:"selected_steps,omitempty" query:"selected_steps"` // 选中的步骤 ID JSON 数组（用于选择性调试）
+	Definition    interface{}            `json:"definition,omitempty" query:"definition"`         // 工作流定义（用于调试未保存的工作流），可以是字符串或对象
+	SelectedSteps []string               `json:"selected_steps,omitempty" query:"selected_steps"` // 选中的步骤 ID（用于选择性调试）
 }
 
 // RunBlockingRequest 阻塞式执行请求
@@ -64,7 +64,7 @@ type InteractionRequest struct {
 }
 
 // RunStream 流式执行（SSE）
-// GET /api/workflows/:id/run/stream
+// POST /api/workflows/:id/run/stream
 func (h *SSEDebugHandler) RunStream(c *fiber.Ctx) error {
 	workflowID, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
@@ -72,8 +72,12 @@ func (h *SSEDebugHandler) RunStream(c *fiber.Ctx) error {
 	}
 
 	var req RunStreamRequest
-	if err := c.QueryParser(&req); err != nil {
-		return response.Error(c, "参数解析失败: "+err.Error())
+	// 优先尝试解析 JSON body（POST 方式）
+	if err := c.BodyParser(&req); err != nil {
+		// 如果 body 解析失败，尝试解析 query 参数（GET 方式，向后兼容）
+		if err := c.QueryParser(&req); err != nil {
+			return response.Error(c, "参数解析失败: "+err.Error())
+		}
 	}
 
 	if req.EnvID <= 0 {
@@ -122,10 +126,27 @@ func (h *SSEDebugHandler) RunStream(c *fiber.Ctx) error {
 
 	// 确定使用的工作流定义：优先使用请求中的 definition，否则使用数据库中的
 	definitionToUse := wf.Definition
-	if req.Definition != "" {
-		definitionToUse = req.Definition
-		fmt.Printf("[DEBUG] 使用请求中的工作流定义\n")
-	} else {
+	if req.Definition != nil {
+		// 处理 definition：可能是字符串或对象
+		switch v := req.Definition.(type) {
+		case string:
+			if v != "" {
+				definitionToUse = v
+				fmt.Printf("[DEBUG] 使用请求中的工作流定义（字符串格式）\n")
+			}
+		case map[string]interface{}:
+			// 对象格式，转换为 JSON 字符串
+			defBytes, err := json.Marshal(v)
+			if err != nil {
+				return response.Error(c, "工作流定义序列化失败: "+err.Error())
+			}
+			definitionToUse = string(defBytes)
+			fmt.Printf("[DEBUG] 使用请求中的工作流定义（对象格式）\n")
+		default:
+			fmt.Printf("[DEBUG] 未知的 definition 类型: %T\n", v)
+		}
+	}
+	if definitionToUse == wf.Definition {
 		fmt.Printf("[DEBUG] 使用数据库中的工作流定义\n")
 	}
 
@@ -137,16 +158,10 @@ func (h *SSEDebugHandler) RunStream(c *fiber.Ctx) error {
 		return response.Error(c, "工作流转换失败: "+err.Error())
 	}
 
-	// 解析选中的步骤 ID 并过滤
-	if req.SelectedSteps != "" {
-		var selectedIDs []string
-		if err := json.Unmarshal([]byte(req.SelectedSteps), &selectedIDs); err != nil {
-			return response.Error(c, "选中步骤解析失败: "+err.Error())
-		}
-		if len(selectedIDs) > 0 {
-			fmt.Printf("[DEBUG] 过滤选中的步骤: %v\n", selectedIDs)
-			engineWf.Steps = filterSteps(engineWf.Steps, selectedIDs)
-		}
+	// 过滤选中的步骤
+	if len(req.SelectedSteps) > 0 {
+		fmt.Printf("[DEBUG] 过滤选中的步骤: %v\n", req.SelectedSteps)
+		engineWf.Steps = filterSteps(engineWf.Steps, req.SelectedSteps)
 	}
 
 	// 调试日志：打印工作流信息
@@ -469,23 +484,12 @@ func filterSteps(steps []types.Step, selectedIDs []string) []types.Step {
 					filtered = append(filtered, newStep)
 				}
 			}
-			// 对于条件步骤，递归过滤 then/else 分支
-			if step.Condition != nil {
-				var filteredThen, filteredElse []types.Step
-				if len(step.Condition.Then) > 0 {
-					filteredThen = filterSteps(step.Condition.Then, selectedIDs)
-				}
-				if len(step.Condition.Else) > 0 {
-					filteredElse = filterSteps(step.Condition.Else, selectedIDs)
-				}
-				if len(filteredThen) > 0 || len(filteredElse) > 0 {
-					// 有子步骤被选中，创建新的步骤副本并替换子步骤
+			// 对于条件步骤，递归过滤 children
+			if len(step.Children) > 0 {
+				filteredChildren := filterSteps(step.Children, selectedIDs)
+				if len(filteredChildren) > 0 {
 					newStep := step
-					newStep.Condition = &types.Condition{
-						Expression: step.Condition.Expression,
-						Then:       filteredThen,
-						Else:       filteredElse,
-					}
+					newStep.Children = filteredChildren
 					filtered = append(filtered, newStep)
 				}
 			}

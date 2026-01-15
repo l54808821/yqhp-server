@@ -254,21 +254,13 @@ func convertStepWithOptions(s Step, debugMode bool) types.Step {
 		}
 	}
 
-	// 转换条件配置
-	if s.Condition != nil {
-		thenSteps := make([]types.Step, len(s.Condition.Then))
-		for i, ts := range s.Condition.Then {
-			thenSteps[i] = convertStepWithOptions(ts, debugMode)
+	// 转换子步骤（用于 condition 和 loop）
+	if len(s.Children) > 0 {
+		children := make([]types.Step, len(s.Children))
+		for i, cs := range s.Children {
+			children[i] = convertStepWithOptions(cs, debugMode)
 		}
-		elseSteps := make([]types.Step, len(s.Condition.Else))
-		for i, es := range s.Condition.Else {
-			elseSteps[i] = convertStepWithOptions(es, debugMode)
-		}
-		step.Condition = &types.Condition{
-			Expression: s.Condition.Expression,
-			Then:       thenSteps,
-			Else:       elseSteps,
-		}
+		step.Children = children
 	}
 
 	// 转换循环配置

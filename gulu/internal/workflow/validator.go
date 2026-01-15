@@ -202,35 +202,36 @@ func validateScriptStep(step *Step, prefix string) []ValidationError {
 func validateConditionStep(step *Step, prefix string, stepIDs map[string]bool) []ValidationError {
 	var errs []ValidationError
 
-	if step.Condition == nil {
+	// 新格式：config.type 和 config.expression
+	if step.Config == nil {
 		errs = append(errs, ValidationError{
-			Field:   prefix + ".condition",
-			Message: "条件步骤必须包含条件配置",
+			Field:   prefix + ".config",
+			Message: "条件步骤必须包含配置",
 		})
 		return errs
 	}
 
-	if strings.TrimSpace(step.Condition.Expression) == "" {
-		errs = append(errs, ValidationError{
-			Field:   prefix + ".condition.expression",
-			Message: "条件表达式不能为空",
-		})
+	condType, _ := step.Config["type"].(string)
+	if condType == "" {
+		condType = "if" // 默认 if
 	}
 
-	// 验证 then 分支
-	for i, thenStep := range step.Condition.Then {
-		thenErrs := validateStep(&thenStep, i, stepIDs)
-		for _, e := range thenErrs {
-			e.Field = prefix + ".condition.then." + e.Field
-			errs = append(errs, e)
+	// else 不需要表达式，if 和 else_if 需要
+	if condType != "else" {
+		expr, _ := step.Config["expression"].(string)
+		if strings.TrimSpace(expr) == "" {
+			errs = append(errs, ValidationError{
+				Field:   prefix + ".config.expression",
+				Message: "条件表达式不能为空",
+			})
 		}
 	}
 
-	// 验证 else 分支
-	for i, elseStep := range step.Condition.Else {
-		elseErrs := validateStep(&elseStep, i, stepIDs)
-		for _, e := range elseErrs {
-			e.Field = prefix + ".condition.else." + e.Field
+	// 验证子步骤
+	for i, child := range step.Children {
+		childErrs := validateStep(&child, i, stepIDs)
+		for _, e := range childErrs {
+			e.Field = prefix + ".children." + e.Field
 			errs = append(errs, e)
 		}
 	}

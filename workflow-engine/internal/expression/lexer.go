@@ -50,6 +50,10 @@ func (l *Lexer) NextToken() Token {
 	case '=':
 		if l.peekChar() == '=' {
 			l.readChar()
+			// 支持 === (当作 == 处理)
+			if l.peekChar() == '=' {
+				l.readChar()
+			}
 			tok = Token{Type: TokenEQ, Literal: "==", Pos: tok.Pos}
 		} else {
 			tok = Token{Type: TokenIllegal, Literal: string(l.ch), Pos: tok.Pos}
@@ -57,6 +61,10 @@ func (l *Lexer) NextToken() Token {
 	case '!':
 		if l.peekChar() == '=' {
 			l.readChar()
+			// 支持 !== (当作 != 处理)
+			if l.peekChar() == '=' {
+				l.readChar()
+			}
 			tok = Token{Type: TokenNE, Literal: "!=", Pos: tok.Pos}
 		} else {
 			tok = Token{Type: TokenIllegal, Literal: string(l.ch), Pos: tok.Pos}

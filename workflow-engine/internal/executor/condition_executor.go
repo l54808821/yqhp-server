@@ -43,46 +43,92 @@ func (e *ConditionExecutor) Init(ctx context.Context, config map[string]any) err
 }
 
 // Execute 执行条件步骤。
+// 格式：step.Config 包含 type(if/else_if/else)/expression，step.Children 包含子步骤
 func (e *ConditionExecutor) Execute(ctx context.Context, step *types.Step, execCtx *ExecutionContext) (*types.StepResult, error) {
 	startTime := time.Now()
 
-	// 从步骤获取条件
-	condition := step.Condition
-	if condition == nil {
-		return CreateFailedResult(step.ID, startTime, NewConfigError("condition step requires 'condition' configuration", nil)), nil
+	condType := types.ConditionTypeIf // 默认 if
+	if step.Config != nil {
+		if t, ok := step.Config["type"].(string); ok && t != "" {
+			condType = t
+		}
+	}
+
+	expression := ""
+	if step.Config != nil {
+		if expr, ok := step.Config["expression"].(string); ok {
+			expression = expr
+		}
 	}
 
 	// 构建求值上下文
 	evalCtx := e.buildEvaluationContext(execCtx)
 
-	// 求值条件表达式
-	result, err := e.evaluator.EvaluateString(condition.Expression, evalCtx)
-	if err != nil {
-		return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "failed to evaluate condition", err)), nil
+	var shouldExecute bool
+	var err error
+
+	// 获取条件组的执行状态
+	conditionGroupMatched := false
+	if matched, ok := execCtx.Variables["__condition_group_matched__"].(bool); ok {
+		conditionGroupMatched = matched
 	}
 
-	// 确定执行哪个分支
-	var branchSteps []types.Step
-	var branchName string
-	if result {
-		branchSteps = condition.Then
-		branchName = "then"
-	} else {
-		branchSteps = condition.Else
-		branchName = "else"
+	switch condType {
+	case types.ConditionTypeIf:
+		// if: 重置条件组状态，求值表达式
+		execCtx.SetVariable("__condition_group_matched__", false)
+		shouldExecute, err = e.evaluator.EvaluateString(expression, evalCtx)
+		if err != nil {
+			return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "failed to evaluate condition", err)), nil
+		}
+		if shouldExecute {
+			execCtx.SetVariable("__condition_group_matched__", true)
+		}
+
+	case types.ConditionTypeElseIf:
+		// else_if: 如果前面的条件已匹配，跳过；否则求值表达式
+		if conditionGroupMatched {
+			shouldExecute = false
+		} else {
+			shouldExecute, err = e.evaluator.EvaluateString(expression, evalCtx)
+			if err != nil {
+				return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "failed to evaluate condition", err)), nil
+			}
+			if shouldExecute {
+				execCtx.SetVariable("__condition_group_matched__", true)
+			}
+		}
+
+	case types.ConditionTypeElse:
+		// else: 如果前面的条件都没匹配，执行
+		shouldExecute = !conditionGroupMatched
+		if shouldExecute {
+			execCtx.SetVariable("__condition_group_matched__", true)
+		}
+
+	default:
+		// 默认当作 if 处理
+		execCtx.SetVariable("__condition_group_matched__", false)
+		shouldExecute, err = e.evaluator.EvaluateString(expression, evalCtx)
+		if err != nil {
+			return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "failed to evaluate condition", err)), nil
+		}
+		if shouldExecute {
+			execCtx.SetVariable("__condition_group_matched__", true)
+		}
 	}
 
 	// 构建输出
 	output := &ConditionOutput{
-		Expression:    condition.Expression,
-		Result:        result,
-		BranchTaken:   branchName,
+		Expression:    expression,
+		Result:        shouldExecute,
+		BranchTaken:   condType,
 		StepsExecuted: make([]string, 0),
 	}
 
-	// 执行分支步骤
-	if len(branchSteps) > 0 {
-		branchResults, err := e.executeBranch(ctx, branchSteps, execCtx)
+	// 如果条件满足，执行子步骤
+	if shouldExecute && len(step.Children) > 0 {
+		branchResults, err := e.executeBranch(ctx, step.Children, execCtx)
 		if err != nil {
 			failedResult := CreateFailedResult(step.ID, startTime, err)
 			failedResult.Output = output
@@ -106,8 +152,8 @@ func (e *ConditionExecutor) Execute(ctx context.Context, step *types.Step, execC
 
 	// 创建成功结果
 	successResult := CreateSuccessResult(step.ID, startTime, output)
-	successResult.Metrics["condition_result"] = boolToFloat(result)
-	successResult.Metrics["branch_steps_count"] = float64(len(branchSteps))
+	successResult.Metrics["condition_result"] = boolToFloat(shouldExecute)
+	successResult.Metrics["branch_steps_count"] = float64(len(step.Children))
 
 	return successResult, nil
 }

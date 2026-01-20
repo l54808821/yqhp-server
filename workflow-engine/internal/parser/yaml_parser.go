@@ -178,10 +178,39 @@ func (p *YAMLParser) validateStep(step *types.Step, stepIDs map[string]bool, pat
 		return NewValidationError(path+".type", fmt.Sprintf("invalid step type: %s", step.Type))
 	}
 
-	// Validate children steps if present
+	// Validate children steps if present（loop 等旧式子步骤）
 	for i, child := range step.Children {
 		if err := p.validateStep(&child, stepIDs, fmt.Sprintf("%s.children[%d]", path, i)); err != nil {
 			return err
+		}
+	}
+
+	// Validate condition branches (new format)
+	if step.Type == "condition" && len(step.Branches) > 0 {
+		for i, br := range step.Branches {
+			branchPath := fmt.Sprintf("%s.branches[%d]", path, i)
+
+			// kind 校验
+			if br.Kind != types.ConditionTypeIf &&
+				br.Kind != types.ConditionTypeElseIf &&
+				br.Kind != types.ConditionTypeElse &&
+				br.Kind != "" {
+				return NewValidationError(branchPath+".kind", fmt.Sprintf("invalid condition branch kind: %s", br.Kind))
+			}
+
+			// if / else_if 必须有表达式
+			if br.Kind == types.ConditionTypeIf || br.Kind == types.ConditionTypeElseIf || br.Kind == "" {
+				if br.Expression == "" {
+					return NewValidationError(branchPath+".expression", "condition branch expression is required for if/else_if")
+				}
+			}
+
+			// 校验分支中的步骤
+			for j := range br.Steps {
+				if err := p.validateStep(&br.Steps[j], stepIDs, fmt.Sprintf("%s.steps[%d]", branchPath, j)); err != nil {
+					return err
+				}
+			}
 		}
 	}
 
@@ -245,10 +274,20 @@ func (p *YAMLParser) resolveStepVariables(step *types.Step) error {
 		step.Config = resolved
 	}
 
-	// Resolve in children steps
+	// Resolve in children steps（旧式子步骤）
 	for i := range step.Children {
 		if err := p.resolveStepVariables(&step.Children[i]); err != nil {
 			return err
+		}
+	}
+
+	// Resolve in condition branches (new format)
+	for i := range step.Branches {
+		br := &step.Branches[i]
+		for j := range br.Steps {
+			if err := p.resolveStepVariables(&br.Steps[j]); err != nil {
+				return err
+			}
 		}
 	}
 

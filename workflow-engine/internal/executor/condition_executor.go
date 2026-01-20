@@ -43,14 +43,27 @@ func (e *ConditionExecutor) Init(ctx context.Context, config map[string]any) err
 }
 
 // Execute 执行条件步骤。
-// 格式：step.Config 包含 type(if/else_if/else)/expression，step.Children 包含子步骤
+// 新格式：
+//   step.Branches: []ConditionBranch{
+//     { Kind: if/else_if/else, Expression: "...", Steps: [...] },
+//   }
+//
+// 旧格式（向后兼容）：
+//   step.Config:   type(if/else_if/else)/expression
+//   step.Children: 命中时执行的子步骤
 func (e *ConditionExecutor) Execute(ctx context.Context, step *types.Step, execCtx *ExecutionContext) (*types.StepResult, error) {
 	startTime := time.Now()
 
+	// 优先使用新格式 Branches
+	if len(step.Branches) > 0 {
+		return e.executeWithBranches(ctx, step, execCtx, startTime)
+	}
+
+	// 兼容旧格式：单步 condition，使用 config.type + config.expression + children
 	condType := types.ConditionTypeIf // 默认 if
 	if step.Config != nil {
 		if t, ok := step.Config["type"].(string); ok && t != "" {
-			condType = t
+			condType = types.ConditionBranchKind(t)
 		}
 	}
 
@@ -122,7 +135,7 @@ func (e *ConditionExecutor) Execute(ctx context.Context, step *types.Step, execC
 	output := &ConditionOutput{
 		Expression:    expression,
 		Result:        shouldExecute,
-		BranchTaken:   condType,
+		BranchTaken:   string(condType),
 		StepsExecuted: make([]string, 0),
 	}
 
@@ -169,6 +182,158 @@ type ConditionOutput struct {
 	Result        bool     `json:"result"`
 	BranchTaken   string   `json:"branch_taken"`
 	StepsExecuted []string `json:"steps_executed"`
+}
+
+// executeWithBranches 按新格式执行条件步骤（Step.Branches）
+func (e *ConditionExecutor) executeWithBranches(ctx context.Context, step *types.Step, execCtx *ExecutionContext, startTime time.Time) (*types.StepResult, error) {
+	// 构建求值上下文
+	evalCtx := e.buildEvaluationContext(execCtx)
+
+	var (
+		conditionGroupMatched bool
+		takenBranchKind       types.ConditionBranchKind
+		takenExpression       string
+		stepsExecuted         []string
+	)
+
+	for _, br := range step.Branches {
+		kind := br.Kind
+		// 默认视为空值为 if（防御性编程）
+		if kind == "" {
+			kind = types.ConditionTypeIf
+		}
+
+		shouldExecute := false
+
+		switch kind {
+		case types.ConditionTypeIf:
+			// if: 作为一个新的条件组入口，重置 group 状态
+			conditionGroupMatched = false
+			expr := br.Expression
+			if expr == "" {
+				// 没有表达式视为 false
+				shouldExecute = false
+			} else {
+				result, err := e.evaluator.EvaluateString(expr, evalCtx)
+				if err != nil {
+					return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "failed to evaluate condition", err)), nil
+				}
+				shouldExecute = result
+			}
+			if shouldExecute {
+				conditionGroupMatched = true
+				takenBranchKind = kind
+				takenExpression = br.Expression
+			}
+
+		case types.ConditionTypeElseIf:
+			// else_if: 仅在前面没有命中分支时才求值
+			if conditionGroupMatched {
+				shouldExecute = false
+			} else {
+				expr := br.Expression
+				if expr == "" {
+					shouldExecute = false
+				} else {
+					result, err := e.evaluator.EvaluateString(expr, evalCtx)
+					if err != nil {
+						return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "failed to evaluate condition", err)), nil
+					}
+					shouldExecute = result
+				}
+				if shouldExecute {
+					conditionGroupMatched = true
+					takenBranchKind = kind
+					takenExpression = br.Expression
+				}
+			}
+
+		case types.ConditionTypeElse:
+			// else: 当前组之前都未命中，则执行
+			if !conditionGroupMatched {
+				shouldExecute = true
+				conditionGroupMatched = true
+				takenBranchKind = kind
+				// else 没有表达式
+				takenExpression = ""
+			}
+
+		default:
+			// 未知 kind，按 if 处理
+			conditionGroupMatched = false
+			expr := br.Expression
+			if expr == "" {
+				shouldExecute = false
+			} else {
+				result, err := e.evaluator.EvaluateString(expr, evalCtx)
+				if err != nil {
+					return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "failed to evaluate condition", err)), nil
+				}
+				shouldExecute = result
+			}
+			if shouldExecute {
+				conditionGroupMatched = true
+				takenBranchKind = kind
+				takenExpression = br.Expression
+			}
+		}
+
+		// 命中当前分支，执行其 steps 并结束整个条件步骤
+		if shouldExecute {
+			if len(br.Steps) > 0 {
+				branchResults, err := e.executeBranch(ctx, br.Steps, execCtx, step.ID)
+				if err != nil {
+					failedResult := CreateFailedResult(step.ID, startTime, err)
+					failedResult.Output = &ConditionOutput{
+						Expression:    takenExpression,
+						Result:        true,
+						BranchTaken:   string(takenBranchKind),
+						StepsExecuted: stepsExecuted,
+					}
+					return failedResult, nil
+				}
+
+				for _, r := range branchResults {
+					stepsExecuted = append(stepsExecuted, r.StepID)
+				}
+
+				for _, r := range branchResults {
+					if r.Status == types.ResultStatusFailed || r.Status == types.ResultStatusTimeout {
+						failedResult := CreateFailedResult(step.ID, startTime, r.Error)
+						failedResult.Output = &ConditionOutput{
+							Expression:    takenExpression,
+							Result:        true,
+							BranchTaken:   string(takenBranchKind),
+							StepsExecuted: stepsExecuted,
+						}
+						return failedResult, nil
+					}
+				}
+			}
+
+			// 成功执行一个分支后结束循环（first_match 语义）
+			successResult := CreateSuccessResult(step.ID, startTime, &ConditionOutput{
+				Expression:    takenExpression,
+				Result:        true,
+				BranchTaken:   string(takenBranchKind),
+				StepsExecuted: stepsExecuted,
+			})
+			successResult.Metrics["condition_result"] = 1
+			successResult.Metrics["branch_steps_count"] = float64(len(stepsExecuted))
+			return successResult, nil
+		}
+	}
+
+	// 没有任何分支被命中
+	successResult := CreateSuccessResult(step.ID, startTime, &ConditionOutput{
+		Expression:    takenExpression,
+		Result:        false,
+		BranchTaken:   string(takenBranchKind),
+		StepsExecuted: []string{},
+	})
+	successResult.Metrics["condition_result"] = 0
+	successResult.Metrics["branch_steps_count"] = 0
+	return successResult, nil
 }
 
 // buildEvaluationContext 将 ExecutionContext 转换为表达式求值上下文。

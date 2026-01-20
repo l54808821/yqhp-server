@@ -202,37 +202,62 @@ func validateScriptStep(step *Step, prefix string) []ValidationError {
 func validateConditionStep(step *Step, prefix string, stepIDs map[string]bool) []ValidationError {
 	var errs []ValidationError
 
-	// 新格式：config.type 和 config.expression
-	if step.Config == nil {
+	// 新结构：branches（不再强制依赖 config.type/expression）
+	if len(step.Branches) == 0 {
 		errs = append(errs, ValidationError{
-			Field:   prefix + ".config",
-			Message: "条件步骤必须包含配置",
+			Field:   prefix + ".branches",
+			Message: "条件步骤必须包含 branches（if/else_if/else）",
 		})
 		return errs
 	}
 
-	condType, _ := step.Config["type"].(string)
-	if condType == "" {
-		condType = "if" // 默认 if
-	}
+	seenBranchIDs := map[string]bool{}
+	for i, br := range step.Branches {
+		bp := fmt.Sprintf("%s.branches[%d]", prefix, i)
 
-	// else 不需要表达式，if 和 else_if 需要
-	if condType != "else" {
-		expr, _ := step.Config["expression"].(string)
-		if strings.TrimSpace(expr) == "" {
+		if strings.TrimSpace(br.ID) == "" {
 			errs = append(errs, ValidationError{
-				Field:   prefix + ".config.expression",
-				Message: "条件表达式不能为空",
+				Field:   bp + ".id",
+				Message: "分支 ID 不能为空",
+			})
+		} else {
+			if seenBranchIDs[br.ID] {
+				errs = append(errs, ValidationError{
+					Field:   bp + ".id",
+					Message: fmt.Sprintf("分支 ID '%s' 重复", br.ID),
+				})
+			}
+			seenBranchIDs[br.ID] = true
+		}
+
+		kind := strings.TrimSpace(br.Kind)
+		if kind == "" {
+			kind = "if"
+		}
+		if kind != "if" && kind != "else_if" && kind != "else" {
+			errs = append(errs, ValidationError{
+				Field:   bp + ".kind",
+				Message: "分支 kind 必须为 if / else_if / else",
 			})
 		}
-	}
 
-	// 验证子步骤
-	for i, child := range step.Children {
-		childErrs := validateStep(&child, i, stepIDs)
-		for _, e := range childErrs {
-			e.Field = prefix + ".children." + e.Field
-			errs = append(errs, e)
+		// if/else_if 需要 expression，else 不需要
+		if kind != "else" {
+			if strings.TrimSpace(br.Expression) == "" {
+				errs = append(errs, ValidationError{
+					Field:   bp + ".expression",
+					Message: "条件表达式不能为空",
+				})
+			}
+		}
+
+		// 验证分支步骤
+		for j, child := range br.Steps {
+			childErrs := validateStep(&child, j, stepIDs)
+			for _, e := range childErrs {
+				e.Field = bp + ".steps." + e.Field
+				errs = append(errs, e)
+			}
 		}
 	}
 

@@ -111,50 +111,48 @@ steps:
     on_error: continue
     timeout: 30s
 
-  # 条件判断 - 使用扁平化结构
-  - id: check_success
-    name: 检查成功
+  # 条件判断 - 使用新的分支结构（branches）
+  - id: check_api_status
+    name: 检查 API 状态
     type: condition
-    config:
-      type: if # if / else_if / else，默认 if
-      expression: "${response.status_code} == 200"
-    children:
-      - id: log_success
-        name: 记录成功
-        type: script
-        config:
-          script: |
-            console.log('API 正常');
-            ctx.SetVariable('api_healthy', true);
+    branches:
+      - id: success_branch
+        name: 成功
+        kind: if
+        expression: "${response.status_code} == 200"
+        steps:
+          - id: log_success
+            name: 记录成功
+            type: script
+            config:
+              script: |
+                console.log('API 正常');
+                ctx.SetVariable('api_healthy', true);
 
-  - id: check_timeout
-    name: 检查超时
-    type: condition
-    config:
-      type: else_if
-      expression: "${response.status_code} == 408"
-    children:
-      - id: log_timeout
-        name: 记录超时
-        type: script
-        config:
-          script: |
-            console.log('请求超时');
-            ctx.SetVariable('api_healthy', false);
+      - id: timeout_branch
+        name: 超时
+        kind: else_if
+        expression: "${response.status_code} == 408"
+        steps:
+          - id: log_timeout
+            name: 记录超时
+            type: script
+            config:
+              script: |
+                console.log('请求超时');
+                ctx.SetVariable('api_healthy', false);
 
-  - id: handle_error
-    name: 处理错误
-    type: condition
-    config:
-      type: else # else 不需要 expression
-    children:
-      - id: log_failure
-        name: 记录失败
-        type: script
-        config:
-          script: |
-            console.log('API 异常');
-            ctx.SetVariable('api_healthy', false);
+      - id: error_branch
+        name: 其他错误
+        kind: else # else 不需要 expression
+        steps:
+          - id: log_failure
+            name: 记录失败
+            type: script
+            config:
+              script: |
+                console.log('API 异常');
+                ctx.SetVariable('api_healthy', false);
 
   # 创建资源 (使用 main 域名)
   - id: create_resource

@@ -28,6 +28,16 @@ type Step struct {
 	Condition *ConditionConfig       `json:"condition,omitempty" yaml:"condition,omitempty"`
 	Loop      *LoopConfig            `json:"loop,omitempty" yaml:"loop,omitempty"`
 	Children  []Step                 `json:"children,omitempty" yaml:"children,omitempty"` // 子步骤（用于循环等控制器）
+	Branches  []ConditionBranch      `json:"branches,omitempty" yaml:"branches,omitempty"` // 条件分支（新结构）
+}
+
+// ConditionBranch 条件分支（新结构）
+type ConditionBranch struct {
+	ID         string `json:"id" yaml:"id"`
+	Name       string `json:"name,omitempty" yaml:"name,omitempty"`
+	Kind       string `json:"kind" yaml:"kind"`                         // if / else_if / else
+	Expression string `json:"expression,omitempty" yaml:"expression,omitempty"` // if/else_if 需要，else 不需要
+	Steps      []Step `json:"steps,omitempty" yaml:"steps,omitempty"`
 }
 
 // ConditionConfig 条件配置

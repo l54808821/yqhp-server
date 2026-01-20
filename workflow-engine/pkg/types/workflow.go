@@ -26,9 +26,13 @@ type Step struct {
 	PreHook  *Hook          `yaml:"pre_hook,omitempty"`
 	PostHook *Hook          `yaml:"post_hook,omitempty"`
 	Loop     *Loop          `yaml:"loop,omitempty"`
-	Children []Step         `yaml:"children,omitempty"` // 子步骤（用于 condition/loop）
-	OnError  ErrorStrategy  `yaml:"on_error,omitempty"`
-	Timeout  time.Duration  `yaml:"timeout,omitempty"`
+	Children []Step         `yaml:"children,omitempty"` // 子步骤（用于 loop 以及旧版 condition）
+	// Branches 是条件步骤（type=condition）的新结构：
+	// 一个 condition 步骤内部包含多个分支（if/else_if/else），每个分支下有自己的 steps。
+	// 优先使用 Branches；当 Branches 为空时，为兼容旧格式仍然使用 Config.type + Children。
+	Branches []ConditionBranch `yaml:"branches,omitempty"`
+	OnError  ErrorStrategy     `yaml:"on_error,omitempty"`
+	Timeout  time.Duration     `yaml:"timeout,omitempty"`
 }
 
 // Loop represents loop configuration for iterative execution.
@@ -64,12 +68,25 @@ type Loop struct {
 	Steps []Step `yaml:"steps"`
 }
 
+// ConditionBranchKind 条件分支类型常量
+type ConditionBranchKind string
+
 // ConditionType 条件类型常量
 const (
-	ConditionTypeIf     = "if"
-	ConditionTypeElseIf = "else_if"
-	ConditionTypeElse   = "else"
+	ConditionTypeIf     ConditionBranchKind = "if"
+	ConditionTypeElseIf ConditionBranchKind = "else_if"
+	ConditionTypeElse   ConditionBranchKind = "else"
 )
+
+// ConditionBranch 表示条件步骤内部的一个分支
+// 该结构仅用于 type=condition 的 Step.Branches 字段。
+type ConditionBranch struct {
+	ID         string            `yaml:"id" json:"id"`
+	Name       string            `yaml:"name,omitempty" json:"name,omitempty"`
+	Kind       ConditionBranchKind `yaml:"kind" json:"kind"`                         // if / else_if / else
+	Expression string            `yaml:"expression,omitempty" json:"expression,omitempty"` // if/else_if 需要，else 不需要
+	Steps      []Step            `yaml:"steps,omitempty" json:"steps,omitempty"`     // 命中该分支时要执行的步骤
+}
 
 // Hook represents pre/post execution scripts.
 type Hook struct {

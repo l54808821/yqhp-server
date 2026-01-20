@@ -254,7 +254,26 @@ func convertStepWithOptions(s Step, debugMode bool) types.Step {
 		}
 	}
 
-	// 转换子步骤（用于 condition 和 loop）
+	// 转换条件分支（新结构）
+	if s.Type == "condition" && len(s.Branches) > 0 {
+		branches := make([]types.ConditionBranch, 0, len(s.Branches))
+		for _, br := range s.Branches {
+			branchSteps := make([]types.Step, 0, len(br.Steps))
+			for _, bs := range br.Steps {
+				branchSteps = append(branchSteps, convertStepWithOptions(bs, debugMode))
+			}
+			branches = append(branches, types.ConditionBranch{
+				ID:         br.ID,
+				Name:       br.Name,
+				Kind:       types.ConditionBranchKind(br.Kind),
+				Expression: br.Expression,
+				Steps:      branchSteps,
+			})
+		}
+		step.Branches = branches
+	}
+
+	// 转换子步骤（用于 loop 以及旧式结构）
 	if len(s.Children) > 0 {
 		children := make([]types.Step, len(s.Children))
 		for i, cs := range s.Children {

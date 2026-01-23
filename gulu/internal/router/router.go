@@ -49,12 +49,12 @@ func Setup(app *fiber.App) {
 	workflowHandler := handler.NewWorkflowHandler()
 	executionHandler := handler.NewExecutionHandler()
 
-	// 创建 SSE 调试相关组件
+	// 创建执行相关组件
 	engineClient := client.NewWorkflowEngineClient()
 	sched := scheduler.NewScheduler(engineClient)
 	sessionManager := executor.NewSessionManager()
 	streamExecutor := executor.NewStreamExecutor(sessionManager, 30*time.Minute)
-	sseDebugHandler := handler.NewSSEDebugHandler(sched, streamExecutor, sessionManager)
+	executionStreamHandler := handler.NewStreamExecutionHandler(sched, streamExecutor, sessionManager)
 	debugStepHandler := handler.NewDebugStepHandler(sessionManager)
 
 	// API 路由组 (需要认证)
@@ -198,18 +198,18 @@ func Setup(app *fiber.App) {
 	executions.Post("/:id/pause", executionHandler.Pause)
 	executions.Post("/:id/resume", executionHandler.Resume)
 
-	// SSE 流式执行路由（同时支持 GET 和 POST）
-	workflows.Get("/:id/run/stream", sseDebugHandler.RunStream)
-	workflows.Post("/:id/run/stream", sseDebugHandler.RunStream) // POST 方式，支持大数据量
-	workflows.Post("/:id/run", sseDebugHandler.RunBlocking)
+	// 流式执行路由（同时支持 GET 和 POST）
+	workflows.Get("/:id/run/stream", executionStreamHandler.RunStream)
+	workflows.Post("/:id/run/stream", executionStreamHandler.RunStream) // POST 方式，支持大数据量
+	workflows.Post("/:id/run", executionStreamHandler.RunBlocking)
 
 	// 单步调试路由
 	debug := api.Group("/debug")
 	debug.Post("/step", debugStepHandler.DebugStep)
 
 	// 执行会话管理路由
-	sseExecutions := api.Group("/executions")
-	sseExecutions.Get("/:sessionId/status", sseDebugHandler.GetExecutionStatus)
-	sseExecutions.Delete("/:sessionId/stop", sseDebugHandler.StopExecution)
-	sseExecutions.Post("/:sessionId/interaction", sseDebugHandler.SubmitInteraction)
+	streamExecutions := api.Group("/executions")
+	streamExecutions.Get("/:sessionId/status", executionStreamHandler.GetExecutionStatus)
+	streamExecutions.Delete("/:sessionId/stop", executionStreamHandler.StopExecution)
+	streamExecutions.Post("/:sessionId/interaction", executionStreamHandler.SubmitInteraction)
 }

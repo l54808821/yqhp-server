@@ -2,6 +2,7 @@ package logic
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"yqhp/gulu/internal/query"
 	"yqhp/gulu/internal/svc"
 	"yqhp/gulu/internal/workflow"
+	"yqhp/workflow-engine/pkg/types"
 )
 
 // ExecutionLogic 执行逻辑
@@ -523,4 +525,179 @@ func randomString(n int) string {
 		time.Sleep(time.Nanosecond)
 	}
 	return string(b)
+}
+
+// ============== 流式执行（SSE）相关方法 ==============
+
+// StreamExecutionDetail 流式执行记录详情
+type StreamExecutionDetail struct {
+	ID           int64      `json:"id"`
+	ExecutionID  string     `json:"execution_id"`
+	ProjectID    int64      `json:"project_id"`
+	WorkflowID   int64      `json:"workflow_id"`
+	EnvID        int64      `json:"env_id"`
+	Mode         string     `json:"mode"`
+	Status       string     `json:"status"`
+	StartTime    *time.Time `json:"start_time"`
+	EndTime      *time.Time `json:"end_time"`
+	Duration     *int64     `json:"duration"`
+	TotalSteps   *int       `json:"total_steps"`
+	SuccessSteps *int       `json:"success_steps"`
+	FailedSteps  *int       `json:"failed_steps"`
+	Result       string     `json:"result,omitempty"`
+	CreatedBy    *int64     `json:"created_by"`
+	CreatedAt    *time.Time `json:"created_at"`
+}
+
+// CreateStreamExecution 创建流式执行记录
+func (l *ExecutionLogic) CreateStreamExecution(sessionID string, projectID, workflowID, envID, userID int64, mode string) error {
+	now := time.Now()
+	execution := &model.TExecution{
+		ProjectID:   projectID,
+		WorkflowID:  workflowID,
+		EnvID:       envID,
+		ExecutionID: sessionID,
+		Mode:        mode,
+		Status:      string(model.ExecutionStatusRunning),
+		StartTime:   &now,
+		CreatedBy:   &userID,
+	}
+
+	return query.TExecution.WithContext(l.ctx).Create(execution)
+}
+
+// UpdateStreamExecutionStatus 更新流式执行状态
+func (l *ExecutionLogic) UpdateStreamExecutionStatus(executionID, status string, result interface{}) error {
+	q := query.TExecution
+	updates := map[string]interface{}{
+		"status": status,
+	}
+
+	// 如果是终态，设置结束时间
+	if model.ExecutionStatus(status).IsTerminal() {
+		now := time.Now()
+		updates["end_time"] = now
+	}
+
+	// 如果有结果，序列化并保存
+	if result != nil {
+		resultJSON, err := json.Marshal(result)
+		if err == nil {
+			resultStr := string(resultJSON)
+			updates["result"] = resultStr
+		}
+	}
+
+	_, err := q.WithContext(l.ctx).
+		Where(q.ExecutionID.Eq(executionID)).
+		Updates(updates)
+	return err
+}
+
+// UpdateStreamStepStats 更新流式执行步骤统计
+func (l *ExecutionLogic) UpdateStreamStepStats(executionID string, totalSteps, successSteps, failedSteps int) error {
+	q := query.TExecution
+	_, err := q.WithContext(l.ctx).
+		Where(q.ExecutionID.Eq(executionID)).
+		Updates(map[string]interface{}{
+			"total_steps":   totalSteps,
+			"success_steps": successSteps,
+			"failed_steps":  failedSteps,
+		})
+	return err
+}
+
+// GetStreamExecution 获取流式执行记录
+func (l *ExecutionLogic) GetStreamExecution(executionID string) (*StreamExecutionDetail, error) {
+	q := query.TExecution
+	execution, err := q.WithContext(l.ctx).
+		Where(q.ExecutionID.Eq(executionID)).
+		First()
+	if err != nil {
+		return nil, err
+	}
+
+	return l.toStreamExecutionDetail(execution), nil
+}
+
+// ListStreamExecutions 获取流式执行记录列表
+func (l *ExecutionLogic) ListStreamExecutions(workflowID int64, mode string, userID int64) ([]*StreamExecutionDetail, error) {
+	q := query.TExecution
+	qb := q.WithContext(l.ctx)
+
+	if workflowID > 0 {
+		qb = qb.Where(q.WorkflowID.Eq(workflowID))
+	}
+	if mode != "" {
+		qb = qb.Where(q.Mode.Eq(mode))
+	}
+	if userID > 0 {
+		qb = qb.Where(q.CreatedBy.Eq(userID))
+	}
+
+	executions, err := qb.Order(q.CreatedAt.Desc()).Find()
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]*StreamExecutionDetail, len(executions))
+	for i, e := range executions {
+		result[i] = l.toStreamExecutionDetail(e)
+	}
+
+	return result, nil
+}
+
+// toStreamExecutionDetail 转换为流式执行详情
+func (l *ExecutionLogic) toStreamExecutionDetail(e *model.TExecution) *StreamExecutionDetail {
+	detail := &StreamExecutionDetail{
+		ID:           e.ID,
+		ExecutionID:  e.ExecutionID,
+		ProjectID:    e.ProjectID,
+		WorkflowID:   e.WorkflowID,
+		EnvID:        e.EnvID,
+		Mode:         e.Mode,
+		Status:       e.Status,
+		StartTime:    e.StartTime,
+		EndTime:      e.EndTime,
+		Duration:     e.Duration,
+		TotalSteps:   e.TotalSteps,
+		SuccessSteps: e.SuccessSteps,
+		FailedSteps:  e.FailedSteps,
+		CreatedBy:    e.CreatedBy,
+		CreatedAt:    e.CreatedAt,
+	}
+
+	if e.Result != nil {
+		detail.Result = *e.Result
+	}
+
+	return detail
+}
+
+// ============== 工作流转换函数 ==============
+
+// ConvertToEngineWorkflow 将工作流定义转换为引擎工作流
+func ConvertToEngineWorkflow(definition string, executionID string) (*types.Workflow, error) {
+	// 解析工作流定义
+	var def workflow.WorkflowDefinition
+	if err := json.Unmarshal([]byte(definition), &def); err != nil {
+		return nil, err
+	}
+
+	// 使用 workflow 包的转换函数
+	return workflow.ConvertToEngineWorkflow(&def, executionID), nil
+}
+
+// ConvertToEngineWorkflowStopOnError 将工作流定义转换为"失败即停止"模式的引擎工作流
+// 该模式下，任何步骤失败后立即停止执行
+func ConvertToEngineWorkflowStopOnError(definition string, executionID string) (*types.Workflow, error) {
+	// 解析工作流定义
+	var def workflow.WorkflowDefinition
+	if err := json.Unmarshal([]byte(definition), &def); err != nil {
+		return nil, err
+	}
+
+	// 使用 workflow 包的调试模式转换函数
+	return workflow.ConvertToEngineWorkflowForDebug(&def, executionID), nil
 }

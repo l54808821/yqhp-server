@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	pkgExecutor "yqhp/workflow-engine/pkg/executor"
 	"yqhp/workflow-engine/pkg/types"
 
 	"github.com/valyala/fasthttp"
@@ -196,7 +198,7 @@ func (e *FastHTTPExecutor) Execute(ctx context.Context, step *types.Step, execCt
 			variables[k] = v
 		}
 	}
-	procExecutor := NewProcessorExecutor(variables, envVars)
+	procExecutor := pkgExecutor.NewProcessorExecutor(variables, envVars)
 
 	// 收集所有控制台日志
 	allConsoleLogs := make([]string, 0)

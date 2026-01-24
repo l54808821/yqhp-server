@@ -1,3 +1,4 @@
+// Package executor provides public execution utilities for the workflow engine.
 package executor
 
 import (
@@ -86,8 +87,8 @@ func (e *ProcessorExecutor) executeProcessor(ctx context.Context, processor type
 // executeJsScript 执行 JS 脚本
 func (e *ProcessorExecutor) executeJsScript(ctx context.Context, processor types.Processor, result *types.ProcessorResult) {
 	scriptCode := ""
-	if script, ok := processor.Config["script"].(string); ok {
-		scriptCode = script
+	if s, ok := processor.Config["script"].(string); ok {
+		scriptCode = s
 	}
 
 	if scriptCode == "" {

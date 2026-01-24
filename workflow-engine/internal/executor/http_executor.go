@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	pkgExecutor "yqhp/workflow-engine/pkg/executor"
 	"yqhp/workflow-engine/pkg/types"
 )
 
@@ -187,7 +188,7 @@ func (e *HTTPExecutor) Execute(ctx context.Context, step *types.Step, execCtx *E
 			variables[k] = v
 		}
 	}
-	procExecutor := NewProcessorExecutor(variables, envVars)
+	procExecutor := pkgExecutor.NewProcessorExecutor(variables, envVars)
 
 	// 收集所有控制台日志
 	allConsoleLogs := make([]string, 0)

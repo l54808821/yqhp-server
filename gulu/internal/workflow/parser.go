@@ -47,7 +47,7 @@ type ProcessorConfig struct {
 type ConditionBranch struct {
 	ID         string `json:"id" yaml:"id"`
 	Name       string `json:"name,omitempty" yaml:"name,omitempty"`
-	Kind       string `json:"kind" yaml:"kind"`                                 // if / else_if / else
+	Kind       string `json:"kind" yaml:"kind"`                         // if / else_if / else
 	Expression string `json:"expression,omitempty" yaml:"expression,omitempty"` // if/else_if 需要，else 不需要
 	Steps      []Step `json:"steps,omitempty" yaml:"steps,omitempty"`
 }

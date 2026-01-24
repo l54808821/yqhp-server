@@ -311,5 +311,35 @@ func convertStepWithOptions(s Step, debugMode bool) types.Step {
 		}
 	}
 
+	// 转换前置处理器
+	if len(s.PreProcessors) > 0 {
+		preProcessors := make([]types.Processor, len(s.PreProcessors))
+		for i, p := range s.PreProcessors {
+			preProcessors[i] = types.Processor{
+				ID:      p.ID,
+				Type:    p.Type,
+				Enabled: p.Enabled,
+				Name:    p.Name,
+				Config:  p.Config,
+			}
+		}
+		step.PreProcessors = preProcessors
+	}
+
+	// 转换后置处理器
+	if len(s.PostProcessors) > 0 {
+		postProcessors := make([]types.Processor, len(s.PostProcessors))
+		for i, p := range s.PostProcessors {
+			postProcessors[i] = types.Processor{
+				ID:      p.ID,
+				Type:    p.Type,
+				Enabled: p.Enabled,
+				Name:    p.Name,
+				Config:  p.Config,
+			}
+		}
+		step.PostProcessors = postProcessors
+	}
+
 	return step
 }

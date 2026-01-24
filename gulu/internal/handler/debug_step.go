@@ -257,17 +257,39 @@ func (h *DebugStepHandler) executeDebugStep(ctx context.Context, nodeConfig *Deb
 		ConsoleLogs:          make([]string, 0),
 	}
 
+	// 复制变量，避免污染原始变量
+	workingVars := make(map[string]interface{})
+	for k, v := range variables {
+		workingVars[k] = v
+	}
+
 	switch nodeConfig.Type {
 	case "http":
-		// 解析 HTTP 配置
+		// 1. 执行前置处理器
+		if len(nodeConfig.PreProcessors) > 0 {
+			preResults, preConsoleLogs := h.executeProcessors(ctx, nodeConfig.PreProcessors, workingVars, nil)
+			result.PreProcessorResults = preResults
+			result.ConsoleLogs = append(result.ConsoleLogs, preConsoleLogs...)
+
+			// 检查是否有处理器失败
+			for _, pr := range preResults {
+				if !pr.Success {
+					// 记录警告但继续执行
+					fmt.Printf("[DEBUG] 前置处理器 %s 执行失败: %s\n", pr.KeywordID, pr.Message)
+				}
+			}
+		}
+
+		// 2. 解析 HTTP 配置
 		httpConfig, err := parseHTTPConfig(nodeConfig.Config)
 		if err != nil {
 			result.Success = false
 			result.Error = "解析 HTTP 配置失败: " + err.Error()
 			return result, nil
 		}
-		// 执行 HTTP 请求
-		httpResult, actualReq, err := h.executeHTTPRequest(ctx, httpConfig, variables)
+
+		// 3. 执行 HTTP 请求
+		httpResult, actualReq, err := h.executeHTTPRequest(ctx, httpConfig, workingVars)
 		if err != nil {
 			result.Success = false
 			result.Error = "HTTP 请求执行失败: " + err.Error()
@@ -276,9 +298,27 @@ func (h *DebugStepHandler) executeDebugStep(ctx context.Context, nodeConfig *Deb
 		result.Response = httpResult
 		result.ActualRequest = actualReq
 
+		// 4. 执行后置处理器（传递响应数据）
+		if len(nodeConfig.PostProcessors) > 0 {
+			postResults, postConsoleLogs := h.executeProcessors(ctx, nodeConfig.PostProcessors, workingVars, httpResult)
+			result.PostProcessorResults = postResults
+			result.ConsoleLogs = append(result.ConsoleLogs, postConsoleLogs...)
+
+			// 提取断言结果
+			for _, pr := range postResults {
+				if pr.Type == "assertion" {
+					result.AssertionResults = append(result.AssertionResults, AssertionResult{
+						Name:    pr.Name,
+						Passed:  pr.Success,
+						Message: pr.Message,
+					})
+				}
+			}
+		}
+
 	case "script":
 		// 执行脚本
-		scriptResult, err := h.executeScript(ctx, nodeConfig, variables)
+		scriptResult, err := h.executeScript(ctx, nodeConfig, workingVars)
 		if err != nil {
 			result.Success = false
 			result.Error = "脚本执行失败: " + err.Error()
@@ -297,6 +337,319 @@ func (h *DebugStepHandler) executeDebugStep(ctx context.Context, nodeConfig *Deb
 	}
 
 	return result, nil
+}
+
+// executeProcessors 执行处理器列表
+func (h *DebugStepHandler) executeProcessors(ctx context.Context, processors []KeywordConfig, variables map[string]interface{}, httpResp *DebugHTTPResp) ([]KeywordResult, []string) {
+	results := make([]KeywordResult, 0, len(processors))
+	allLogs := make([]string, 0)
+
+	for _, processor := range processors {
+		// 跳过禁用的处理器
+		if !processor.Enabled {
+			continue
+		}
+
+		result := h.executeProcessor(ctx, processor, variables, httpResp)
+		results = append(results, result)
+		allLogs = append(allLogs, result.Logs...)
+	}
+
+	return results, allLogs
+}
+
+// executeProcessor 执行单个处理器
+func (h *DebugStepHandler) executeProcessor(ctx context.Context, processor KeywordConfig, variables map[string]interface{}, httpResp *DebugHTTPResp) KeywordResult {
+	result := KeywordResult{
+		KeywordID: processor.ID,
+		Type:      processor.Type,
+		Name:      processor.Name,
+		Success:   true,
+		Logs:      make([]string, 0),
+	}
+
+	switch processor.Type {
+	case "js_script":
+		// 执行 JS 脚本
+		scriptCode := ""
+		if script, ok := processor.Config["script"].(string); ok {
+			scriptCode = script
+		}
+
+		if scriptCode == "" {
+			result.Message = "脚本内容为空"
+			return result
+		}
+
+		// 准备运行时配置
+		rtConfig := &script.JSRuntimeConfig{
+			Variables: make(map[string]interface{}),
+			EnvVars:   make(map[string]interface{}),
+		}
+
+		// 注入变量
+		for k, v := range variables {
+			rtConfig.Variables[k] = v
+		}
+
+		// 如果有响应数据，注入到运行时
+		if httpResp != nil {
+			// 转换 headers 为 map[string]interface{}
+			headers := make(map[string]interface{})
+			for k, v := range httpResp.Headers {
+				headers[k] = v
+			}
+			rtConfig.Response = map[string]interface{}{
+				"status_code": httpResp.StatusCode,
+				"status":      httpResp.StatusText,
+				"body":        httpResp.Body,
+				"body_raw":    httpResp.Body,
+				"headers":     headers,
+			}
+		}
+
+		// 创建 JS 运行时
+		runtime := script.NewJSRuntime(rtConfig)
+
+		// 执行脚本
+		execResult, err := runtime.Execute(scriptCode, 30*time.Second)
+
+		result.Logs = execResult.ConsoleLogs
+
+		if err != nil {
+			result.Success = false
+			result.Message = err.Error()
+			return result
+		}
+
+		// 更新变量
+		for k, v := range execResult.Variables {
+			variables[k] = v
+		}
+
+		result.Message = "脚本执行成功"
+		result.Output = map[string]interface{}{
+			"result":    execResult.Value,
+			"variables": execResult.Variables,
+		}
+
+	case "set_variable":
+		// 设置变量
+		varName := ""
+		varValue := ""
+		if name, ok := processor.Config["variableName"].(string); ok {
+			varName = name
+		}
+		if value, ok := processor.Config["value"].(string); ok {
+			varValue = replaceVariables(value, variables)
+		}
+
+		if varName != "" {
+			variables[varName] = varValue
+			result.Message = fmt.Sprintf("设置变量 %s = %s", varName, varValue)
+			result.Logs = append(result.Logs, fmt.Sprintf("设置变量: %s = %s", varName, varValue))
+		}
+
+	case "wait":
+		// 等待
+		duration := 1000 // 默认 1000ms
+		if d, ok := processor.Config["duration"].(float64); ok {
+			duration = int(d)
+		}
+		time.Sleep(time.Duration(duration) * time.Millisecond)
+		result.Message = fmt.Sprintf("等待 %dms", duration)
+		result.Logs = append(result.Logs, fmt.Sprintf("等待 %dms 完成", duration))
+
+	case "assertion":
+		// 断言
+		if httpResp == nil {
+			result.Success = false
+			result.Message = "无响应数据，无法执行断言"
+			return result
+		}
+
+		assertType := ""
+		operator := ""
+		expression := ""
+		expected := ""
+
+		if at, ok := processor.Config["assertType"].(string); ok {
+			assertType = at
+		}
+		if op, ok := processor.Config["operator"].(string); ok {
+			operator = op
+		}
+		if exp, ok := processor.Config["expression"].(string); ok {
+			expression = exp
+		}
+		if exp, ok := processor.Config["expected"].(string); ok {
+			expected = replaceVariables(exp, variables)
+		}
+
+		passed, msg := h.executeAssertion(assertType, operator, expression, expected, httpResp)
+		result.Success = passed
+		result.Message = msg
+		result.Logs = append(result.Logs, msg)
+
+	case "extract_param":
+		// 提取参数
+		if httpResp == nil {
+			result.Success = false
+			result.Message = "无响应数据，无法提取参数"
+			return result
+		}
+
+		extractType := ""
+		expression := ""
+		varName := ""
+
+		if et, ok := processor.Config["extractType"].(string); ok {
+			extractType = et
+		}
+		if exp, ok := processor.Config["expression"].(string); ok {
+			expression = exp
+		}
+		if name, ok := processor.Config["variableName"].(string); ok {
+			varName = name
+		}
+
+		value, err := h.extractValue(extractType, expression, httpResp)
+		if err != nil {
+			result.Success = false
+			result.Message = err.Error()
+			return result
+		}
+
+		if varName != "" {
+			variables[varName] = value
+			result.Message = fmt.Sprintf("提取参数 %s = %v", varName, value)
+			result.Logs = append(result.Logs, fmt.Sprintf("提取参数: %s = %v", varName, value))
+		}
+
+	default:
+		result.Message = fmt.Sprintf("暂不支持的处理器类型: %s", processor.Type)
+	}
+
+	return result
+}
+
+// executeAssertion 执行断言
+func (h *DebugStepHandler) executeAssertion(assertType, operator, expression, expected string, httpResp *DebugHTTPResp) (bool, string) {
+	var actual string
+
+	switch assertType {
+	case "status_code":
+		actual = fmt.Sprintf("%d", httpResp.StatusCode)
+	case "response_body":
+		actual = httpResp.Body
+	case "jsonpath":
+		// 简单的 JSONPath 解析（这里只是简单实现）
+		var data interface{}
+		if err := json.Unmarshal([]byte(httpResp.Body), &data); err != nil {
+			return false, fmt.Sprintf("解析 JSON 失败: %s", err.Error())
+		}
+		// 简单处理：使用表达式作为 key
+		if m, ok := data.(map[string]interface{}); ok {
+			// 去掉 $. 前缀
+			key := expression
+			if len(key) > 2 && key[:2] == "$." {
+				key = key[2:]
+			}
+			if v, ok := m[key]; ok {
+				actual = fmt.Sprintf("%v", v)
+			}
+		}
+	case "header":
+		if v, ok := httpResp.Headers[expression]; ok {
+			actual = v
+		}
+	case "response_time":
+		actual = fmt.Sprintf("%d", httpResp.Duration)
+	default:
+		return false, fmt.Sprintf("不支持的断言类型: %s", assertType)
+	}
+
+	// 执行比较
+	passed := false
+	switch operator {
+	case "eq":
+		passed = actual == expected
+	case "ne":
+		passed = actual != expected
+	case "contains":
+		passed = strings.Contains(actual, expected)
+	case "not_contains":
+		passed = !strings.Contains(actual, expected)
+	case "gt":
+		// 数值比较
+		var actualNum, expectedNum float64
+		fmt.Sscanf(actual, "%f", &actualNum)
+		fmt.Sscanf(expected, "%f", &expectedNum)
+		passed = actualNum > expectedNum
+	case "lt":
+		var actualNum, expectedNum float64
+		fmt.Sscanf(actual, "%f", &actualNum)
+		fmt.Sscanf(expected, "%f", &expectedNum)
+		passed = actualNum < expectedNum
+	case "gte":
+		var actualNum, expectedNum float64
+		fmt.Sscanf(actual, "%f", &actualNum)
+		fmt.Sscanf(expected, "%f", &expectedNum)
+		passed = actualNum >= expectedNum
+	case "lte":
+		var actualNum, expectedNum float64
+		fmt.Sscanf(actual, "%f", &actualNum)
+		fmt.Sscanf(expected, "%f", &expectedNum)
+		passed = actualNum <= expectedNum
+	default:
+		return false, fmt.Sprintf("不支持的操作符: %s", operator)
+	}
+
+	if passed {
+		return true, fmt.Sprintf("断言通过: %s %s %s (实际值: %s)", assertType, operator, expected, actual)
+	}
+	return false, fmt.Sprintf("断言失败: 期望 %s %s %s，实际值: %s", assertType, operator, expected, actual)
+}
+
+// extractValue 从响应中提取值
+func (h *DebugStepHandler) extractValue(extractType, expression string, httpResp *DebugHTTPResp) (interface{}, error) {
+	switch extractType {
+	case "jsonpath":
+		var data interface{}
+		if err := json.Unmarshal([]byte(httpResp.Body), &data); err != nil {
+			return nil, fmt.Errorf("解析 JSON 失败: %s", err.Error())
+		}
+		// 简单处理：去掉 $. 前缀
+		key := expression
+		if len(key) > 2 && key[:2] == "$." {
+			key = key[2:]
+		}
+		if m, ok := data.(map[string]interface{}); ok {
+			if v, ok := m[key]; ok {
+				return v, nil
+			}
+		}
+		return nil, fmt.Errorf("未找到路径: %s", expression)
+
+	case "regex":
+		// 正则表达式提取（简化实现）
+		return nil, fmt.Errorf("正则表达式提取暂未实现")
+
+	case "header":
+		if v, ok := httpResp.Headers[expression]; ok {
+			return v, nil
+		}
+		return nil, fmt.Errorf("未找到 Header: %s", expression)
+
+	case "cookie":
+		if v, ok := httpResp.Cookies[expression]; ok {
+			return v, nil
+		}
+		return nil, fmt.Errorf("未找到 Cookie: %s", expression)
+
+	default:
+		return nil, fmt.Errorf("不支持的提取类型: %s", extractType)
+	}
 }
 
 // executeHTTPRequest 执行 HTTP 请求

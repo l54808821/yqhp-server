@@ -25,6 +25,10 @@ type Step struct {
 	Config   map[string]any `yaml:"config"`
 	PreHook  *Hook          `yaml:"pre_hook,omitempty"`
 	PostHook *Hook          `yaml:"post_hook,omitempty"`
+	// PreProcessors 前置处理器列表（在步骤执行前执行）
+	PreProcessors []Processor `yaml:"preProcessors,omitempty" json:"preProcessors,omitempty"`
+	// PostProcessors 后置处理器列表（在步骤执行后执行）
+	PostProcessors []Processor `yaml:"postProcessors,omitempty" json:"postProcessors,omitempty"`
 	Loop     *Loop          `yaml:"loop,omitempty"`
 	Children []Step         `yaml:"children,omitempty"` // 子步骤（用于 loop 以及旧版 condition）
 	// Branches 是条件步骤（type=condition）的新结构：
@@ -33,6 +37,26 @@ type Step struct {
 	Branches []ConditionBranch `yaml:"branches,omitempty"`
 	OnError  ErrorStrategy     `yaml:"on_error,omitempty"`
 	Timeout  time.Duration     `yaml:"timeout,omitempty"`
+}
+
+// Processor 表示一个处理器（前置或后置）
+type Processor struct {
+	ID      string         `yaml:"id" json:"id"`
+	Type    string         `yaml:"type" json:"type"`       // js_script, set_variable, wait, assertion, extract_param, db_query
+	Enabled bool           `yaml:"enabled" json:"enabled"` // 是否启用
+	Name    string         `yaml:"name,omitempty" json:"name,omitempty"`
+	Config  map[string]any `yaml:"config" json:"config"`
+}
+
+// ProcessorResult 处理器执行结果
+type ProcessorResult struct {
+	KeywordID string         `json:"keywordId"`
+	Type      string         `json:"type"`
+	Name      string         `json:"name,omitempty"`
+	Success   bool           `json:"success"`
+	Message   string         `json:"message,omitempty"`
+	Output    map[string]any `json:"output,omitempty"`
+	Logs      []string       `json:"logs,omitempty"`
 }
 
 // Loop represents loop configuration for iterative execution.

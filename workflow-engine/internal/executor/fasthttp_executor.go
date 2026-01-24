@@ -188,6 +188,35 @@ func (e *FastHTTPExecutor) Execute(ctx context.Context, step *types.Step, execCt
 		}
 	}
 
+	// 创建处理器执行器
+	variables := make(map[string]interface{})
+	envVars := make(map[string]interface{})
+	if execCtx != nil && execCtx.Variables != nil {
+		for k, v := range execCtx.Variables {
+			variables[k] = v
+		}
+	}
+	procExecutor := NewProcessorExecutor(variables, envVars)
+
+	// 收集所有控制台日志
+	allConsoleLogs := make([]string, 0)
+	var preProcessorResults []types.ProcessorResult
+	var postProcessorResults []types.ProcessorResult
+
+	// 1. 执行前置处理器
+	if len(step.PreProcessors) > 0 {
+		preResults, preLogs := procExecutor.ExecuteProcessors(ctx, step.PreProcessors)
+		preProcessorResults = preResults
+		allConsoleLogs = append(allConsoleLogs, preLogs...)
+
+		// 更新执行上下文中的变量
+		if execCtx != nil && execCtx.Variables != nil {
+			for k, v := range procExecutor.GetVariables() {
+				execCtx.Variables[k] = v
+			}
+		}
+	}
+
 	// 解析步骤配置
 	config, err := e.parseConfig(step.Config)
 	if err != nil {
@@ -256,6 +285,48 @@ func (e *FastHTTPExecutor) Execute(ctx context.Context, step *types.Step, execCt
 
 	// 构建响应输出（包含请求信息）
 	output := e.buildOutputWithRequest(resp, reqInfo)
+
+	// 2. 执行后置处理器
+	if len(step.PostProcessors) > 0 {
+		// 将响应数据转换为 map 供处理器使用
+		respHeaders := make(map[string]interface{})
+		for k, v := range output.Headers {
+			if len(v) > 0 {
+				respHeaders[k] = v[0]
+			}
+		}
+
+		procExecutor.SetResponse(map[string]interface{}{
+			"status_code": output.StatusCode,
+			"status":      output.Status,
+			"body":        output.Body,
+			"body_raw":    output.BodyRaw,
+			"headers":     respHeaders,
+			"duration":    time.Since(startTime).Milliseconds(),
+		})
+
+		postResults, postLogs := procExecutor.ExecuteProcessors(ctx, step.PostProcessors)
+		postProcessorResults = postResults
+		allConsoleLogs = append(allConsoleLogs, postLogs...)
+
+		// 更新执行上下文中的变量
+		if execCtx != nil && execCtx.Variables != nil {
+			for k, v := range procExecutor.GetVariables() {
+				execCtx.Variables[k] = v
+			}
+		}
+	}
+
+	// 添加处理器结果到输出
+	if len(preProcessorResults) > 0 {
+		output.PreProcessorResults = preProcessorResults
+	}
+	if len(postProcessorResults) > 0 {
+		output.PostProcessorResults = postProcessorResults
+	}
+	if len(allConsoleLogs) > 0 {
+		output.ConsoleLogs = allConsoleLogs
+	}
 
 	// 创建结果
 	result := CreateSuccessResult(step.ID, startTime, output)
@@ -493,6 +564,10 @@ type FastHTTPResponse struct {
 	BodyRaw    string              `json:"body_raw"`
 	// 请求信息（用于调试）
 	Request *HTTPRequestInfo `json:"request,omitempty"`
+	// 处理器执行结果
+	PreProcessorResults  []types.ProcessorResult `json:"pre_processor_results,omitempty"`
+	PostProcessorResults []types.ProcessorResult `json:"post_processor_results,omitempty"`
+	ConsoleLogs          []string                `json:"console_logs,omitempty"`
 }
 
 // buildOutput 构建响应输出。

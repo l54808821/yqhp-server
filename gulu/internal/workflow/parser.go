@@ -29,6 +29,18 @@ type Step struct {
 	Loop      *LoopConfig            `json:"loop,omitempty" yaml:"loop,omitempty"`
 	Children  []Step                 `json:"children,omitempty" yaml:"children,omitempty"` // 子步骤（用于循环等控制器）
 	Branches  []ConditionBranch      `json:"branches,omitempty" yaml:"branches,omitempty"` // 条件分支（新结构）
+	// HTTP 节点特有：前后置处理器
+	PreProcessors  []ProcessorConfig `json:"preProcessors,omitempty" yaml:"preProcessors,omitempty"`
+	PostProcessors []ProcessorConfig `json:"postProcessors,omitempty" yaml:"postProcessors,omitempty"`
+}
+
+// ProcessorConfig 处理器配置
+type ProcessorConfig struct {
+	ID      string                 `json:"id" yaml:"id"`
+	Type    string                 `json:"type" yaml:"type"`
+	Enabled bool                   `json:"enabled" yaml:"enabled"`
+	Name    string                 `json:"name,omitempty" yaml:"name,omitempty"`
+	Config  map[string]interface{} `json:"config" yaml:"config"`
 }
 
 // ConditionBranch 条件分支（新结构）

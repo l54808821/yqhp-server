@@ -82,20 +82,20 @@ func (e *CallExecutor) Execute(ctx context.Context, step *types.Step, execCtx *E
 	fragment, err := e.registry.Get(callConfig.Script)
 	if err != nil {
 		return CreateFailedResult(step.ID, startTime,
-			NewConfigError(fmt.Sprintf("script not found: %s", callConfig.Script), err)), nil
+			NewConfigError(fmt.Sprintf("未找到脚本: %s", callConfig.Script), err)), nil
 	}
 
 	// 检查循环调用
 	if err := e.callStack.Push(callConfig.Script); err != nil {
 		return CreateFailedResult(step.ID, startTime,
-			NewExecutionError(step.ID, "circular call detected", err)), nil
+			NewExecutionError(step.ID, "检测到循环调用", err)), nil
 	}
 	defer e.callStack.Pop()
 
 	// 验证参数
 	if err := fragment.ValidateParams(callConfig.Params); err != nil {
 		return CreateFailedResult(step.ID, startTime,
-			NewConfigError("parameter validation failed", err)), nil
+			NewConfigError("参数验证失败", err)), nil
 	}
 
 	// 解析参数（应用默认值）
@@ -160,7 +160,7 @@ func (e *CallExecutor) parseCallConfig(config map[string]any) (*script.CallConfi
 	if scriptName, ok := config["script"].(string); ok {
 		callConfig.Script = scriptName
 	} else {
-		return nil, NewConfigError("call step requires 'script' configuration", nil)
+		return nil, NewConfigError("调用步骤需要配置 'script'（脚本路径）", nil)
 	}
 
 	// 解析参数

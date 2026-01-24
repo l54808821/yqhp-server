@@ -77,7 +77,7 @@ func (e *LoopExecutor) Execute(ctx context.Context, step *types.Step, execCtx *E
 	// 获取循环配置
 	loop := step.Loop
 	if loop == nil {
-		return CreateFailedResult(step.ID, startTime, NewConfigError("loop step requires 'loop' configuration", nil)), nil
+		return CreateFailedResult(step.ID, startTime, NewConfigError("循环步骤需要配置 'loop'（循环配置）", nil)), nil
 	}
 
 	// 验证配置
@@ -100,7 +100,7 @@ func (e *LoopExecutor) Execute(ctx context.Context, step *types.Step, execCtx *E
 	case LoopModeWhile:
 		output, err = e.executeWhileLoop(ctx, step, loop, execCtx, evalCtx)
 	default:
-		return CreateFailedResult(step.ID, startTime, NewConfigError(fmt.Sprintf("unsupported loop mode: %s", loop.Mode), nil)), nil
+		return CreateFailedResult(step.ID, startTime, NewConfigError(fmt.Sprintf("不支持的循环模式: %s", loop.Mode), nil)), nil
 	}
 
 	if err != nil {
@@ -125,7 +125,7 @@ func (e *LoopExecutor) Execute(ctx context.Context, step *types.Step, execCtx *E
 // validateConfig 验证循环配置
 func (e *LoopExecutor) validateConfig(loop *types.Loop) error {
 	if loop.Mode == "" {
-		return NewConfigError("loop mode is required", nil)
+		return NewConfigError("循环模式不能为空", nil)
 	}
 
 	switch loop.Mode {
@@ -133,18 +133,18 @@ func (e *LoopExecutor) validateConfig(loop *types.Loop) error {
 		// count 可以为 0 或负数（跳过循环）
 	case LoopModeForeach:
 		if loop.Items == nil {
-			return NewConfigError("foreach loop requires 'items' configuration", nil)
+			return NewConfigError("foreach 循环需要配置 'items'（遍历集合）", nil)
 		}
 	case LoopModeWhile:
 		if loop.Condition == "" {
-			return NewConfigError("while loop requires 'condition' configuration", nil)
+			return NewConfigError("while 循环需要配置 'condition'（循环条件）", nil)
 		}
 	default:
-		return NewConfigError(fmt.Sprintf("invalid loop mode: %s, must be one of: for, foreach, while", loop.Mode), nil)
+		return NewConfigError(fmt.Sprintf("无效的循环模式: %s，必须是 for、foreach 或 while", loop.Mode), nil)
 	}
 
 	if len(loop.Steps) == 0 {
-		return NewConfigError("loop requires at least one step in 'steps'", nil)
+		return NewConfigError("循环体至少需要包含一个步骤", nil)
 	}
 
 	return nil
@@ -177,7 +177,7 @@ func (e *LoopExecutor) executeForLoop(ctx context.Context, step *types.Step, loo
 		if loop.BreakCondition != "" {
 			shouldBreak, err := e.evaluateCondition(loop.BreakCondition, evalCtx)
 			if err != nil {
-				return output, NewExecutionError(step.ID, fmt.Sprintf("failed to evaluate break condition at iteration %d", i), err)
+				return output, NewExecutionError(step.ID, fmt.Sprintf("第 %d 次迭代时 break 条件求值失败", i), err)
 			}
 			if shouldBreak {
 				output.BreakTriggered = true
@@ -189,7 +189,7 @@ func (e *LoopExecutor) executeForLoop(ctx context.Context, step *types.Step, loo
 		if loop.ContinueCondition != "" {
 			shouldContinue, err := e.evaluateCondition(loop.ContinueCondition, evalCtx)
 			if err != nil {
-				return output, NewExecutionError(step.ID, fmt.Sprintf("failed to evaluate continue condition at iteration %d", i), err)
+				return output, NewExecutionError(step.ID, fmt.Sprintf("第 %d 次迭代时 continue 条件求值失败", i), err)
 			}
 			if shouldContinue {
 				output.TotalIterations++
@@ -219,7 +219,7 @@ func (e *LoopExecutor) executeForeachLoop(ctx context.Context, step *types.Step,
 	// 解析 items
 	items, err := e.resolveItems(loop.Items, evalCtx)
 	if err != nil {
-		return output, NewExecutionError(step.ID, "failed to resolve items", err)
+		return output, NewExecutionError(step.ID, "解析遍历集合失败", err)
 	}
 
 	if len(items) == 0 {
@@ -246,7 +246,7 @@ func (e *LoopExecutor) executeForeachLoop(ctx context.Context, step *types.Step,
 		if loop.BreakCondition != "" {
 			shouldBreak, err := e.evaluateCondition(loop.BreakCondition, evalCtx)
 			if err != nil {
-				return output, NewExecutionError(step.ID, fmt.Sprintf("failed to evaluate break condition at iteration %d", i), err)
+				return output, NewExecutionError(step.ID, fmt.Sprintf("第 %d 次迭代时 break 条件求值失败", i), err)
 			}
 			if shouldBreak {
 				output.BreakTriggered = true
@@ -258,7 +258,7 @@ func (e *LoopExecutor) executeForeachLoop(ctx context.Context, step *types.Step,
 		if loop.ContinueCondition != "" {
 			shouldContinue, err := e.evaluateCondition(loop.ContinueCondition, evalCtx)
 			if err != nil {
-				return output, NewExecutionError(step.ID, fmt.Sprintf("failed to evaluate continue condition at iteration %d", i), err)
+				return output, NewExecutionError(step.ID, fmt.Sprintf("第 %d 次迭代时 continue 条件求值失败", i), err)
 			}
 			if shouldContinue {
 				output.TotalIterations++
@@ -300,7 +300,7 @@ func (e *LoopExecutor) executeWhileLoop(ctx context.Context, step *types.Step, l
 
 		// 检查最大迭代次数
 		if iteration >= maxIterations {
-			return output, NewExecutionError(step.ID, fmt.Sprintf("while loop exceeded max iterations (%d)", maxIterations), nil)
+			return output, NewExecutionError(step.ID, fmt.Sprintf("while 循环超过最大迭代次数 (%d)", maxIterations), nil)
 		}
 
 		// 设置循环变量
@@ -309,7 +309,7 @@ func (e *LoopExecutor) executeWhileLoop(ctx context.Context, step *types.Step, l
 		// 评估 while 条件
 		shouldContinue, err := e.evaluateCondition(loop.Condition, evalCtx)
 		if err != nil {
-			return output, NewExecutionError(step.ID, fmt.Sprintf("failed to evaluate while condition at iteration %d", iteration), err)
+			return output, NewExecutionError(step.ID, fmt.Sprintf("第 %d 次迭代时 while 条件求值失败", iteration), err)
 		}
 		if !shouldContinue {
 			break
@@ -319,7 +319,7 @@ func (e *LoopExecutor) executeWhileLoop(ctx context.Context, step *types.Step, l
 		if loop.BreakCondition != "" {
 			shouldBreak, err := e.evaluateCondition(loop.BreakCondition, evalCtx)
 			if err != nil {
-				return output, NewExecutionError(step.ID, fmt.Sprintf("failed to evaluate break condition at iteration %d", iteration), err)
+				return output, NewExecutionError(step.ID, fmt.Sprintf("第 %d 次迭代时 break 条件求值失败", iteration), err)
 			}
 			if shouldBreak {
 				output.BreakTriggered = true
@@ -331,7 +331,7 @@ func (e *LoopExecutor) executeWhileLoop(ctx context.Context, step *types.Step, l
 		if loop.ContinueCondition != "" {
 			shouldSkip, err := e.evaluateCondition(loop.ContinueCondition, evalCtx)
 			if err != nil {
-				return output, NewExecutionError(step.ID, fmt.Sprintf("failed to evaluate continue condition at iteration %d", iteration), err)
+				return output, NewExecutionError(step.ID, fmt.Sprintf("第 %d 次迭代时 continue 条件求值失败", iteration), err)
 			}
 			if shouldSkip {
 				output.TotalIterations++
@@ -383,7 +383,7 @@ func (e *LoopExecutor) executeLoopBody(ctx context.Context, parentStep *types.St
 			if callback != nil {
 				callback.OnStepFailed(ctx, step, err, 0, parentStep.ID, iteration+1)
 			}
-			return stepsExecuted, NewExecutionError(parentStep.ID, fmt.Sprintf("iteration %d, step '%s': %v", iteration, step.ID, err), nil)
+			return stepsExecuted, NewExecutionError(parentStep.ID, fmt.Sprintf("第 %d 次迭代，步骤 '%s': %v", iteration, step.ID, err), nil)
 		}
 
 		// 创建子上下文，设置父步骤信息
@@ -396,7 +396,7 @@ func (e *LoopExecutor) executeLoopBody(ctx context.Context, parentStep *types.St
 			if callback != nil {
 				callback.OnStepFailed(ctx, step, err, time.Since(startTime), parentStep.ID, iteration+1)
 			}
-			return stepsExecuted, NewExecutionError(parentStep.ID, fmt.Sprintf("iteration %d, step '%s': %v", iteration, step.ID, err), nil)
+			return stepsExecuted, NewExecutionError(parentStep.ID, fmt.Sprintf("第 %d 次迭代，步骤 '%s': %v", iteration, step.ID, err), nil)
 		}
 
 		stepsExecuted = append(stepsExecuted, step.ID)
@@ -417,7 +417,7 @@ func (e *LoopExecutor) executeLoopBody(ctx context.Context, parentStep *types.St
 		if result.Status == types.ResultStatusFailed || result.Status == types.ResultStatusTimeout {
 			switch step.OnError {
 			case types.ErrorStrategyAbort, "":
-				return stepsExecuted, NewExecutionError(parentStep.ID, fmt.Sprintf("iteration %d, step '%s' failed", iteration, step.ID), result.Error)
+				return stepsExecuted, NewExecutionError(parentStep.ID, fmt.Sprintf("第 %d 次迭代，步骤 '%s' 执行失败", iteration, step.ID), result.Error)
 			case types.ErrorStrategyContinue:
 				// 继续下一次迭代
 				return stepsExecuted, nil

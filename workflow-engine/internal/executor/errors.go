@@ -30,7 +30,16 @@ const (
 )
 
 // Error 实现 error 接口。
+// 返回用户友好的错误消息，不包含技术性的错误码前缀。
 func (e *ExecutorError) Error() string {
+	if e.Cause != nil {
+		return fmt.Sprintf("%s: %v", e.Message, e.Cause)
+	}
+	return e.Message
+}
+
+// DetailedError 返回包含错误码的详细错误信息，用于日志和调试。
+func (e *ExecutorError) DetailedError() string {
 	if e.Cause != nil {
 		return fmt.Sprintf("[%s] %s: %v", e.Code, e.Message, e.Cause)
 	}

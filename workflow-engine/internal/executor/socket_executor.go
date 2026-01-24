@@ -130,7 +130,7 @@ func (e *SocketExecutor) Execute(ctx context.Context, step *types.Step, execCtx 
 	case "close":
 		output, err = e.close(ctx)
 	default:
-		err = NewConfigError(fmt.Sprintf("unknown socket action: %s", op.Action), nil)
+		err = NewConfigError(fmt.Sprintf("未知的 Socket 操作: %s", op.Action), nil)
 	}
 
 	if err != nil {
@@ -148,7 +148,7 @@ func (e *SocketExecutor) parseOperation(config map[string]any) (*SocketOperation
 	if action, ok := config["action"].(string); ok {
 		op.Action = strings.ToLower(action)
 	} else {
-		return nil, NewConfigError("socket step requires 'action' configuration", nil)
+		return nil, NewConfigError("Socket 步骤需要配置 'action'（操作类型）", nil)
 	}
 
 	if data, ok := config["data"].(string); ok {
@@ -237,11 +237,11 @@ func (e *SocketExecutor) connect(ctx context.Context, config *SocketConfig) (map
 	case "udp":
 		conn, err = dialer.DialContext(ctx, "udp", address)
 	default:
-		return nil, NewConfigError(fmt.Sprintf("unsupported protocol: %s", config.Protocol), nil)
+		return nil, NewConfigError(fmt.Sprintf("不支持的协议: %s", config.Protocol), nil)
 	}
 
 	if err != nil {
-		return nil, NewExecutionError("socket", fmt.Sprintf("failed to connect to %s", address), err)
+		return nil, NewExecutionError("socket", fmt.Sprintf("连接 %s 失败", address), err)
 	}
 
 	e.conn = conn
@@ -262,7 +262,7 @@ func (e *SocketExecutor) send(ctx context.Context, data string) (map[string]any,
 	defer e.connMu.Unlock()
 
 	if e.conn == nil {
-		return nil, NewExecutionError("socket", "not connected", nil)
+		return nil, NewExecutionError("socket", "未连接", nil)
 	}
 
 	// 设置写超时
@@ -272,7 +272,7 @@ func (e *SocketExecutor) send(ctx context.Context, data string) (map[string]any,
 
 	n, err := e.conn.Write([]byte(data))
 	if err != nil {
-		return nil, NewExecutionError("socket", "failed to send data", err)
+		return nil, NewExecutionError("socket", "发送数据失败", err)
 	}
 
 	return map[string]any{
@@ -287,7 +287,7 @@ func (e *SocketExecutor) receive(ctx context.Context, op *SocketOperation, confi
 	defer e.connMu.Unlock()
 
 	if e.conn == nil {
-		return nil, NewExecutionError("socket", "not connected", nil)
+		return nil, NewExecutionError("socket", "未连接", nil)
 	}
 
 	// 设置读超时
@@ -317,7 +317,7 @@ func (e *SocketExecutor) receive(ctx context.Context, op *SocketOperation, confi
 	}
 
 	if err != nil && err != io.EOF {
-		return nil, NewExecutionError("socket", "failed to receive data", err)
+		return nil, NewExecutionError("socket", "接收数据失败", err)
 	}
 
 	return map[string]any{
@@ -343,7 +343,7 @@ func (e *SocketExecutor) close(ctx context.Context) (map[string]any, error) {
 	e.reader = nil
 
 	if err != nil {
-		return nil, NewExecutionError("socket", "failed to close connection", err)
+		return nil, NewExecutionError("socket", "关闭连接失败", err)
 	}
 
 	return map[string]any{

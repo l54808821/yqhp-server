@@ -202,7 +202,7 @@ func (e *MQExecutor) Execute(ctx context.Context, step *types.Step, execCtx *Exe
 	// 确保已连接
 	if !adapter.IsConnected() {
 		if err := adapter.Connect(ctx, stepConfig); err != nil {
-			return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "failed to connect to MQ", err)), nil
+			return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "连接消息队列失败", err)), nil
 		}
 	}
 
@@ -233,7 +233,7 @@ func (e *MQExecutor) Execute(ctx context.Context, step *types.Step, execCtx *Exe
 	case "consume", "receive":
 		result, err = adapter.Consume(ctx, op)
 	default:
-		err = NewConfigError(fmt.Sprintf("unknown MQ action: %s", op.Action), nil)
+		err = NewConfigError(fmt.Sprintf("未知的消息队列操作: %s", op.Action), nil)
 	}
 
 	if err != nil {
@@ -252,7 +252,7 @@ func (e *MQExecutor) parseOperation(config map[string]any) (*MQOperation, error)
 	if action, ok := config["action"].(string); ok {
 		op.Action = strings.ToLower(action)
 	} else {
-		return nil, NewConfigError("MQ step requires 'action' configuration", nil)
+		return nil, NewConfigError("消息队列步骤需要配置 'action'（操作类型）", nil)
 	}
 
 	if message, ok := config["message"].(string); ok {

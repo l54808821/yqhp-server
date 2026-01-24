@@ -237,14 +237,14 @@ func (e *HTTPExecutor) Execute(ctx context.Context, step *types.Step, execCtx *E
 		if err == context.DeadlineExceeded {
 			return CreateTimeoutResult(step.ID, startTime, timeout), nil
 		}
-		return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "HTTP request failed", err)), nil
+		return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "HTTP 请求失败", err)), nil
 	}
 	defer resp.Body.Close()
 
 	// 读取响应体
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "failed to read response body", err)), nil
+		return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "读取响应体失败", err)), nil
 	}
 
 	// 构建响应输出（包含请求信息，用于调试）
@@ -487,7 +487,7 @@ func (e *HTTPExecutor) createRequest(ctx context.Context, config *HTTPConfig, me
 			// 序列化为 JSON
 			jsonBody, err := json.Marshal(body)
 			if err != nil {
-				return nil, NewConfigError("failed to marshal request body", err)
+				return nil, NewConfigError("序列化请求体失败", err)
 			}
 			bodyReader = bytes.NewReader(jsonBody)
 		}
@@ -496,7 +496,7 @@ func (e *HTTPExecutor) createRequest(ctx context.Context, config *HTTPConfig, me
 	// 创建请求
 	req, err := http.NewRequestWithContext(ctx, config.Method, url, bodyReader)
 	if err != nil {
-		return nil, NewConfigError("failed to create HTTP request", err)
+		return nil, NewConfigError("创建 HTTP 请求失败", err)
 	}
 
 	// 先设置全局 headers

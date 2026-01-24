@@ -167,7 +167,7 @@ func (e *DBExecutor) Execute(ctx context.Context, step *types.Step, execCtx *Exe
 	// 确保已连接
 	if !adapter.IsConnected() {
 		if err := adapter.Connect(ctx, stepConfig); err != nil {
-			return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "failed to connect to database", err)), nil
+			return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "连接数据库失败", err)), nil
 		}
 	}
 
@@ -197,7 +197,7 @@ func (e *DBExecutor) Execute(ctx context.Context, step *types.Step, execCtx *Exe
 	case "rollback":
 		result, err = e.executeRollbackTx(ctx, adapter, op)
 	default:
-		err = NewConfigError(fmt.Sprintf("unknown DB action: %s", op.Action), nil)
+		err = NewConfigError(fmt.Sprintf("未知的数据库操作: %s", op.Action), nil)
 	}
 
 	if err != nil {
@@ -211,7 +211,7 @@ func (e *DBExecutor) Execute(ctx context.Context, step *types.Step, execCtx *Exe
 func (e *DBExecutor) executeQuery(ctx context.Context, adapter DBAdapter, op *DBOperation) (*DBResult, error) {
 	data, err := adapter.Query(ctx, op.SQL, op.Params...)
 	if err != nil {
-		return nil, NewExecutionError("db", "query failed", err)
+		return nil, NewExecutionError("db", "查询执行失败", err)
 	}
 	return &DBResult{
 		Success: true,
@@ -223,7 +223,7 @@ func (e *DBExecutor) executeQuery(ctx context.Context, adapter DBAdapter, op *DB
 func (e *DBExecutor) executeExec(ctx context.Context, adapter DBAdapter, op *DBOperation) (*DBResult, error) {
 	rowsAffected, err := adapter.Execute(ctx, op.SQL, op.Params...)
 	if err != nil {
-		return nil, NewExecutionError("db", "execute failed", err)
+		return nil, NewExecutionError("db", "SQL 执行失败", err)
 	}
 	return &DBResult{
 		Success:      true,
@@ -235,7 +235,7 @@ func (e *DBExecutor) executeExec(ctx context.Context, adapter DBAdapter, op *DBO
 func (e *DBExecutor) executeCount(ctx context.Context, adapter DBAdapter, op *DBOperation) (*DBResult, error) {
 	count, err := adapter.Count(ctx, op.SQL, op.Params...)
 	if err != nil {
-		return nil, NewExecutionError("db", "count failed", err)
+		return nil, NewExecutionError("db", "统计查询失败", err)
 	}
 	return &DBResult{
 		Success: true,
@@ -247,7 +247,7 @@ func (e *DBExecutor) executeCount(ctx context.Context, adapter DBAdapter, op *DB
 func (e *DBExecutor) executeExists(ctx context.Context, adapter DBAdapter, op *DBOperation) (*DBResult, error) {
 	exists, err := adapter.Exists(ctx, op.SQL, op.Params...)
 	if err != nil {
-		return nil, NewExecutionError("db", "exists check failed", err)
+		return nil, NewExecutionError("db", "存在性检查失败", err)
 	}
 	return &DBResult{
 		Success: true,
@@ -259,7 +259,7 @@ func (e *DBExecutor) executeExists(ctx context.Context, adapter DBAdapter, op *D
 func (e *DBExecutor) executeBeginTx(ctx context.Context, adapter DBAdapter) (*DBResult, error) {
 	txID, err := adapter.BeginTx(ctx)
 	if err != nil {
-		return nil, NewExecutionError("db", "begin transaction failed", err)
+		return nil, NewExecutionError("db", "开启事务失败", err)
 	}
 	return &DBResult{
 		Success: true,
@@ -271,7 +271,7 @@ func (e *DBExecutor) executeBeginTx(ctx context.Context, adapter DBAdapter) (*DB
 func (e *DBExecutor) executeCommitTx(ctx context.Context, adapter DBAdapter, op *DBOperation) (*DBResult, error) {
 	err := adapter.CommitTx(ctx, op.TxID)
 	if err != nil {
-		return nil, NewExecutionError("db", "commit transaction failed", err)
+		return nil, NewExecutionError("db", "提交事务失败", err)
 	}
 	return &DBResult{
 		Success: true,
@@ -282,7 +282,7 @@ func (e *DBExecutor) executeCommitTx(ctx context.Context, adapter DBAdapter, op 
 func (e *DBExecutor) executeRollbackTx(ctx context.Context, adapter DBAdapter, op *DBOperation) (*DBResult, error) {
 	err := adapter.RollbackTx(ctx, op.TxID)
 	if err != nil {
-		return nil, NewExecutionError("db", "rollback transaction failed", err)
+		return nil, NewExecutionError("db", "回滚事务失败", err)
 	}
 	return &DBResult{
 		Success: true,
@@ -296,7 +296,7 @@ func (e *DBExecutor) parseOperation(config map[string]any) (*DBOperation, error)
 	if action, ok := config["action"].(string); ok {
 		op.Action = strings.ToLower(action)
 	} else {
-		return nil, NewConfigError("DB step requires 'action' configuration", nil)
+		return nil, NewConfigError("数据库步骤需要配置 'action'（操作类型）", nil)
 	}
 
 	if sql, ok := config["sql"].(string); ok {

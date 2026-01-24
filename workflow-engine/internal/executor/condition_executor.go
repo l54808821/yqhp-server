@@ -44,13 +44,15 @@ func (e *ConditionExecutor) Init(ctx context.Context, config map[string]any) err
 
 // Execute 执行条件步骤。
 // 新格式：
-//   step.Branches: []ConditionBranch{
-//     { Kind: if/else_if/else, Expression: "...", Steps: [...] },
-//   }
+//
+//	step.Branches: []ConditionBranch{
+//	  { Kind: if/else_if/else, Expression: "...", Steps: [...] },
+//	}
 //
 // 旧格式（向后兼容）：
-//   step.Config:   type(if/else_if/else)/expression
-//   step.Children: 命中时执行的子步骤
+//
+//	step.Config:   type(if/else_if/else)/expression
+//	step.Children: 命中时执行的子步骤
 func (e *ConditionExecutor) Execute(ctx context.Context, step *types.Step, execCtx *ExecutionContext) (*types.StepResult, error) {
 	startTime := time.Now()
 
@@ -92,7 +94,7 @@ func (e *ConditionExecutor) Execute(ctx context.Context, step *types.Step, execC
 		execCtx.SetVariable("__condition_group_matched__", false)
 		shouldExecute, err = e.evaluator.EvaluateString(expression, evalCtx)
 		if err != nil {
-			return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "failed to evaluate condition", err)), nil
+			return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "条件表达式求值失败", err)), nil
 		}
 		if shouldExecute {
 			execCtx.SetVariable("__condition_group_matched__", true)
@@ -105,7 +107,7 @@ func (e *ConditionExecutor) Execute(ctx context.Context, step *types.Step, execC
 		} else {
 			shouldExecute, err = e.evaluator.EvaluateString(expression, evalCtx)
 			if err != nil {
-				return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "failed to evaluate condition", err)), nil
+				return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "条件表达式求值失败", err)), nil
 			}
 			if shouldExecute {
 				execCtx.SetVariable("__condition_group_matched__", true)
@@ -124,7 +126,7 @@ func (e *ConditionExecutor) Execute(ctx context.Context, step *types.Step, execC
 		execCtx.SetVariable("__condition_group_matched__", false)
 		shouldExecute, err = e.evaluator.EvaluateString(expression, evalCtx)
 		if err != nil {
-			return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "failed to evaluate condition", err)), nil
+			return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "条件表达式求值失败", err)), nil
 		}
 		if shouldExecute {
 			execCtx.SetVariable("__condition_group_matched__", true)
@@ -216,7 +218,7 @@ func (e *ConditionExecutor) executeWithBranches(ctx context.Context, step *types
 			} else {
 				result, err := e.evaluator.EvaluateString(expr, evalCtx)
 				if err != nil {
-					return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "failed to evaluate condition", err)), nil
+					return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "条件表达式求值失败", err)), nil
 				}
 				shouldExecute = result
 			}
@@ -237,7 +239,7 @@ func (e *ConditionExecutor) executeWithBranches(ctx context.Context, step *types
 				} else {
 					result, err := e.evaluator.EvaluateString(expr, evalCtx)
 					if err != nil {
-						return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "failed to evaluate condition", err)), nil
+						return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "条件表达式求值失败", err)), nil
 					}
 					shouldExecute = result
 				}
@@ -267,7 +269,7 @@ func (e *ConditionExecutor) executeWithBranches(ctx context.Context, step *types
 			} else {
 				result, err := e.evaluator.EvaluateString(expr, evalCtx)
 				if err != nil {
-					return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "failed to evaluate condition", err)), nil
+					return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "条件表达式求值失败", err)), nil
 				}
 				shouldExecute = result
 			}

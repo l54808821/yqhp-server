@@ -88,7 +88,7 @@ func NewJSRuntime(config *JSRuntimeConfig) *JSRuntime {
 
 	// 初始化运行时环境
 	rt.setupConsole()
-	rt.setupPMAPI()
+	rt.setupSimpleAPI()
 	rt.setupUtils()
 
 	return rt
@@ -222,13 +222,11 @@ func (r *JSRuntime) formatValue(val goja.Value) string {
 	}
 }
 
-// setupPMAPI 设置 pm 对象 (Postman 风格 API)
-func (r *JSRuntime) setupPMAPI() {
-	pm := r.vm.NewObject()
-
-	// pm.environment
-	environment := r.vm.NewObject()
-	environment.Set("get", func(call goja.FunctionCall) goja.Value {
+// setupSimpleAPI 设置简洁版 API（env、vars、http、response）
+func (r *JSRuntime) setupSimpleAPI() {
+	// env 对象 - 环境变量操作
+	env := r.vm.NewObject()
+	env.Set("get", func(call goja.FunctionCall) goja.Value {
 		if len(call.Arguments) == 0 {
 			return goja.Undefined()
 		}
@@ -238,7 +236,7 @@ func (r *JSRuntime) setupPMAPI() {
 		}
 		return goja.Undefined()
 	})
-	environment.Set("set", func(call goja.FunctionCall) goja.Value {
+	env.Set("set", func(call goja.FunctionCall) goja.Value {
 		if len(call.Arguments) < 2 {
 			return goja.Undefined()
 		}
@@ -247,7 +245,7 @@ func (r *JSRuntime) setupPMAPI() {
 		r.envVars[key] = val
 		return goja.Undefined()
 	})
-	environment.Set("has", func(call goja.FunctionCall) goja.Value {
+	env.Set("has", func(call goja.FunctionCall) goja.Value {
 		if len(call.Arguments) == 0 {
 			return r.vm.ToValue(false)
 		}
@@ -255,7 +253,7 @@ func (r *JSRuntime) setupPMAPI() {
 		_, ok := r.envVars[key]
 		return r.vm.ToValue(ok)
 	})
-	environment.Set("unset", func(call goja.FunctionCall) goja.Value {
+	env.Set("del", func(call goja.FunctionCall) goja.Value {
 		if len(call.Arguments) == 0 {
 			return goja.Undefined()
 		}
@@ -263,18 +261,14 @@ func (r *JSRuntime) setupPMAPI() {
 		delete(r.envVars, key)
 		return goja.Undefined()
 	})
-	environment.Set("clear", func(call goja.FunctionCall) goja.Value {
-		r.envVars = make(map[string]interface{})
-		return goja.Undefined()
-	})
-	environment.Set("toObject", func(call goja.FunctionCall) goja.Value {
+	env.Set("all", func(call goja.FunctionCall) goja.Value {
 		return r.vm.ToValue(r.envVars)
 	})
-	pm.Set("environment", environment)
+	r.vm.Set("env", env)
 
-	// pm.variables
-	variables := r.vm.NewObject()
-	variables.Set("get", func(call goja.FunctionCall) goja.Value {
+	// vars 对象 - 临时变量操作
+	vars := r.vm.NewObject()
+	vars.Set("get", func(call goja.FunctionCall) goja.Value {
 		if len(call.Arguments) == 0 {
 			return goja.Undefined()
 		}
@@ -284,7 +278,7 @@ func (r *JSRuntime) setupPMAPI() {
 		}
 		return goja.Undefined()
 	})
-	variables.Set("set", func(call goja.FunctionCall) goja.Value {
+	vars.Set("set", func(call goja.FunctionCall) goja.Value {
 		if len(call.Arguments) < 2 {
 			return goja.Undefined()
 		}
@@ -293,7 +287,7 @@ func (r *JSRuntime) setupPMAPI() {
 		r.variables[key] = val
 		return goja.Undefined()
 	})
-	variables.Set("has", func(call goja.FunctionCall) goja.Value {
+	vars.Set("has", func(call goja.FunctionCall) goja.Value {
 		if len(call.Arguments) == 0 {
 			return r.vm.ToValue(false)
 		}
@@ -301,7 +295,7 @@ func (r *JSRuntime) setupPMAPI() {
 		_, ok := r.variables[key]
 		return r.vm.ToValue(ok)
 	})
-	variables.Set("unset", func(call goja.FunctionCall) goja.Value {
+	vars.Set("del", func(call goja.FunctionCall) goja.Value {
 		if len(call.Arguments) == 0 {
 			return goja.Undefined()
 		}
@@ -309,50 +303,37 @@ func (r *JSRuntime) setupPMAPI() {
 		delete(r.variables, key)
 		return goja.Undefined()
 	})
-	variables.Set("clear", func(call goja.FunctionCall) goja.Value {
-		r.variables = make(map[string]interface{})
-		return goja.Undefined()
-	})
-	variables.Set("toObject", func(call goja.FunctionCall) goja.Value {
+	vars.Set("all", func(call goja.FunctionCall) goja.Value {
 		return r.vm.ToValue(r.variables)
 	})
-	pm.Set("variables", variables)
+	r.vm.Set("vars", vars)
 
-	// pm.response
-	r.setupPMResponse(pm)
-
-	// pm.request
-	r.setupPMRequest(pm)
-
-	// pm.sendRequest
-	pm.Set("sendRequest", r.createSendRequestFunc())
-
-	r.vm.Set("pm", pm)
-}
-
-// setupPMResponse 设置 pm.response 对象
-func (r *JSRuntime) setupPMResponse(pm *goja.Object) {
+	// response 全局对象 - 上一步 HTTP 响应
 	response := r.vm.NewObject()
-
 	if r.response != nil {
-		// 如果有响应数据，设置相关属性
 		if respMap, ok := r.response.(map[string]interface{}); ok {
 			if code, ok := respMap["status_code"].(int); ok {
 				response.Set("code", code)
+			} else {
+				response.Set("code", 0)
 			}
 			if status, ok := respMap["status"].(string); ok {
 				response.Set("status", status)
+			} else {
+				response.Set("status", "")
 			}
 			if headers, ok := respMap["headers"].(map[string]interface{}); ok {
 				response.Set("headers", r.vm.ToValue(headers))
+			} else {
+				response.Set("headers", r.vm.NewObject())
 			}
 			if body, ok := respMap["body"]; ok {
 				response.Set("body", r.vm.ToValue(body))
+			} else {
+				response.Set("body", goja.Undefined())
 			}
 			if bodyRaw, ok := respMap["body_raw"].(string); ok {
-				response.Set("text", func(call goja.FunctionCall) goja.Value {
-					return r.vm.ToValue(bodyRaw)
-				})
+				response.Set("text", bodyRaw)
 				response.Set("json", func(call goja.FunctionCall) goja.Value {
 					var result interface{}
 					if err := json.Unmarshal([]byte(bodyRaw), &result); err != nil {
@@ -360,160 +341,237 @@ func (r *JSRuntime) setupPMResponse(pm *goja.Object) {
 					}
 					return r.vm.ToValue(result)
 				})
+			} else {
+				response.Set("text", "")
+				response.Set("json", func(call goja.FunctionCall) goja.Value {
+					return goja.Undefined()
+				})
 			}
 		}
 	} else {
-		// 默认空响应
 		response.Set("code", 0)
 		response.Set("status", "")
 		response.Set("headers", r.vm.NewObject())
 		response.Set("body", goja.Undefined())
-		response.Set("text", func(call goja.FunctionCall) goja.Value {
-			return r.vm.ToValue("")
-		})
+		response.Set("text", "")
 		response.Set("json", func(call goja.FunctionCall) goja.Value {
 			return goja.Undefined()
 		})
 	}
+	r.vm.Set("response", response)
 
-	pm.Set("response", response)
+	// http 对象 - HTTP 请求
+	httpObj := r.vm.NewObject()
+
+	// http.get(url, callback) 或 http.get(url, options, callback)
+	httpObj.Set("get", func(call goja.FunctionCall) goja.Value {
+		return r.executeHTTPRequest("GET", call)
+	})
+
+	// http.post(url, options, callback)
+	httpObj.Set("post", func(call goja.FunctionCall) goja.Value {
+		return r.executeHTTPRequest("POST", call)
+	})
+
+	// http.put(url, options, callback)
+	httpObj.Set("put", func(call goja.FunctionCall) goja.Value {
+		return r.executeHTTPRequest("PUT", call)
+	})
+
+	// http.delete(url, callback) 或 http.delete(url, options, callback)
+	httpObj.Set("delete", func(call goja.FunctionCall) goja.Value {
+		return r.executeHTTPRequest("DELETE", call)
+	})
+
+	// http.patch(url, options, callback)
+	httpObj.Set("patch", func(call goja.FunctionCall) goja.Value {
+		return r.executeHTTPRequest("PATCH", call)
+	})
+
+	// http.request(options, callback) - 通用请求方法
+	httpObj.Set("request", func(call goja.FunctionCall) goja.Value {
+		if len(call.Arguments) < 2 {
+			panic(r.vm.NewGoError(fmt.Errorf("http.request 需要 options 和 callback 参数")))
+		}
+
+		options := call.Arguments[0].Export()
+		optMap, ok := options.(map[string]interface{})
+		if !ok {
+			panic(r.vm.NewGoError(fmt.Errorf("http.request 第一个参数必须是配置对象")))
+		}
+
+		method := "GET"
+		if m, ok := optMap["method"].(string); ok {
+			method = strings.ToUpper(m)
+		}
+
+		// 构造新的调用参数
+		newCall := goja.FunctionCall{
+			This:      call.This,
+			Arguments: call.Arguments,
+		}
+		return r.executeHTTPRequest(method, newCall)
+	})
+
+	r.vm.Set("http", httpObj)
 }
 
-// setupPMRequest 设置 pm.request 对象
-func (r *JSRuntime) setupPMRequest(pm *goja.Object) {
-	request := r.vm.NewObject()
-
-	if r.request != nil {
-		if reqMap, ok := r.request.(map[string]interface{}); ok {
-			if method, ok := reqMap["method"].(string); ok {
-				request.Set("method", method)
-			}
-			if urlStr, ok := reqMap["url"].(string); ok {
-				request.Set("url", urlStr)
-			}
-			if headers, ok := reqMap["headers"].(map[string]interface{}); ok {
-				request.Set("headers", r.vm.ToValue(headers))
-			}
-			if body, ok := reqMap["body"]; ok {
-				request.Set("body", r.vm.ToValue(body))
-			}
-		}
-	} else {
-		request.Set("method", "")
-		request.Set("url", "")
-		request.Set("headers", r.vm.NewObject())
-		request.Set("body", goja.Undefined())
+// executeHTTPRequest 执行 HTTP 请求的通用方法
+func (r *JSRuntime) executeHTTPRequest(method string, call goja.FunctionCall) goja.Value {
+	if len(call.Arguments) < 2 {
+		panic(r.vm.NewGoError(fmt.Errorf("http.%s 需要 url 和 callback 参数", strings.ToLower(method))))
 	}
 
-	pm.Set("request", request)
-}
+	var reqURL string
+	var headers map[string]string
+	var body string
+	var callback goja.Callable
+	var ok bool
 
-// createSendRequestFunc 创建 pm.sendRequest 函数
-func (r *JSRuntime) createSendRequestFunc() func(call goja.FunctionCall) goja.Value {
-	return func(call goja.FunctionCall) goja.Value {
-		if len(call.Arguments) < 2 {
-			panic(r.vm.NewGoError(fmt.Errorf("pm.sendRequest 需要 url 和 callback 参数")))
+	// 解析第一个参数（URL 或 options）
+	arg0 := call.Arguments[0].Export()
+	switch v := arg0.(type) {
+	case string:
+		reqURL = v
+	case map[string]interface{}:
+		if u, ok := v["url"].(string); ok {
+			reqURL = u
 		}
-
-		// 获取 URL 或请求配置
-		var reqURL string
-		var method string = "GET"
-		var headers map[string]string
-		var body string
-
-		arg0 := call.Arguments[0].Export()
-		switch v := arg0.(type) {
-		case string:
-			reqURL = v
-		case map[string]interface{}:
-			if u, ok := v["url"].(string); ok {
-				reqURL = u
+		if h, ok := v["headers"].(map[string]interface{}); ok {
+			headers = make(map[string]string)
+			for k, val := range h {
+				headers[k] = fmt.Sprintf("%v", val)
 			}
-			if m, ok := v["method"].(string); ok {
-				method = strings.ToUpper(m)
-			}
-			if h, ok := v["headers"].(map[string]interface{}); ok {
-				headers = make(map[string]string)
+		}
+		if b, ok := v["body"].(string); ok {
+			body = b
+		} else if b, ok := v["body"].(map[string]interface{}); ok {
+			bodyBytes, _ := json.Marshal(b)
+			body = string(bodyBytes)
+		}
+	default:
+		panic(r.vm.NewGoError(fmt.Errorf("http.%s 第一个参数必须是 URL 字符串或配置对象", strings.ToLower(method))))
+	}
+
+	// 解析后续参数
+	if len(call.Arguments) == 2 {
+		// http.get(url, callback) 或 http.get(options, callback)
+		callback, ok = goja.AssertFunction(call.Arguments[1])
+		if !ok {
+			panic(r.vm.NewGoError(fmt.Errorf("http.%s 最后一个参数必须是回调函数", strings.ToLower(method))))
+		}
+	} else if len(call.Arguments) >= 3 {
+		// http.get(url, options, callback)
+		if options, ok := call.Arguments[1].Export().(map[string]interface{}); ok {
+			if h, ok := options["headers"].(map[string]interface{}); ok {
+				if headers == nil {
+					headers = make(map[string]string)
+				}
 				for k, val := range h {
 					headers[k] = fmt.Sprintf("%v", val)
 				}
 			}
-			if b, ok := v["body"].(string); ok {
+			if b, ok := options["body"].(string); ok {
 				body = b
+			} else if b, ok := options["body"].(map[string]interface{}); ok {
+				bodyBytes, _ := json.Marshal(b)
+				body = string(bodyBytes)
 			}
-		default:
-			panic(r.vm.NewGoError(fmt.Errorf("pm.sendRequest 第一个参数必须是 URL 字符串或请求配置对象")))
 		}
-
-		// 获取回调函数
-		callback, ok := goja.AssertFunction(call.Arguments[1])
+		callback, ok = goja.AssertFunction(call.Arguments[2])
 		if !ok {
-			panic(r.vm.NewGoError(fmt.Errorf("pm.sendRequest 第二个参数必须是回调函数")))
+			panic(r.vm.NewGoError(fmt.Errorf("http.%s 最后一个参数必须是回调函数", strings.ToLower(method))))
 		}
-
-		// 执行 HTTP 请求
-		go func() {
-			var req *http.Request
-			var err error
-
-			if body != "" {
-				req, err = http.NewRequest(method, reqURL, strings.NewReader(body))
-			} else {
-				req, err = http.NewRequest(method, reqURL, nil)
-			}
-
-			if err != nil {
-				r.callCallback(callback, err, nil)
-				return
-			}
-
-			// 设置请求头
-			for k, v := range headers {
-				req.Header.Set(k, v)
-			}
-
-			resp, err := r.httpClient.Do(req)
-			if err != nil {
-				r.callCallback(callback, err, nil)
-				return
-			}
-			defer resp.Body.Close()
-
-			// 构建响应对象
-			respObj := map[string]interface{}{
-				"code":   resp.StatusCode,
-				"status": resp.Status,
-			}
-
-			// 读取响应头
-			respHeaders := make(map[string]string)
-			for k, v := range resp.Header {
-				if len(v) > 0 {
-					respHeaders[k] = v[0]
-				}
-			}
-			respObj["headers"] = respHeaders
-
-			r.callCallback(callback, nil, respObj)
-		}()
-
-		return goja.Undefined()
 	}
-}
 
-// callCallback 调用回调函数
-func (r *JSRuntime) callCallback(callback goja.Callable, err error, response interface{}) {
-	var errVal goja.Value = goja.Null()
-	var respVal goja.Value = goja.Null()
+	if reqURL == "" {
+		panic(r.vm.NewGoError(fmt.Errorf("http.%s 需要有效的 URL", strings.ToLower(method))))
+	}
+
+	// 同步执行 HTTP 请求（goja 不支持真正的异步）
+	var req *http.Request
+	var err error
+
+	if body != "" {
+		req, err = http.NewRequest(method, reqURL, strings.NewReader(body))
+	} else {
+		req, err = http.NewRequest(method, reqURL, nil)
+	}
 
 	if err != nil {
-		errVal = r.vm.ToValue(err.Error())
-	}
-	if response != nil {
-		respVal = r.vm.ToValue(response)
+		callback(goja.Undefined(), r.vm.ToValue(err.Error()), goja.Null())
+		return goja.Undefined()
 	}
 
-	_, _ = callback(goja.Undefined(), errVal, respVal)
+	// 设置默认 Content-Type
+	if body != "" && headers["Content-Type"] == "" {
+		if headers == nil {
+			headers = make(map[string]string)
+		}
+		headers["Content-Type"] = "application/json"
+	}
+
+	// 设置请求头
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+
+	resp, err := r.httpClient.Do(req)
+	if err != nil {
+		callback(goja.Undefined(), r.vm.ToValue(err.Error()), goja.Null())
+		return goja.Undefined()
+	}
+	defer resp.Body.Close()
+
+	// 读取响应体
+	bodyBytes := make([]byte, 0)
+	buf := make([]byte, 1024)
+	for {
+		n, err := resp.Body.Read(buf)
+		if n > 0 {
+			bodyBytes = append(bodyBytes, buf[:n]...)
+		}
+		if err != nil {
+			break
+		}
+	}
+	bodyStr := string(bodyBytes)
+
+	// 构建响应对象
+	respObj := r.vm.NewObject()
+	respObj.Set("code", resp.StatusCode)
+	respObj.Set("status", resp.Status)
+	respObj.Set("text", bodyStr)
+
+	// 解析响应头
+	respHeaders := r.vm.NewObject()
+	for k, v := range resp.Header {
+		if len(v) > 0 {
+			respHeaders.Set(k, v[0])
+		}
+	}
+	respObj.Set("headers", respHeaders)
+
+	// 尝试解析 JSON
+	var jsonBody interface{}
+	if err := json.Unmarshal(bodyBytes, &jsonBody); err == nil {
+		respObj.Set("body", r.vm.ToValue(jsonBody))
+	} else {
+		respObj.Set("body", bodyStr)
+	}
+
+	// json() 方法
+	respObj.Set("json", func(call goja.FunctionCall) goja.Value {
+		var result interface{}
+		if err := json.Unmarshal(bodyBytes, &result); err != nil {
+			panic(r.vm.NewGoError(fmt.Errorf("JSON 解析错误: %v", err)))
+		}
+		return r.vm.ToValue(result)
+	})
+
+	// 调用回调
+	callback(goja.Undefined(), goja.Null(), respObj)
+	return goja.Undefined()
 }
 
 // setupUtils 设置工具方法

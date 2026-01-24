@@ -204,6 +204,7 @@ type StepFailedData struct {
 	StepType  string `json:"step_type,omitempty"`
 	ParentID  string `json:"parent_id,omitempty"`
 	Iteration int    `json:"iteration,omitempty"`
+	Status    string `json:"status"`
 	Error     string `json:"error"`
 	Details   string `json:"details,omitempty"`
 	Duration  int64  `json:"duration_ms"`

@@ -320,9 +320,13 @@ func (e *HTTPExecutor) parseConfig(config map[string]any) (*HTTPConfig, error) {
 	}
 
 	if url, ok := config["url"].(string); ok {
+		url = strings.TrimSpace(url)
+		if url == "" {
+			return nil, NewConfigError("HTTP 请求地址不能为空", nil)
+		}
 		httpConfig.URL = url
 	} else {
-		return nil, NewConfigError("HTTP step requires 'url' configuration", nil)
+		return nil, NewConfigError("HTTP 步骤需要 'url' 配置", nil)
 	}
 
 	// 解析域名标识

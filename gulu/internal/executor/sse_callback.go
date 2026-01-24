@@ -88,6 +88,7 @@ func (c *SSECallback) OnStepFailed(ctx context.Context, step *types.Step, err er
 			StepType:  step.Type,
 			ParentID:  parentID,
 			Iteration: iteration,
+			Status:    "failed",
 			Error:     errMsg,
 			Duration:  duration.Milliseconds(),
 		},

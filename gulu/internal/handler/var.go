@@ -9,17 +9,9 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-// VarHandler 变量处理器
-type VarHandler struct{}
-
-// NewVarHandler 创建变量处理器
-func NewVarHandler() *VarHandler {
-	return &VarHandler{}
-}
-
-// Create 创建变量
+// VarCreate 创建变量
 // POST /api/vars
-func (h *VarHandler) Create(c *fiber.Ctx) error {
+func VarCreate(c *fiber.Ctx) error {
 	var req logic.CreateVarReq
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
@@ -48,9 +40,9 @@ func (h *VarHandler) Create(c *fiber.Ctx) error {
 	return response.Success(c, variable)
 }
 
-// Update 更新变量
+// VarUpdate 更新变量
 // PUT /api/vars/:id
-func (h *VarHandler) Update(c *fiber.Ctx) error {
+func VarUpdate(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的变量ID")
@@ -70,9 +62,9 @@ func (h *VarHandler) Update(c *fiber.Ctx) error {
 	return response.Success(c, nil)
 }
 
-// Delete 删除变量
+// VarDelete 删除变量
 // DELETE /api/vars/:id
-func (h *VarHandler) Delete(c *fiber.Ctx) error {
+func VarDelete(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的变量ID")
@@ -87,9 +79,9 @@ func (h *VarHandler) Delete(c *fiber.Ctx) error {
 	return response.Success(c, nil)
 }
 
-// GetByID 获取变量详情
+// VarGetByID 获取变量详情
 // GET /api/vars/:id
-func (h *VarHandler) GetByID(c *fiber.Ctx) error {
+func VarGetByID(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的变量ID")
@@ -105,9 +97,9 @@ func (h *VarHandler) GetByID(c *fiber.Ctx) error {
 	return response.Success(c, variable)
 }
 
-// List 获取变量列表
+// VarList 获取变量列表
 // GET /api/vars
-func (h *VarHandler) List(c *fiber.Ctx) error {
+func VarList(c *fiber.Ctx) error {
 	var req logic.VarListReq
 	if err := c.QueryParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
@@ -130,9 +122,9 @@ func (h *VarHandler) List(c *fiber.Ctx) error {
 	return response.Page(c, list, total, req.Page, req.PageSize)
 }
 
-// Export 导出环境变量
+// VarExport 导出环境变量
 // GET /api/vars/export
-func (h *VarHandler) Export(c *fiber.Ctx) error {
+func VarExport(c *fiber.Ctx) error {
 	envID, err := strconv.ParseInt(c.Query("env_id"), 10, 64)
 	if err != nil || envID <= 0 {
 		return response.Error(c, "环境ID不能为空")
@@ -148,9 +140,9 @@ func (h *VarHandler) Export(c *fiber.Ctx) error {
 	return response.Success(c, items)
 }
 
-// Import 导入环境变量
+// VarImport 导入环境变量
 // POST /api/vars/import
-func (h *VarHandler) Import(c *fiber.Ctx) error {
+func VarImport(c *fiber.Ctx) error {
 	var req struct {
 		ProjectID int64                 `json:"project_id"`
 		EnvID     int64                 `json:"env_id"`
@@ -179,9 +171,9 @@ func (h *VarHandler) Import(c *fiber.Ctx) error {
 	return response.Success(c, nil)
 }
 
-// GetByEnvID 获取环境下所有变量
+// VarGetByEnvID 获取环境下所有变量
 // GET /api/vars/env/:envId
-func (h *VarHandler) GetByEnvID(c *fiber.Ctx) error {
+func VarGetByEnvID(c *fiber.Ctx) error {
 	envID, err := strconv.ParseInt(c.Params("envId"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的环境ID")

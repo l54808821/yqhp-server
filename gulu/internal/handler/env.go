@@ -10,17 +10,9 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-// EnvHandler 环境处理器
-type EnvHandler struct{}
-
-// NewEnvHandler 创建环境处理器
-func NewEnvHandler() *EnvHandler {
-	return &EnvHandler{}
-}
-
-// Create 创建环境
+// EnvCreate 创建环境
 // POST /api/envs
-func (h *EnvHandler) Create(c *fiber.Ctx) error {
+func EnvCreate(c *fiber.Ctx) error {
 	var req logic.CreateEnvReq
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
@@ -47,9 +39,9 @@ func (h *EnvHandler) Create(c *fiber.Ctx) error {
 	return response.Success(c, env)
 }
 
-// Update 更新环境
+// EnvUpdate 更新环境
 // PUT /api/envs/:id
-func (h *EnvHandler) Update(c *fiber.Ctx) error {
+func EnvUpdate(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的环境ID")
@@ -70,9 +62,9 @@ func (h *EnvHandler) Update(c *fiber.Ctx) error {
 	return response.Success(c, nil)
 }
 
-// Delete 删除环境
+// EnvDelete 删除环境
 // DELETE /api/envs/:id
-func (h *EnvHandler) Delete(c *fiber.Ctx) error {
+func EnvDelete(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的环境ID")
@@ -87,9 +79,9 @@ func (h *EnvHandler) Delete(c *fiber.Ctx) error {
 	return response.Success(c, nil)
 }
 
-// GetByID 获取环境详情
+// EnvGetByID 获取环境详情
 // GET /api/envs/:id
-func (h *EnvHandler) GetByID(c *fiber.Ctx) error {
+func EnvGetByID(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的环境ID")
@@ -105,9 +97,9 @@ func (h *EnvHandler) GetByID(c *fiber.Ctx) error {
 	return response.Success(c, env)
 }
 
-// List 获取环境列表
+// EnvList 获取环境列表
 // GET /api/envs
-func (h *EnvHandler) List(c *fiber.Ctx) error {
+func EnvList(c *fiber.Ctx) error {
 	var req logic.EnvListReq
 	if err := c.QueryParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
@@ -130,9 +122,9 @@ func (h *EnvHandler) List(c *fiber.Ctx) error {
 	return response.Page(c, list, total, req.Page, req.PageSize)
 }
 
-// Copy 复制环境
+// EnvCopy 复制环境
 // POST /api/envs/:id/copy
-func (h *EnvHandler) Copy(c *fiber.Ctx) error {
+func EnvCopy(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的环境ID")
@@ -164,9 +156,9 @@ func (h *EnvHandler) Copy(c *fiber.Ctx) error {
 	return response.Success(c, newEnv)
 }
 
-// GetByProjectID 获取项目下所有环境
+// EnvGetByProjectID 获取项目下所有环境
 // GET /api/envs/project/:projectId
-func (h *EnvHandler) GetByProjectID(c *fiber.Ctx) error {
+func EnvGetByProjectID(c *fiber.Ctx) error {
 	projectID, err := strconv.ParseInt(c.Params("projectId"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的项目ID")

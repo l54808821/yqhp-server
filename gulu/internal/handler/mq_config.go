@@ -9,17 +9,9 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-// MQConfigHandler MQ配置处理器
-type MQConfigHandler struct{}
-
-// NewMQConfigHandler 创建MQ配置处理器
-func NewMQConfigHandler() *MQConfigHandler {
-	return &MQConfigHandler{}
-}
-
-// Create 创建MQ配置
+// MQConfigCreate 创建MQ配置
 // POST /api/mq-configs
-func (h *MQConfigHandler) Create(c *fiber.Ctx) error {
+func MQConfigCreate(c *fiber.Ctx) error {
 	var req logic.CreateMQConfigReq
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
@@ -57,9 +49,9 @@ func (h *MQConfigHandler) Create(c *fiber.Ctx) error {
 	return response.Success(c, config)
 }
 
-// Update 更新MQ配置
+// MQConfigUpdate 更新MQ配置
 // PUT /api/mq-configs/:id
-func (h *MQConfigHandler) Update(c *fiber.Ctx) error {
+func MQConfigUpdate(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的配置ID")
@@ -79,9 +71,9 @@ func (h *MQConfigHandler) Update(c *fiber.Ctx) error {
 	return response.Success(c, nil)
 }
 
-// Delete 删除MQ配置
+// MQConfigDelete 删除MQ配置
 // DELETE /api/mq-configs/:id
-func (h *MQConfigHandler) Delete(c *fiber.Ctx) error {
+func MQConfigDelete(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的配置ID")
@@ -96,9 +88,9 @@ func (h *MQConfigHandler) Delete(c *fiber.Ctx) error {
 	return response.Success(c, nil)
 }
 
-// GetByID 获取MQ配置详情
+// MQConfigGetByID 获取MQ配置详情
 // GET /api/mq-configs/:id
-func (h *MQConfigHandler) GetByID(c *fiber.Ctx) error {
+func MQConfigGetByID(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的配置ID")
@@ -114,9 +106,9 @@ func (h *MQConfigHandler) GetByID(c *fiber.Ctx) error {
 	return response.Success(c, config)
 }
 
-// List 获取MQ配置列表
+// MQConfigList 获取MQ配置列表
 // GET /api/mq-configs
-func (h *MQConfigHandler) List(c *fiber.Ctx) error {
+func MQConfigList(c *fiber.Ctx) error {
 	var req logic.MQConfigListReq
 	if err := c.QueryParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
@@ -139,9 +131,9 @@ func (h *MQConfigHandler) List(c *fiber.Ctx) error {
 	return response.Page(c, list, total, req.Page, req.PageSize)
 }
 
-// GetByEnvID 获取环境下所有MQ配置
+// MQConfigGetByEnvID 获取环境下所有MQ配置
 // GET /api/mq-configs/env/:envId
-func (h *MQConfigHandler) GetByEnvID(c *fiber.Ctx) error {
+func MQConfigGetByEnvID(c *fiber.Ctx) error {
 	envID, err := strconv.ParseInt(c.Params("envId"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的环境ID")

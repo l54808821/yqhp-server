@@ -9,17 +9,9 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-// DatabaseConfigHandler 数据库配置处理器
-type DatabaseConfigHandler struct{}
-
-// NewDatabaseConfigHandler 创建数据库配置处理器
-func NewDatabaseConfigHandler() *DatabaseConfigHandler {
-	return &DatabaseConfigHandler{}
-}
-
-// Create 创建数据库配置
+// DatabaseConfigCreate 创建数据库配置
 // POST /api/database-configs
-func (h *DatabaseConfigHandler) Create(c *fiber.Ctx) error {
+func DatabaseConfigCreate(c *fiber.Ctx) error {
 	var req logic.CreateDatabaseConfigReq
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
@@ -57,9 +49,9 @@ func (h *DatabaseConfigHandler) Create(c *fiber.Ctx) error {
 	return response.Success(c, config)
 }
 
-// Update 更新数据库配置
+// DatabaseConfigUpdate 更新数据库配置
 // PUT /api/database-configs/:id
-func (h *DatabaseConfigHandler) Update(c *fiber.Ctx) error {
+func DatabaseConfigUpdate(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的配置ID")
@@ -79,9 +71,9 @@ func (h *DatabaseConfigHandler) Update(c *fiber.Ctx) error {
 	return response.Success(c, nil)
 }
 
-// Delete 删除数据库配置
+// DatabaseConfigDelete 删除数据库配置
 // DELETE /api/database-configs/:id
-func (h *DatabaseConfigHandler) Delete(c *fiber.Ctx) error {
+func DatabaseConfigDelete(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的配置ID")
@@ -96,9 +88,9 @@ func (h *DatabaseConfigHandler) Delete(c *fiber.Ctx) error {
 	return response.Success(c, nil)
 }
 
-// GetByID 获取数据库配置详情
+// DatabaseConfigGetByID 获取数据库配置详情
 // GET /api/database-configs/:id
-func (h *DatabaseConfigHandler) GetByID(c *fiber.Ctx) error {
+func DatabaseConfigGetByID(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的配置ID")
@@ -114,9 +106,9 @@ func (h *DatabaseConfigHandler) GetByID(c *fiber.Ctx) error {
 	return response.Success(c, config)
 }
 
-// List 获取数据库配置列表
+// DatabaseConfigList 获取数据库配置列表
 // GET /api/database-configs
-func (h *DatabaseConfigHandler) List(c *fiber.Ctx) error {
+func DatabaseConfigList(c *fiber.Ctx) error {
 	var req logic.DatabaseConfigListReq
 	if err := c.QueryParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
@@ -139,9 +131,9 @@ func (h *DatabaseConfigHandler) List(c *fiber.Ctx) error {
 	return response.Page(c, list, total, req.Page, req.PageSize)
 }
 
-// GetByEnvID 获取环境下所有数据库配置
+// DatabaseConfigGetByEnvID 获取环境下所有数据库配置
 // GET /api/database-configs/env/:envId
-func (h *DatabaseConfigHandler) GetByEnvID(c *fiber.Ctx) error {
+func DatabaseConfigGetByEnvID(c *fiber.Ctx) error {
 	envID, err := strconv.ParseInt(c.Params("envId"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的环境ID")

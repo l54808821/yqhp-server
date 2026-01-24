@@ -9,17 +9,9 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-// CategoryWorkflowHandler 工作流分类处理器
-type CategoryWorkflowHandler struct{}
-
-// NewCategoryWorkflowHandler 创建工作流分类处理器
-func NewCategoryWorkflowHandler() *CategoryWorkflowHandler {
-	return &CategoryWorkflowHandler{}
-}
-
-// Create 创建分类
+// CategoryCreate 创建分类
 // POST /api/projects/:projectId/categories
-func (h *CategoryWorkflowHandler) Create(c *fiber.Ctx) error {
+func CategoryCreate(c *fiber.Ctx) error {
 	projectID, err := strconv.ParseInt(c.Params("projectId"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的项目ID")
@@ -48,9 +40,9 @@ func (h *CategoryWorkflowHandler) Create(c *fiber.Ctx) error {
 	return response.Success(c, category)
 }
 
-// Update 更新分类
+// CategoryUpdate 更新分类
 // PUT /api/categories/:id
-func (h *CategoryWorkflowHandler) Update(c *fiber.Ctx) error {
+func CategoryUpdate(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的分类ID")
@@ -70,9 +62,9 @@ func (h *CategoryWorkflowHandler) Update(c *fiber.Ctx) error {
 	return response.Success(c, nil)
 }
 
-// Delete 删除分类
+// CategoryDelete 删除分类
 // DELETE /api/categories/:id
-func (h *CategoryWorkflowHandler) Delete(c *fiber.Ctx) error {
+func CategoryDelete(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的分类ID")
@@ -87,9 +79,9 @@ func (h *CategoryWorkflowHandler) Delete(c *fiber.Ctx) error {
 	return response.Success(c, nil)
 }
 
-// GetByID 获取分类详情
+// CategoryGetByID 获取分类详情
 // GET /api/categories/:id
-func (h *CategoryWorkflowHandler) GetByID(c *fiber.Ctx) error {
+func CategoryGetByID(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的分类ID")
@@ -105,9 +97,9 @@ func (h *CategoryWorkflowHandler) GetByID(c *fiber.Ctx) error {
 	return response.Success(c, category)
 }
 
-// GetTree 获取分类树
+// CategoryGetTree 获取分类树
 // GET /api/projects/:projectId/categories
-func (h *CategoryWorkflowHandler) GetTree(c *fiber.Ctx) error {
+func CategoryGetTree(c *fiber.Ctx) error {
 	projectID, err := strconv.ParseInt(c.Params("projectId"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的项目ID")
@@ -123,9 +115,9 @@ func (h *CategoryWorkflowHandler) GetTree(c *fiber.Ctx) error {
 	return response.Success(c, tree)
 }
 
-// Move 移动分类
+// CategoryMove 移动分类
 // PUT /api/categories/:id/move
-func (h *CategoryWorkflowHandler) Move(c *fiber.Ctx) error {
+func CategoryMove(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的分类ID")
@@ -152,9 +144,9 @@ func (h *CategoryWorkflowHandler) Move(c *fiber.Ctx) error {
 	return response.Success(c, nil)
 }
 
-// Search 搜索工作流
+// CategorySearch 搜索工作流
 // GET /api/projects/:projectId/categories/search
-func (h *CategoryWorkflowHandler) Search(c *fiber.Ctx) error {
+func CategorySearch(c *fiber.Ctx) error {
 	projectID, err := strconv.ParseInt(c.Params("projectId"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的项目ID")
@@ -175,9 +167,9 @@ func (h *CategoryWorkflowHandler) Search(c *fiber.Ctx) error {
 	return response.Success(c, results)
 }
 
-// UpdateSort 批量更新排序
+// CategoryUpdateSort 批量更新排序
 // PUT /api/categories/sort
-func (h *CategoryWorkflowHandler) UpdateSort(c *fiber.Ctx) error {
+func CategoryUpdateSort(c *fiber.Ctx) error {
 	var req []struct {
 		ID   int64 `json:"id"`
 		Sort int32 `json:"sort"`

@@ -9,17 +9,9 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-// ExecutorHandler 执行机处理器
-type ExecutorHandler struct{}
-
-// NewExecutorHandler 创建执行机处理器
-func NewExecutorHandler() *ExecutorHandler {
-	return &ExecutorHandler{}
-}
-
-// Create 创建执行机
+// ExecutorCreate 创建执行机
 // POST /api/executors
-func (h *ExecutorHandler) Create(c *fiber.Ctx) error {
+func ExecutorCreate(c *fiber.Ctx) error {
 	var req logic.CreateExecutorReq
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
@@ -45,9 +37,9 @@ func (h *ExecutorHandler) Create(c *fiber.Ctx) error {
 	return response.Success(c, executor)
 }
 
-// Update 更新执行机
+// ExecutorUpdate 更新执行机
 // PUT /api/executors/:id
-func (h *ExecutorHandler) Update(c *fiber.Ctx) error {
+func ExecutorUpdate(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的执行机ID")
@@ -67,9 +59,9 @@ func (h *ExecutorHandler) Update(c *fiber.Ctx) error {
 	return response.Success(c, nil)
 }
 
-// Delete 删除执行机
+// ExecutorDelete 删除执行机
 // DELETE /api/executors/:id
-func (h *ExecutorHandler) Delete(c *fiber.Ctx) error {
+func ExecutorDelete(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的执行机ID")
@@ -84,9 +76,9 @@ func (h *ExecutorHandler) Delete(c *fiber.Ctx) error {
 	return response.Success(c, nil)
 }
 
-// GetByID 获取执行机详情
+// ExecutorGetByID 获取执行机详情
 // GET /api/executors/:id
-func (h *ExecutorHandler) GetByID(c *fiber.Ctx) error {
+func ExecutorGetByID(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的执行机ID")
@@ -102,9 +94,9 @@ func (h *ExecutorHandler) GetByID(c *fiber.Ctx) error {
 	return response.Success(c, executor)
 }
 
-// List 获取执行机列表
+// ExecutorList 获取执行机列表
 // GET /api/executors
-func (h *ExecutorHandler) List(c *fiber.Ctx) error {
+func ExecutorList(c *fiber.Ctx) error {
 	var req logic.ExecutorListReq
 	if err := c.QueryParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
@@ -127,9 +119,9 @@ func (h *ExecutorHandler) List(c *fiber.Ctx) error {
 	return response.Page(c, list, total, req.Page, req.PageSize)
 }
 
-// UpdateStatus 更新执行机状态
+// ExecutorUpdateStatus 更新执行机状态
 // PUT /api/executors/:id/status
-func (h *ExecutorHandler) UpdateStatus(c *fiber.Ctx) error {
+func ExecutorUpdateStatus(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的执行机ID")
@@ -151,9 +143,9 @@ func (h *ExecutorHandler) UpdateStatus(c *fiber.Ctx) error {
 	return response.Success(c, nil)
 }
 
-// Sync 同步 workflow-engine 的执行机列表
+// ExecutorSync 同步 workflow-engine 的执行机列表
 // POST /api/executors/sync
-func (h *ExecutorHandler) Sync(c *fiber.Ctx) error {
+func ExecutorSync(c *fiber.Ctx) error {
 	executorLogic := logic.NewExecutorLogic(c.UserContext())
 
 	count, err := executorLogic.Sync()
@@ -167,9 +159,9 @@ func (h *ExecutorHandler) Sync(c *fiber.Ctx) error {
 	})
 }
 
-// ListByLabels 根据标签筛选执行机
+// ExecutorListByLabels 根据标签筛选执行机
 // GET /api/executors/by-labels
-func (h *ExecutorHandler) ListByLabels(c *fiber.Ctx) error {
+func ExecutorListByLabels(c *fiber.Ctx) error {
 	// 从查询参数解析标签
 	labels := make(map[string]string)
 	c.Request().URI().QueryArgs().VisitAll(func(key, value []byte) {

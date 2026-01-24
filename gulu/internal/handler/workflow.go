@@ -10,17 +10,9 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-// WorkflowHandler 工作流处理器
-type WorkflowHandler struct{}
-
-// NewWorkflowHandler 创建工作流处理器
-func NewWorkflowHandler() *WorkflowHandler {
-	return &WorkflowHandler{}
-}
-
-// Create 创建工作流
+// WorkflowCreate 创建工作流
 // POST /api/workflows
-func (h *WorkflowHandler) Create(c *fiber.Ctx) error {
+func WorkflowCreate(c *fiber.Ctx) error {
 	var req logic.CreateWorkflowReq
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败: "+err.Error())
@@ -47,9 +39,9 @@ func (h *WorkflowHandler) Create(c *fiber.Ctx) error {
 	return response.Success(c, wf)
 }
 
-// Update 更新工作流
+// WorkflowUpdate 更新工作流
 // PUT /api/workflows/:id
-func (h *WorkflowHandler) Update(c *fiber.Ctx) error {
+func WorkflowUpdate(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的工作流ID")
@@ -70,9 +62,9 @@ func (h *WorkflowHandler) Update(c *fiber.Ctx) error {
 	return response.Success(c, nil)
 }
 
-// Delete 删除工作流
+// WorkflowDelete 删除工作流
 // DELETE /api/workflows/:id
-func (h *WorkflowHandler) Delete(c *fiber.Ctx) error {
+func WorkflowDelete(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的工作流ID")
@@ -87,9 +79,9 @@ func (h *WorkflowHandler) Delete(c *fiber.Ctx) error {
 	return response.Success(c, nil)
 }
 
-// GetByID 获取工作流详情
+// WorkflowGetByID 获取工作流详情
 // GET /api/workflows/:id
-func (h *WorkflowHandler) GetByID(c *fiber.Ctx) error {
+func WorkflowGetByID(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的工作流ID")
@@ -105,9 +97,9 @@ func (h *WorkflowHandler) GetByID(c *fiber.Ctx) error {
 	return response.Success(c, wf)
 }
 
-// List 获取工作流列表
+// WorkflowList 获取工作流列表
 // GET /api/workflows
-func (h *WorkflowHandler) List(c *fiber.Ctx) error {
+func WorkflowList(c *fiber.Ctx) error {
 	var req logic.WorkflowListReq
 	if err := c.QueryParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
@@ -130,9 +122,9 @@ func (h *WorkflowHandler) List(c *fiber.Ctx) error {
 	return response.Page(c, list, total, req.Page, req.PageSize)
 }
 
-// GetByProjectID 根据项目ID获取工作流列表
+// WorkflowGetByProjectID 根据项目ID获取工作流列表
 // GET /api/workflows/project/:projectId
-func (h *WorkflowHandler) GetByProjectID(c *fiber.Ctx) error {
+func WorkflowGetByProjectID(c *fiber.Ctx) error {
 	projectID, err := strconv.ParseInt(c.Params("projectId"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的项目ID")
@@ -148,9 +140,9 @@ func (h *WorkflowHandler) GetByProjectID(c *fiber.Ctx) error {
 	return response.Success(c, list)
 }
 
-// Copy 复制工作流
+// WorkflowCopy 复制工作流
 // POST /api/workflows/:id/copy
-func (h *WorkflowHandler) Copy(c *fiber.Ctx) error {
+func WorkflowCopy(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的工作流ID")
@@ -178,9 +170,9 @@ func (h *WorkflowHandler) Copy(c *fiber.Ctx) error {
 	return response.Success(c, wf)
 }
 
-// ExportYAML 导出工作流为 YAML
+// WorkflowExportYAML 导出工作流为 YAML
 // GET /api/workflows/:id/yaml
-func (h *WorkflowHandler) ExportYAML(c *fiber.Ctx) error {
+func WorkflowExportYAML(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的工作流ID")
@@ -198,9 +190,9 @@ func (h *WorkflowHandler) ExportYAML(c *fiber.Ctx) error {
 	return c.SendString(yamlContent)
 }
 
-// ImportYAML 从 YAML 导入工作流
+// WorkflowImportYAML 从 YAML 导入工作流
 // POST /api/workflows/import
-func (h *WorkflowHandler) ImportYAML(c *fiber.Ctx) error {
+func WorkflowImportYAML(c *fiber.Ctx) error {
 	var req struct {
 		ProjectID   int64  `json:"project_id"`
 		YAMLContent string `json:"yaml_content"`
@@ -227,9 +219,9 @@ func (h *WorkflowHandler) ImportYAML(c *fiber.Ctx) error {
 	return response.Success(c, wf)
 }
 
-// Validate 验证工作流
+// WorkflowValidate 验证工作流
 // POST /api/workflows/:id/validate
-func (h *WorkflowHandler) Validate(c *fiber.Ctx) error {
+func WorkflowValidate(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的工作流ID")
@@ -245,9 +237,9 @@ func (h *WorkflowHandler) Validate(c *fiber.Ctx) error {
 	return response.Success(c, result)
 }
 
-// ValidateDefinition 验证工作流定义
+// WorkflowValidateDefinition 验证工作流定义
 // POST /api/workflows/validate
-func (h *WorkflowHandler) ValidateDefinition(c *fiber.Ctx) error {
+func WorkflowValidateDefinition(c *fiber.Ctx) error {
 	var req struct {
 		Definition string `json:"definition"`
 	}
@@ -269,9 +261,9 @@ func (h *WorkflowHandler) ValidateDefinition(c *fiber.Ctx) error {
 	return response.Success(c, result)
 }
 
-// UpdateStatus 更新工作流状态
+// WorkflowUpdateStatus 更新工作流状态
 // PUT /api/workflows/:id/status
-func (h *WorkflowHandler) UpdateStatus(c *fiber.Ctx) error {
+func WorkflowUpdateStatus(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的工作流ID")

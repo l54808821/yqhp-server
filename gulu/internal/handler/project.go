@@ -10,17 +10,9 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-// ProjectHandler 项目处理器
-type ProjectHandler struct{}
-
-// NewProjectHandler 创建项目处理器
-func NewProjectHandler() *ProjectHandler {
-	return &ProjectHandler{}
-}
-
-// Create 创建项目
+// ProjectCreate 创建项目
 // POST /api/projects
-func (h *ProjectHandler) Create(c *fiber.Ctx) error {
+func ProjectCreate(c *fiber.Ctx) error {
 	var req logic.CreateProjectReq
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
@@ -44,9 +36,9 @@ func (h *ProjectHandler) Create(c *fiber.Ctx) error {
 	return response.Success(c, project)
 }
 
-// Update 更新项目
+// ProjectUpdate 更新项目
 // PUT /api/projects/:id
-func (h *ProjectHandler) Update(c *fiber.Ctx) error {
+func ProjectUpdate(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的项目ID")
@@ -67,9 +59,9 @@ func (h *ProjectHandler) Update(c *fiber.Ctx) error {
 	return response.Success(c, nil)
 }
 
-// Delete 删除项目
+// ProjectDelete 删除项目
 // DELETE /api/projects/:id
-func (h *ProjectHandler) Delete(c *fiber.Ctx) error {
+func ProjectDelete(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的项目ID")
@@ -84,9 +76,9 @@ func (h *ProjectHandler) Delete(c *fiber.Ctx) error {
 	return response.Success(c, nil)
 }
 
-// GetByID 获取项目详情
+// ProjectGetByID 获取项目详情
 // GET /api/projects/:id
-func (h *ProjectHandler) GetByID(c *fiber.Ctx) error {
+func ProjectGetByID(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的项目ID")
@@ -102,9 +94,9 @@ func (h *ProjectHandler) GetByID(c *fiber.Ctx) error {
 	return response.Success(c, project)
 }
 
-// List 获取项目列表
+// ProjectList 获取项目列表
 // GET /api/projects
-func (h *ProjectHandler) List(c *fiber.Ctx) error {
+func ProjectList(c *fiber.Ctx) error {
 	var req logic.ProjectListReq
 	if err := c.QueryParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
@@ -127,9 +119,9 @@ func (h *ProjectHandler) List(c *fiber.Ctx) error {
 	return response.Page(c, list, total, req.Page, req.PageSize)
 }
 
-// UpdateStatus 更新项目状态
+// ProjectUpdateStatus 更新项目状态
 // PUT /api/projects/:id/status
-func (h *ProjectHandler) UpdateStatus(c *fiber.Ctx) error {
+func ProjectUpdateStatus(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的项目ID")
@@ -152,9 +144,9 @@ func (h *ProjectHandler) UpdateStatus(c *fiber.Ctx) error {
 	return response.Success(c, nil)
 }
 
-// GetAll 获取所有启用的项目（用于下拉选择）
+// ProjectGetAll 获取所有启用的项目（用于下拉选择）
 // GET /api/projects/all
-func (h *ProjectHandler) GetAll(c *fiber.Ctx) error {
+func ProjectGetAll(c *fiber.Ctx) error {
 	projectLogic := logic.NewProjectLogic(c.UserContext())
 
 	list, err := projectLogic.GetAllProjects()
@@ -165,9 +157,9 @@ func (h *ProjectHandler) GetAll(c *fiber.Ctx) error {
 	return response.Success(c, list)
 }
 
-// GetByTeamID 获取团队下的项目列表
+// ProjectGetByTeamID 获取团队下的项目列表
 // GET /api/teams/:id/projects
-func (h *ProjectHandler) GetByTeamID(c *fiber.Ctx) error {
+func ProjectGetByTeamID(c *fiber.Ctx) error {
 	teamID, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的团队ID")
@@ -183,9 +175,9 @@ func (h *ProjectHandler) GetByTeamID(c *fiber.Ctx) error {
 	return response.Success(c, list)
 }
 
-// CreateInTeam 在团队下创建项目
+// ProjectCreateInTeam 在团队下创建项目
 // POST /api/teams/:id/projects
-func (h *ProjectHandler) CreateInTeam(c *fiber.Ctx) error {
+func ProjectCreateInTeam(c *fiber.Ctx) error {
 	teamID, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的团队ID")
@@ -212,9 +204,9 @@ func (h *ProjectHandler) CreateInTeam(c *fiber.Ctx) error {
 	return response.Success(c, project)
 }
 
-// AddMember 添加项目成员
+// ProjectAddMember 添加项目成员
 // POST /api/projects/:id/members
-func (h *ProjectHandler) AddMember(c *fiber.Ctx) error {
+func ProjectAddMember(c *fiber.Ctx) error {
 	projectID, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的项目ID")
@@ -239,9 +231,9 @@ func (h *ProjectHandler) AddMember(c *fiber.Ctx) error {
 	return response.Success(c, member)
 }
 
-// RemoveMember 移除项目成员
+// ProjectRemoveMember 移除项目成员
 // DELETE /api/projects/:id/members/:userId
-func (h *ProjectHandler) RemoveMember(c *fiber.Ctx) error {
+func ProjectRemoveMember(c *fiber.Ctx) error {
 	projectID, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的项目ID")
@@ -261,9 +253,9 @@ func (h *ProjectHandler) RemoveMember(c *fiber.Ctx) error {
 	return response.Success(c, nil)
 }
 
-// GetMembers 获取项目成员列表
+// ProjectGetMembers 获取项目成员列表
 // GET /api/projects/:id/members
-func (h *ProjectHandler) GetMembers(c *fiber.Ctx) error {
+func ProjectGetMembers(c *fiber.Ctx) error {
 	projectID, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的项目ID")
@@ -279,9 +271,9 @@ func (h *ProjectHandler) GetMembers(c *fiber.Ctx) error {
 	return response.Success(c, members)
 }
 
-// GrantPermission 授予权限
+// ProjectGrantPermission 授予权限
 // POST /api/projects/:id/permissions
-func (h *ProjectHandler) GrantPermission(c *fiber.Ctx) error {
+func ProjectGrantPermission(c *fiber.Ctx) error {
 	projectID, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的项目ID")
@@ -309,9 +301,9 @@ func (h *ProjectHandler) GrantPermission(c *fiber.Ctx) error {
 	return response.Success(c, permission)
 }
 
-// RevokePermission 撤销权限
+// ProjectRevokePermission 撤销权限
 // DELETE /api/projects/:id/permissions/:userId/:code
-func (h *ProjectHandler) RevokePermission(c *fiber.Ctx) error {
+func ProjectRevokePermission(c *fiber.Ctx) error {
 	projectID, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的项目ID")
@@ -336,9 +328,9 @@ func (h *ProjectHandler) RevokePermission(c *fiber.Ctx) error {
 	return response.Success(c, nil)
 }
 
-// GetPermissions 获取项目权限列表
+// ProjectGetPermissions 获取项目权限列表
 // GET /api/projects/:id/permissions
-func (h *ProjectHandler) GetPermissions(c *fiber.Ctx) error {
+func ProjectGetPermissions(c *fiber.Ctx) error {
 	projectID, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的项目ID")
@@ -354,9 +346,9 @@ func (h *ProjectHandler) GetPermissions(c *fiber.Ctx) error {
 	return response.Success(c, permissions)
 }
 
-// GetUserPermissions 获取用户在项目中的权限
+// ProjectGetUserPermissions 获取用户在项目中的权限
 // GET /api/projects/:id/permissions/user/:userId
-func (h *ProjectHandler) GetUserPermissions(c *fiber.Ctx) error {
+func ProjectGetUserPermissions(c *fiber.Ctx) error {
 	projectID, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的项目ID")

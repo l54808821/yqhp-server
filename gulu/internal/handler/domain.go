@@ -9,17 +9,9 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-// DomainHandler 域名处理器
-type DomainHandler struct{}
-
-// NewDomainHandler 创建域名处理器
-func NewDomainHandler() *DomainHandler {
-	return &DomainHandler{}
-}
-
-// Create 创建域名
+// DomainCreate 创建域名
 // POST /api/domains
-func (h *DomainHandler) Create(c *fiber.Ctx) error {
+func DomainCreate(c *fiber.Ctx) error {
 	var req logic.CreateDomainReq
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
@@ -51,9 +43,9 @@ func (h *DomainHandler) Create(c *fiber.Ctx) error {
 	return response.Success(c, domain)
 }
 
-// Update 更新域名
+// DomainUpdate 更新域名
 // PUT /api/domains/:id
-func (h *DomainHandler) Update(c *fiber.Ctx) error {
+func DomainUpdate(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的域名ID")
@@ -73,9 +65,9 @@ func (h *DomainHandler) Update(c *fiber.Ctx) error {
 	return response.Success(c, nil)
 }
 
-// Delete 删除域名
+// DomainDelete 删除域名
 // DELETE /api/domains/:id
-func (h *DomainHandler) Delete(c *fiber.Ctx) error {
+func DomainDelete(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的域名ID")
@@ -90,9 +82,9 @@ func (h *DomainHandler) Delete(c *fiber.Ctx) error {
 	return response.Success(c, nil)
 }
 
-// GetByID 获取域名详情
+// DomainGetByID 获取域名详情
 // GET /api/domains/:id
-func (h *DomainHandler) GetByID(c *fiber.Ctx) error {
+func DomainGetByID(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的域名ID")
@@ -108,9 +100,9 @@ func (h *DomainHandler) GetByID(c *fiber.Ctx) error {
 	return response.Success(c, domain)
 }
 
-// List 获取域名列表
+// DomainList 获取域名列表
 // GET /api/domains
-func (h *DomainHandler) List(c *fiber.Ctx) error {
+func DomainList(c *fiber.Ctx) error {
 	var req logic.DomainListReq
 	if err := c.QueryParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
@@ -133,9 +125,9 @@ func (h *DomainHandler) List(c *fiber.Ctx) error {
 	return response.Page(c, list, total, req.Page, req.PageSize)
 }
 
-// GetByEnvID 获取环境下所有域名
+// DomainGetByEnvID 获取环境下所有域名
 // GET /api/domains/env/:envId
-func (h *DomainHandler) GetByEnvID(c *fiber.Ctx) error {
+func DomainGetByEnvID(c *fiber.Ctx) error {
 	envID, err := strconv.ParseInt(c.Params("envId"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的环境ID")

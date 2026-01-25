@@ -312,12 +312,12 @@ func (r *JSRuntime) setupSimpleAPI() {
 	response := r.vm.NewObject()
 	if r.response != nil {
 		if respMap, ok := r.response.(map[string]interface{}); ok {
-			if code, ok := respMap["status_code"].(int); ok {
+			if code, ok := respMap["statusCode"].(int); ok {
 				response.Set("code", code)
 			} else {
 				response.Set("code", 0)
 			}
-			if status, ok := respMap["status"].(string); ok {
+			if status, ok := respMap["statusText"].(string); ok {
 				response.Set("status", status)
 			} else {
 				response.Set("status", "")
@@ -332,21 +332,22 @@ func (r *JSRuntime) setupSimpleAPI() {
 			} else {
 				response.Set("body", goja.Undefined())
 			}
-			if bodyRaw, ok := respMap["body_raw"].(string); ok {
-				response.Set("text", bodyRaw)
-				response.Set("json", func(call goja.FunctionCall) goja.Value {
-					var result interface{}
-					if err := json.Unmarshal([]byte(bodyRaw), &result); err != nil {
-						panic(r.vm.NewGoError(fmt.Errorf("JSON 解析错误: %v", err)))
-					}
-					return r.vm.ToValue(result)
-				})
-			} else {
-				response.Set("text", "")
-				response.Set("json", func(call goja.FunctionCall) goja.Value {
-					return goja.Undefined()
-				})
+			// body 可能是 string 或者 JSON 对象，尝试获取字符串形式
+			var bodyStr string
+			if bs, ok := respMap["body"].(string); ok {
+				bodyStr = bs
 			}
+			response.Set("text", bodyStr)
+			response.Set("json", func(call goja.FunctionCall) goja.Value {
+				if bodyStr == "" {
+					return goja.Undefined()
+				}
+				var result interface{}
+				if err := json.Unmarshal([]byte(bodyStr), &result); err != nil {
+					panic(r.vm.NewGoError(fmt.Errorf("JSON 解析错误: %v", err)))
+				}
+				return r.vm.ToValue(result)
+			})
 		}
 	} else {
 		response.Set("code", 0)

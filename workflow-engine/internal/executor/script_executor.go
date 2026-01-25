@@ -107,11 +107,17 @@ func (e *ScriptExecutor) executeJavaScript(ctx context.Context, step *types.Step
 	// 执行脚本
 	result, err := runtime.Execute(config.Script, timeout)
 
+	// 将字符串日志转换为 ConsoleLogEntry 格式
+	consoleLogs := make([]types.ConsoleLogEntry, 0, len(result.ConsoleLogs))
+	for _, log := range result.ConsoleLogs {
+		consoleLogs = append(consoleLogs, types.NewLogEntry(log))
+	}
+
 	// 构建输出
 	output := &ScriptOutput{
 		Script:      config.Script,
 		Language:    config.Language,
-		ConsoleLogs: result.ConsoleLogs,
+		ConsoleLogs: consoleLogs,
 		Variables:   result.Variables,
 		DurationMs:  time.Since(startTime).Milliseconds(),
 	}
@@ -158,13 +164,13 @@ type ScriptConfig struct {
 
 // ScriptOutput 表示脚本执行的输出。
 type ScriptOutput struct {
-	Script      string                 `json:"script"`          // 执行的脚本内容
-	Language    string                 `json:"language"`        // 脚本语言
-	Result      interface{}            `json:"result"`          // 脚本返回值
-	ConsoleLogs []string               `json:"console_logs"`    // 控制台日志
-	Error       string                 `json:"error,omitempty"` // 错误信息
-	Variables   map[string]interface{} `json:"variables"`       // 修改的变量
-	DurationMs  int64                  `json:"duration_ms"`     // 执行耗时（毫秒）
+	Script      string                  `json:"script"`          // 执行的脚本内容
+	Language    string                  `json:"language"`        // 脚本语言
+	Result      interface{}             `json:"result"`          // 脚本返回值
+	ConsoleLogs []types.ConsoleLogEntry `json:"consoleLogs"`     // 控制台日志
+	Error       string                  `json:"error,omitempty"` // 错误信息
+	Variables   map[string]interface{}  `json:"variables"`       // 修改的变量
+	DurationMs  int64                   `json:"durationMs"`      // 执行耗时（毫秒）
 }
 
 // parseConfig 将步骤配置解析为 ScriptConfig。

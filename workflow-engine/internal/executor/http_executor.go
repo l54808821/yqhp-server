@@ -288,12 +288,11 @@ func (e *HTTPExecutor) Execute(ctx context.Context, step *types.Step, execCtx *E
 		}
 
 		procExecutor.SetResponse(map[string]interface{}{
-			"status_code": output.StatusCode,
-			"status":      output.Status,
-			"body":        output.Body,
-			"body_raw":    output.BodyRaw,
-			"headers":     respHeaders,
-			"duration":    time.Since(startTime).Milliseconds(),
+			"statusCode": output.StatusCode,
+			"statusText": output.StatusText,
+			"body":       output.Body,
+			"headers":    respHeaders,
+			"duration":   time.Since(startTime).Milliseconds(),
 		})
 
 		postLogs := procExecutor.ExecuteProcessors(ctx, step.PostProcessors, "post")
@@ -582,15 +581,15 @@ func (e *HTTPExecutor) createRequest(ctx context.Context, config *HTTPConfig, me
 // HTTPResponse 表示 HTTP 步骤的输出。
 type HTTPResponse struct {
 	// 请求信息（调试用）
-	Request *HTTPRequestInfo `json:"request,omitempty"`
+	Request *HTTPRequestInfo `json:"actualRequest,omitempty"`
 	// 响应信息
-	Status     string              `json:"status"`
-	StatusCode int                 `json:"status_code"`
+	StatusText string              `json:"statusText"`
+	StatusCode int                 `json:"statusCode"`
 	Headers    map[string][]string `json:"headers"`
 	Body       any                 `json:"body"`
-	BodyRaw    string              `json:"body_raw"`
+	BodyType   string              `json:"bodyType,omitempty"`
 	// 控制台日志（统一格式）
-	ConsoleLogs []types.ConsoleLogEntry `json:"console_logs,omitempty"`
+	ConsoleLogs []types.ConsoleLogEntry `json:"consoleLogs,omitempty"`
 }
 
 // HTTPRequestInfo 请求详情（用于调试）
@@ -603,11 +602,12 @@ type HTTPRequestInfo struct {
 
 // buildOutput 构建响应输出。
 func (e *HTTPExecutor) buildOutput(resp *http.Response, body []byte) *HTTPResponse {
+	bodyStr := string(body)
 	output := &HTTPResponse{
-		Status:     resp.Status,
+		StatusText: resp.Status,
 		StatusCode: resp.StatusCode,
 		Headers:    resp.Header,
-		BodyRaw:    string(body),
+		BodyType:   types.DetectBodyType(bodyStr),
 	}
 
 	// 尝试将 body 解析为 JSON
@@ -615,7 +615,7 @@ func (e *HTTPExecutor) buildOutput(resp *http.Response, body []byte) *HTTPRespon
 	if err := json.Unmarshal(body, &jsonBody); err == nil {
 		output.Body = jsonBody
 	} else {
-		output.Body = string(body)
+		output.Body = bodyStr
 	}
 
 	return output

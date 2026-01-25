@@ -234,16 +234,16 @@ func (e *ProcessorExecutor) doAssertion(assertType, operator, expression, expect
 	var actual string
 
 	switch assertType {
-	case "status_code":
-		if code, ok := e.response["status_code"].(int); ok {
+	case "status_code", "statusCode":
+		if code, ok := e.response["statusCode"].(int); ok {
 			actual = fmt.Sprintf("%d", code)
 		}
-	case "response_body":
-		if body, ok := e.response["body_raw"].(string); ok {
+	case "response_body", "responseBody":
+		if body, ok := e.response["body"].(string); ok {
 			actual = body
 		}
 	case "jsonpath":
-		if bodyRaw, ok := e.response["body_raw"].(string); ok {
+		if bodyRaw, ok := e.response["body"].(string); ok {
 			var data interface{}
 			if err := json.Unmarshal([]byte(bodyRaw), &data); err == nil {
 				key := expression
@@ -355,7 +355,7 @@ func (e *ProcessorExecutor) executeExtractParam(pctx *processorContext) {
 func (e *ProcessorExecutor) extractValue(extractType, expression string) (interface{}, error) {
 	switch extractType {
 	case "jsonpath":
-		if bodyRaw, ok := e.response["body_raw"].(string); ok {
+		if bodyRaw, ok := e.response["body"].(string); ok {
 			var data interface{}
 			if err := json.Unmarshal([]byte(bodyRaw), &data); err != nil {
 				return nil, fmt.Errorf("解析 JSON 失败: %s", err.Error())

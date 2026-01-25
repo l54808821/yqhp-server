@@ -46,17 +46,16 @@ type AssertionResult struct {
 	Actual   string `json:"actual,omitempty"`
 }
 
-// ToMap 转换为 map（用于兼容现有的输出格式）
+// ToMap 转换为 map（用于脚本中访问响应数据）
 func (r *HTTPResponseData) ToMap() map[string]interface{} {
 	result := map[string]interface{}{
-		"status_code": r.StatusCode,
-		"statusCode":  r.StatusCode,
-		"status":      r.StatusText,
-		"duration":    r.Duration,
-		"size":        r.Size,
-		"body":        r.Body,
-		"body_raw":    r.Body,
-		"headers":     r.Headers,
+		"statusCode": r.StatusCode,
+		"statusText": r.StatusText,
+		"duration":   r.Duration,
+		"size":       r.Size,
+		"body":       r.Body,
+		"bodyType":   r.BodyType,
+		"headers":    r.Headers,
 	}
 
 	if r.Cookies != nil {
@@ -64,7 +63,7 @@ func (r *HTTPResponseData) ToMap() map[string]interface{} {
 	}
 
 	if r.ConsoleLogs != nil {
-		result["console_logs"] = r.ConsoleLogs
+		result["consoleLogs"] = r.ConsoleLogs
 	}
 
 	if r.Assertions != nil {
@@ -72,7 +71,7 @@ func (r *HTTPResponseData) ToMap() map[string]interface{} {
 	}
 
 	if r.ActualRequest != nil {
-		result["request"] = r.ActualRequest
+		result["actualRequest"] = r.ActualRequest
 	}
 
 	return result

@@ -296,12 +296,11 @@ func (e *FastHTTPExecutor) Execute(ctx context.Context, step *types.Step, execCt
 		}
 
 		procExecutor.SetResponse(map[string]interface{}{
-			"status_code": output.StatusCode,
-			"status":      output.Status,
-			"body":        output.Body,
-			"body_raw":    output.BodyRaw,
-			"headers":     respHeaders,
-			"duration":    time.Since(startTime).Milliseconds(),
+			"statusCode": output.StatusCode,
+			"statusText": output.StatusText,
+			"body":       output.Body,
+			"headers":    respHeaders,
+			"duration":   time.Since(startTime).Milliseconds(),
 		})
 
 		postLogs := procExecutor.ExecuteProcessors(ctx, step.PostProcessors, "post")
@@ -549,15 +548,15 @@ func (e *FastHTTPExecutor) buildRequest(req *fasthttp.Request, config *HTTPConfi
 
 // FastHTTPResponse 表示 FastHTTP 步骤的输出。
 type FastHTTPResponse struct {
-	Status     string              `json:"status"`
-	StatusCode int                 `json:"status_code"`
+	StatusText string              `json:"statusText"`
+	StatusCode int                 `json:"statusCode"`
 	Headers    map[string][]string `json:"headers"`
 	Body       any                 `json:"body"`
-	BodyRaw    string              `json:"body_raw"`
+	BodyType   string              `json:"bodyType,omitempty"`
 	// 请求信息（用于调试）
-	Request *HTTPRequestInfo `json:"request,omitempty"`
+	Request *HTTPRequestInfo `json:"actualRequest,omitempty"`
 	// 控制台日志（统一格式）
-	ConsoleLogs []types.ConsoleLogEntry `json:"console_logs,omitempty"`
+	ConsoleLogs []types.ConsoleLogEntry `json:"consoleLogs,omitempty"`
 }
 
 // buildOutput 构建响应输出。
@@ -570,12 +569,13 @@ func (e *FastHTTPExecutor) buildOutputWithRequest(resp *fasthttp.Response, reqIn
 	// 复制响应体（因为 resp.Body() 返回的是内部缓冲区的引用）
 	bodyBytes := make([]byte, len(resp.Body()))
 	copy(bodyBytes, resp.Body())
+	bodyStr := string(bodyBytes)
 
 	output := &FastHTTPResponse{
-		Status:     fmt.Sprintf("%d %s", resp.StatusCode(), fasthttp.StatusMessage(resp.StatusCode())),
+		StatusText: fmt.Sprintf("%d %s", resp.StatusCode(), fasthttp.StatusMessage(resp.StatusCode())),
 		StatusCode: resp.StatusCode(),
 		Headers:    make(map[string][]string),
-		BodyRaw:    string(bodyBytes),
+		BodyType:   types.DetectBodyType(bodyStr),
 		Request:    reqInfo,
 	}
 
@@ -595,7 +595,7 @@ func (e *FastHTTPExecutor) buildOutputWithRequest(resp *fasthttp.Response, reqIn
 	if err := json.Unmarshal(bodyBytes, &jsonBody); err == nil {
 		output.Body = jsonBody
 	} else {
-		output.Body = string(bodyBytes)
+		output.Body = bodyStr
 	}
 
 	return output

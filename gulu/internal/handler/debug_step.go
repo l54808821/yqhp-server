@@ -139,13 +139,13 @@ type DebugStepResponse struct {
 
 // DebugScriptResult 脚本执行结果
 type DebugScriptResult struct {
-	Script      string                 `json:"script"`
-	Language    string                 `json:"language"`
-	Result      interface{}            `json:"result"`
-	ConsoleLogs []string               `json:"consoleLogs"`
-	Error       string                 `json:"error,omitempty"`
-	Variables   map[string]interface{} `json:"variables"`
-	DurationMs  int64                  `json:"durationMs"`
+	Script      string                  `json:"script"`
+	Language    string                  `json:"language"`
+	Result      interface{}             `json:"result"`
+	ConsoleLogs []types.ConsoleLogEntry `json:"consoleLogs"`
+	Error       string                  `json:"error,omitempty"`
+	Variables   map[string]interface{}  `json:"variables"`
+	DurationMs  int64                   `json:"durationMs"`
 }
 
 // DebugStep 单步调试 HTTP 节点
@@ -278,10 +278,8 @@ func (h *DebugStepHandler) executeDebugStep(ctx context.Context, nodeConfig *Deb
 			return result, nil
 		}
 		result.ScriptResult = scriptResult
-		// 将脚本日志转换为 ConsoleLogEntry
-		for _, log := range scriptResult.ConsoleLogs {
-			result.ConsoleLogs = append(result.ConsoleLogs, types.NewLogEntry(log))
-		}
+		// 脚本日志已经是 ConsoleLogEntry 格式，直接追加
+		result.ConsoleLogs = append(result.ConsoleLogs, scriptResult.ConsoleLogs...)
 		if scriptResult.Error != "" {
 			result.Success = false
 			result.Error = scriptResult.Error
@@ -707,10 +705,16 @@ func (h *DebugStepHandler) executeScript(ctx context.Context, nodeConfig *DebugN
 	runtime := script.NewJSRuntime(rtConfig)
 	execResult, err := runtime.Execute(scriptCode, time.Duration(timeout)*time.Second)
 
+	// 将字符串日志转换为 ConsoleLogEntry 格式
+	consoleLogs := make([]types.ConsoleLogEntry, 0, len(execResult.ConsoleLogs))
+	for _, log := range execResult.ConsoleLogs {
+		consoleLogs = append(consoleLogs, types.NewLogEntry(log))
+	}
+
 	result := &DebugScriptResult{
 		Script:      scriptCode,
 		Language:    language,
-		ConsoleLogs: execResult.ConsoleLogs,
+		ConsoleLogs: consoleLogs,
 		Variables:   execResult.Variables,
 		DurationMs:  time.Since(startTime).Milliseconds(),
 	}

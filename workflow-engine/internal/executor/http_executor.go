@@ -311,6 +311,9 @@ func (e *HTTPExecutor) Execute(ctx context.Context, step *types.Step, execCtx *E
 		output.ConsoleLogs = allConsoleLogs
 	}
 
+	// 设置耗时
+	output.Duration = time.Since(startTime).Milliseconds()
+
 	// 创建结果
 	result := CreateSuccessResult(step.ID, startTime, output)
 
@@ -588,6 +591,8 @@ type HTTPResponse struct {
 	Headers    map[string][]string `json:"headers"`
 	Body       any                 `json:"body"`
 	BodyType   string              `json:"bodyType,omitempty"`
+	Duration   int64               `json:"duration"` // 毫秒
+	Size       int64               `json:"size"`     // 字节
 	// 控制台日志（统一格式）
 	ConsoleLogs []types.ConsoleLogEntry `json:"consoleLogs,omitempty"`
 }
@@ -608,6 +613,7 @@ func (e *HTTPExecutor) buildOutput(resp *http.Response, body []byte) *HTTPRespon
 		StatusCode: resp.StatusCode,
 		Headers:    resp.Header,
 		BodyType:   types.DetectBodyType(bodyStr),
+		Size:       int64(len(body)),
 	}
 
 	// 尝试将 body 解析为 JSON

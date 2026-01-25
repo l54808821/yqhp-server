@@ -319,6 +319,9 @@ func (e *FastHTTPExecutor) Execute(ctx context.Context, step *types.Step, execCt
 		output.ConsoleLogs = allConsoleLogs
 	}
 
+	// 设置耗时
+	output.Duration = time.Since(startTime).Milliseconds()
+
 	// 创建结果
 	result := CreateSuccessResult(step.ID, startTime, output)
 
@@ -553,6 +556,8 @@ type FastHTTPResponse struct {
 	Headers    map[string][]string `json:"headers"`
 	Body       any                 `json:"body"`
 	BodyType   string              `json:"bodyType,omitempty"`
+	Duration   int64               `json:"duration"` // 毫秒
+	Size       int64               `json:"size"`     // 字节
 	// 请求信息（用于调试）
 	Request *HTTPRequestInfo `json:"actualRequest,omitempty"`
 	// 控制台日志（统一格式）
@@ -576,6 +581,7 @@ func (e *FastHTTPExecutor) buildOutputWithRequest(resp *fasthttp.Response, reqIn
 		StatusCode: resp.StatusCode(),
 		Headers:    make(map[string][]string),
 		BodyType:   types.DetectBodyType(bodyStr),
+		Size:       int64(len(bodyBytes)),
 		Request:    reqInfo,
 	}
 

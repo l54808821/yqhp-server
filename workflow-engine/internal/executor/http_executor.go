@@ -191,14 +191,11 @@ func (e *HTTPExecutor) Execute(ctx context.Context, step *types.Step, execCtx *E
 	procExecutor := pkgExecutor.NewProcessorExecutor(variables, envVars)
 
 	// 收集所有控制台日志
-	allConsoleLogs := make([]string, 0)
-	var preProcessorResults []types.ProcessorResult
-	var postProcessorResults []types.ProcessorResult
+	allConsoleLogs := make([]types.ConsoleLogEntry, 0)
 
 	// 1. 执行前置处理器
 	if len(step.PreProcessors) > 0 {
-		preResults, preLogs := procExecutor.ExecuteProcessors(ctx, step.PreProcessors)
-		preProcessorResults = preResults
+		preLogs := procExecutor.ExecuteProcessors(ctx, step.PreProcessors, "pre")
 		allConsoleLogs = append(allConsoleLogs, preLogs...)
 
 		// 更新执行上下文中的变量
@@ -299,8 +296,7 @@ func (e *HTTPExecutor) Execute(ctx context.Context, step *types.Step, execCtx *E
 			"duration":    time.Since(startTime).Milliseconds(),
 		})
 
-		postResults, postLogs := procExecutor.ExecuteProcessors(ctx, step.PostProcessors)
-		postProcessorResults = postResults
+		postLogs := procExecutor.ExecuteProcessors(ctx, step.PostProcessors, "post")
 		allConsoleLogs = append(allConsoleLogs, postLogs...)
 
 		// 更新执行上下文中的变量
@@ -311,13 +307,7 @@ func (e *HTTPExecutor) Execute(ctx context.Context, step *types.Step, execCtx *E
 		}
 	}
 
-	// 添加处理器结果到输出
-	if len(preProcessorResults) > 0 {
-		output.PreProcessorResults = preProcessorResults
-	}
-	if len(postProcessorResults) > 0 {
-		output.PostProcessorResults = postProcessorResults
-	}
+	// 添加控制台日志到输出
 	if len(allConsoleLogs) > 0 {
 		output.ConsoleLogs = allConsoleLogs
 	}
@@ -599,10 +589,8 @@ type HTTPResponse struct {
 	Headers    map[string][]string `json:"headers"`
 	Body       any                 `json:"body"`
 	BodyRaw    string              `json:"body_raw"`
-	// 处理器执行结果
-	PreProcessorResults  []types.ProcessorResult `json:"pre_processor_results,omitempty"`
-	PostProcessorResults []types.ProcessorResult `json:"post_processor_results,omitempty"`
-	ConsoleLogs          []string                `json:"console_logs,omitempty"`
+	// 控制台日志（统一格式）
+	ConsoleLogs []types.ConsoleLogEntry `json:"console_logs,omitempty"`
 }
 
 // HTTPRequestInfo 请求详情（用于调试）

@@ -33,9 +33,9 @@ func (e *ProcessorExecutor) SetResponse(resp map[string]interface{}) {
 }
 
 // ExecuteProcessors 执行处理器列表
-func (e *ProcessorExecutor) ExecuteProcessors(ctx context.Context, processors []types.Processor) ([]types.ProcessorResult, []string) {
-	results := make([]types.ProcessorResult, 0, len(processors))
-	allLogs := make([]string, 0)
+// phase: "pre" 表示前置处理器，"post" 表示后置处理器
+func (e *ProcessorExecutor) ExecuteProcessors(ctx context.Context, processors []types.Processor, phase string) []types.ConsoleLogEntry {
+	entries := make([]types.ConsoleLogEntry, 0)
 
 	for _, processor := range processors {
 		// 跳过禁用的处理器
@@ -43,56 +43,79 @@ func (e *ProcessorExecutor) ExecuteProcessors(ctx context.Context, processors []
 			continue
 		}
 
-		result := e.executeProcessor(ctx, processor)
-		results = append(results, result)
-		allLogs = append(allLogs, result.Logs...)
+		// 执行处理器并收集日志
+		procEntries := e.executeProcessor(ctx, processor, phase)
+		entries = append(entries, procEntries...)
 	}
 
-	return results, allLogs
+	return entries
 }
 
-// executeProcessor 执行单个处理器
-func (e *ProcessorExecutor) executeProcessor(ctx context.Context, processor types.Processor) types.ProcessorResult {
-	result := types.ProcessorResult{
-		KeywordID: processor.ID,
-		Type:      processor.Type,
-		Name:      processor.Name,
-		Success:   true,
-		Logs:      make([]string, 0),
+// processorContext 处理器执行上下文
+type processorContext struct {
+	processor types.Processor
+	phase     string
+	success   bool
+	message   string
+	output    map[string]any
+	logs      []types.ConsoleLogEntry // 收集的日志条目
+}
+
+// executeProcessor 执行单个处理器，返回日志条目列表
+func (e *ProcessorExecutor) executeProcessor(ctx context.Context, processor types.Processor, phase string) []types.ConsoleLogEntry {
+	pctx := &processorContext{
+		processor: processor,
+		phase:     phase,
+		success:   true,
+		logs:      make([]types.ConsoleLogEntry, 0),
 	}
 
 	switch processor.Type {
 	case "js_script":
-		e.executeJsScript(ctx, processor, &result)
+		e.executeJsScript(ctx, pctx)
 
 	case "set_variable":
-		e.executeSetVariable(processor, &result)
+		e.executeSetVariable(pctx)
 
 	case "wait":
-		e.executeWait(processor, &result)
+		e.executeWait(pctx)
 
 	case "assertion":
-		e.executeAssertion(processor, &result)
+		e.executeAssertion(pctx)
 
 	case "extract_param":
-		e.executeExtractParam(processor, &result)
+		e.executeExtractParam(pctx)
 
 	default:
-		result.Message = fmt.Sprintf("暂不支持的处理器类型: %s", processor.Type)
+		pctx.message = fmt.Sprintf("暂不支持的处理器类型: %s", processor.Type)
 	}
+
+	// 创建处理器执行结果日志条目
+	procEntry := types.NewProcessorEntry(phase, types.ProcessorLogInfo{
+		ID:      processor.ID,
+		Type:    processor.Type,
+		Name:    processor.Name,
+		Success: pctx.success,
+		Message: pctx.message,
+		Output:  pctx.output,
+	})
+
+	// 返回：处理器条目 + 脚本产生的日志
+	result := []types.ConsoleLogEntry{procEntry}
+	result = append(result, pctx.logs...)
 
 	return result
 }
 
 // executeJsScript 执行 JS 脚本
-func (e *ProcessorExecutor) executeJsScript(ctx context.Context, processor types.Processor, result *types.ProcessorResult) {
+func (e *ProcessorExecutor) executeJsScript(ctx context.Context, pctx *processorContext) {
 	scriptCode := ""
-	if s, ok := processor.Config["script"].(string); ok {
+	if s, ok := pctx.processor.Config["script"].(string); ok {
 		scriptCode = s
 	}
 
 	if scriptCode == "" {
-		result.Message = "脚本内容为空"
+		pctx.message = "脚本内容为空"
 		return
 	}
 
@@ -121,11 +144,14 @@ func (e *ProcessorExecutor) executeJsScript(ctx context.Context, processor types
 	// 执行脚本
 	execResult, err := runtime.Execute(scriptCode, 30*time.Second)
 
-	result.Logs = execResult.ConsoleLogs
+	// 将脚本的 console.log 输出转换为日志条目
+	for _, log := range execResult.ConsoleLogs {
+		pctx.logs = append(pctx.logs, types.NewLogEntry(log))
+	}
 
 	if err != nil {
-		result.Success = false
-		result.Message = err.Error()
+		pctx.success = false
+		pctx.message = err.Error()
 		return
 	}
 
@@ -134,47 +160,49 @@ func (e *ProcessorExecutor) executeJsScript(ctx context.Context, processor types
 		e.variables[k] = v
 	}
 
-	result.Message = "脚本执行成功"
-	result.Output = map[string]any{
+	pctx.message = "脚本执行成功"
+	pctx.output = map[string]any{
 		"result":    execResult.Value,
 		"variables": execResult.Variables,
 	}
 }
 
 // executeSetVariable 设置变量
-func (e *ProcessorExecutor) executeSetVariable(processor types.Processor, result *types.ProcessorResult) {
+func (e *ProcessorExecutor) executeSetVariable(pctx *processorContext) {
 	varName := ""
 	varValue := ""
-	if name, ok := processor.Config["variableName"].(string); ok {
+	if name, ok := pctx.processor.Config["variableName"].(string); ok {
 		varName = name
 	}
-	if value, ok := processor.Config["value"].(string); ok {
+	if value, ok := pctx.processor.Config["value"].(string); ok {
 		varValue = e.replaceVariables(value)
 	}
 
 	if varName != "" {
 		e.variables[varName] = varValue
-		result.Message = fmt.Sprintf("设置变量 %s = %s", varName, varValue)
-		result.Logs = append(result.Logs, fmt.Sprintf("设置变量: %s = %s", varName, varValue))
+		pctx.message = fmt.Sprintf("%s = %s", varName, varValue)
+		pctx.output = map[string]any{
+			"variableName": varName,
+			"value":        varValue,
+		}
 	}
 }
 
 // executeWait 等待
-func (e *ProcessorExecutor) executeWait(processor types.Processor, result *types.ProcessorResult) {
+func (e *ProcessorExecutor) executeWait(pctx *processorContext) {
 	duration := 1000 // 默认 1000ms
-	if d, ok := processor.Config["duration"].(float64); ok {
+	if d, ok := pctx.processor.Config["duration"].(float64); ok {
 		duration = int(d)
 	}
 	time.Sleep(time.Duration(duration) * time.Millisecond)
-	result.Message = fmt.Sprintf("等待 %dms", duration)
-	result.Logs = append(result.Logs, fmt.Sprintf("等待 %dms 完成", duration))
+	pctx.message = fmt.Sprintf("等待 %dms 完成", duration)
 }
 
 // executeAssertion 执行断言
-func (e *ProcessorExecutor) executeAssertion(processor types.Processor, result *types.ProcessorResult) {
+func (e *ProcessorExecutor) executeAssertion(pctx *processorContext) {
 	if e.response == nil {
-		result.Success = false
-		result.Message = "无响应数据，无法执行断言"
+		pctx.success = false
+		pctx.message = "无响应数据，无法执行断言"
 		return
 	}
 
@@ -183,23 +211,22 @@ func (e *ProcessorExecutor) executeAssertion(processor types.Processor, result *
 	expression := ""
 	expected := ""
 
-	if at, ok := processor.Config["assertType"].(string); ok {
+	if at, ok := pctx.processor.Config["assertType"].(string); ok {
 		assertType = at
 	}
-	if op, ok := processor.Config["operator"].(string); ok {
+	if op, ok := pctx.processor.Config["operator"].(string); ok {
 		operator = op
 	}
-	if exp, ok := processor.Config["expression"].(string); ok {
+	if exp, ok := pctx.processor.Config["expression"].(string); ok {
 		expression = exp
 	}
-	if exp, ok := processor.Config["expected"].(string); ok {
+	if exp, ok := pctx.processor.Config["expected"].(string); ok {
 		expected = e.replaceVariables(exp)
 	}
 
 	passed, msg := e.doAssertion(assertType, operator, expression, expected)
-	result.Success = passed
-	result.Message = msg
-	result.Logs = append(result.Logs, msg)
+	pctx.success = passed
+	pctx.message = msg
 }
 
 // doAssertion 执行断言逻辑
@@ -286,10 +313,10 @@ func (e *ProcessorExecutor) doAssertion(assertType, operator, expression, expect
 }
 
 // executeExtractParam 提取参数
-func (e *ProcessorExecutor) executeExtractParam(processor types.Processor, result *types.ProcessorResult) {
+func (e *ProcessorExecutor) executeExtractParam(pctx *processorContext) {
 	if e.response == nil {
-		result.Success = false
-		result.Message = "无响应数据，无法提取参数"
+		pctx.success = false
+		pctx.message = "无响应数据，无法提取参数"
 		return
 	}
 
@@ -297,27 +324,30 @@ func (e *ProcessorExecutor) executeExtractParam(processor types.Processor, resul
 	expression := ""
 	varName := ""
 
-	if et, ok := processor.Config["extractType"].(string); ok {
+	if et, ok := pctx.processor.Config["extractType"].(string); ok {
 		extractType = et
 	}
-	if exp, ok := processor.Config["expression"].(string); ok {
+	if exp, ok := pctx.processor.Config["expression"].(string); ok {
 		expression = exp
 	}
-	if name, ok := processor.Config["variableName"].(string); ok {
+	if name, ok := pctx.processor.Config["variableName"].(string); ok {
 		varName = name
 	}
 
 	value, err := e.extractValue(extractType, expression)
 	if err != nil {
-		result.Success = false
-		result.Message = err.Error()
+		pctx.success = false
+		pctx.message = err.Error()
 		return
 	}
 
 	if varName != "" {
 		e.variables[varName] = value
-		result.Message = fmt.Sprintf("提取参数 %s = %v", varName, value)
-		result.Logs = append(result.Logs, fmt.Sprintf("提取参数: %s = %v", varName, value))
+		pctx.message = fmt.Sprintf("%s = %v", varName, value)
+		pctx.output = map[string]any{
+			"variableName": varName,
+			"value":        value,
+		}
 	}
 }
 

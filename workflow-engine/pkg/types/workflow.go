@@ -48,16 +48,6 @@ type Processor struct {
 	Config  map[string]any `yaml:"config" json:"config"`
 }
 
-// ProcessorResult 处理器执行结果
-type ProcessorResult struct {
-	KeywordID string         `json:"keywordId"`
-	Type      string         `json:"type"`
-	Name      string         `json:"name,omitempty"`
-	Success   bool           `json:"success"`
-	Message   string         `json:"message,omitempty"`
-	Output    map[string]any `json:"output,omitempty"`
-	Logs      []string       `json:"logs,omitempty"`
-}
 
 // Loop represents loop configuration for iterative execution.
 type Loop struct {

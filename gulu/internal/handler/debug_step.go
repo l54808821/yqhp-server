@@ -128,15 +128,13 @@ type HTTPSettingsConf struct {
 
 // DebugStepResponse 单步调试响应（统一使用驼峰命名）
 type DebugStepResponse struct {
-	Success              bool                   `json:"success"`
-	Response             *types.HTTPResponseData `json:"response,omitempty"`
-	ScriptResult         *DebugScriptResult     `json:"scriptResult,omitempty"`
-	PreProcessorResults  []types.ProcessorResult `json:"preProcessorResults,omitempty"`
-	PostProcessorResults []types.ProcessorResult `json:"postProcessorResults,omitempty"`
-	AssertionResults     []types.AssertionResult `json:"assertionResults,omitempty"`
-	ConsoleLogs          []string               `json:"consoleLogs,omitempty"`
-	ActualRequest        *types.ActualRequest   `json:"actualRequest,omitempty"`
-	Error                string                 `json:"error,omitempty"`
+	Success          bool                     `json:"success"`
+	Response         *types.HTTPResponseData  `json:"response,omitempty"`
+	ScriptResult     *DebugScriptResult       `json:"scriptResult,omitempty"`
+	AssertionResults []types.AssertionResult  `json:"assertionResults,omitempty"`
+	ConsoleLogs      []types.ConsoleLogEntry  `json:"consoleLogs,omitempty"`
+	ActualRequest    *types.ActualRequest     `json:"actualRequest,omitempty"`
+	Error            string                   `json:"error,omitempty"`
 }
 
 // DebugScriptResult 脚本执行结果
@@ -209,11 +207,9 @@ func (h *DebugStepHandler) DebugStep(c *fiber.Ctx) error {
 // executeDebugStep 执行单步调试
 func (h *DebugStepHandler) executeDebugStep(ctx context.Context, nodeConfig *DebugNodeConfig, variables, envVars map[string]interface{}) (*DebugStepResponse, error) {
 	result := &DebugStepResponse{
-		Success:              true,
-		PreProcessorResults:  make([]types.ProcessorResult, 0),
-		PostProcessorResults: make([]types.ProcessorResult, 0),
-		AssertionResults:     make([]types.AssertionResult, 0),
-		ConsoleLogs:          make([]string, 0),
+		Success:          true,
+		AssertionResults: make([]types.AssertionResult, 0),
+		ConsoleLogs:      make([]types.ConsoleLogEntry, 0),
 	}
 
 	// 复制变量，避免污染原始变量
@@ -230,9 +226,8 @@ func (h *DebugStepHandler) executeDebugStep(ctx context.Context, nodeConfig *Deb
 		// 1. 执行前置处理器
 		if len(nodeConfig.PreProcessors) > 0 {
 			processors := convertToProcessors(nodeConfig.PreProcessors)
-			preResults, preConsoleLogs := procExecutor.ExecuteProcessors(ctx, processors)
-			result.PreProcessorResults = preResults
-			result.ConsoleLogs = append(result.ConsoleLogs, preConsoleLogs...)
+			preLogs := procExecutor.ExecuteProcessors(ctx, processors, "pre")
+			result.ConsoleLogs = append(result.ConsoleLogs, preLogs...)
 		}
 
 		// 2. 解析 HTTP 配置
@@ -258,19 +253,18 @@ func (h *DebugStepHandler) executeDebugStep(ctx context.Context, nodeConfig *Deb
 		if len(nodeConfig.PostProcessors) > 0 {
 			// 设置响应数据到处理器执行器
 			procExecutor.SetResponse(httpResp.ToMap())
-			
+
 			processors := convertToProcessors(nodeConfig.PostProcessors)
-			postResults, postConsoleLogs := procExecutor.ExecuteProcessors(ctx, processors)
-			result.PostProcessorResults = postResults
-			result.ConsoleLogs = append(result.ConsoleLogs, postConsoleLogs...)
+			postLogs := procExecutor.ExecuteProcessors(ctx, processors, "post")
+			result.ConsoleLogs = append(result.ConsoleLogs, postLogs...)
 
 			// 提取断言结果
-			for _, pr := range postResults {
-				if pr.Type == "assertion" {
+			for _, entry := range postLogs {
+				if entry.Type == types.LogTypeProcessor && entry.Processor != nil && entry.Processor.Type == "assertion" {
 					result.AssertionResults = append(result.AssertionResults, types.AssertionResult{
-						Name:    pr.Name,
-						Passed:  pr.Success,
-						Message: pr.Message,
+						Name:    entry.Processor.Name,
+						Passed:  entry.Processor.Success,
+						Message: entry.Processor.Message,
 					})
 				}
 			}
@@ -284,7 +278,10 @@ func (h *DebugStepHandler) executeDebugStep(ctx context.Context, nodeConfig *Deb
 			return result, nil
 		}
 		result.ScriptResult = scriptResult
-		result.ConsoleLogs = scriptResult.ConsoleLogs
+		// 将脚本日志转换为 ConsoleLogEntry
+		for _, log := range scriptResult.ConsoleLogs {
+			result.ConsoleLogs = append(result.ConsoleLogs, types.NewLogEntry(log))
+		}
 		if scriptResult.Error != "" {
 			result.Success = false
 			result.Error = scriptResult.Error

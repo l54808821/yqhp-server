@@ -116,14 +116,10 @@ type DebugStepResponse struct {
 	Success bool `json:"success"`
 	// HTTP 响应
 	Response *DebugHTTPResponse `json:"response,omitempty"`
-	// 前置处理器结果
-	PreProcessorResults []KeywordResult `json:"preProcessorResults,omitempty"`
-	// 后置处理器结果
-	PostProcessorResults []KeywordResult `json:"postProcessorResults,omitempty"`
 	// 断言结果
 	AssertionResults []AssertionResult `json:"assertionResults,omitempty"`
-	// 控制台日志
-	ConsoleLogs []string `json:"consoleLogs,omitempty"`
+	// 控制台日志（统一格式）
+	ConsoleLogs []types.ConsoleLogEntry `json:"consoleLogs,omitempty"`
 	// 实际请求
 	ActualRequest *ActualRequest `json:"actualRequest,omitempty"`
 	// 错误信息
@@ -214,11 +210,9 @@ func (s *Server) debugStep(c *fiber.Ctx) error {
 // executeDebugStep 执行单步调试
 func (s *Server) executeDebugStep(ctx context.Context, req *DebugStepRequest) (*DebugStepResponse, error) {
 	result := &DebugStepResponse{
-		Success:              true,
-		PreProcessorResults:  make([]KeywordResult, 0),
-		PostProcessorResults: make([]KeywordResult, 0),
-		AssertionResults:     make([]AssertionResult, 0),
-		ConsoleLogs:          make([]string, 0),
+		Success:          true,
+		AssertionResults: make([]AssertionResult, 0),
+		ConsoleLogs:      make([]types.ConsoleLogEntry, 0),
 	}
 
 	// 初始化关键字注册表
@@ -236,15 +230,16 @@ func (s *Server) executeDebugStep(ctx context.Context, req *DebugStepRequest) (*
 		preActions := convertToActions(req.NodeConfig.PreProcessors)
 		preRecords, err := scriptExecutor.ExecuteScripts(ctx, execCtx, preActions, "pre")
 		for _, record := range preRecords {
-			kwResult := KeywordResult{
-				KeywordID: record.Keyword,
-				Type:      record.Keyword,
-				Success:   record.Success,
-			}
+			message := ""
 			if record.Error != nil {
-				kwResult.Message = record.Error.Error()
+				message = record.Error.Error()
 			}
-			result.PreProcessorResults = append(result.PreProcessorResults, kwResult)
+			result.ConsoleLogs = append(result.ConsoleLogs, types.NewProcessorEntry("pre", types.ProcessorLogInfo{
+				ID:      record.Keyword,
+				Type:    record.Keyword,
+				Success: record.Success,
+				Message: message,
+			}))
 		}
 		if err != nil {
 			result.Success = false
@@ -276,15 +271,16 @@ func (s *Server) executeDebugStep(ctx context.Context, req *DebugStepRequest) (*
 		postActions := convertToActions(req.NodeConfig.PostProcessors)
 		postRecords, err := scriptExecutor.ExecuteScripts(ctx, execCtx, postActions, "post")
 		for _, record := range postRecords {
-			kwResult := KeywordResult{
-				KeywordID: record.Keyword,
-				Type:      record.Keyword,
-				Success:   record.Success,
-			}
+			message := ""
 			if record.Error != nil {
-				kwResult.Message = record.Error.Error()
+				message = record.Error.Error()
 			}
-			result.PostProcessorResults = append(result.PostProcessorResults, kwResult)
+			result.ConsoleLogs = append(result.ConsoleLogs, types.NewProcessorEntry("post", types.ProcessorLogInfo{
+				ID:      record.Keyword,
+				Type:    record.Keyword,
+				Success: record.Success,
+				Message: message,
+			}))
 
 			// 收集断言结果
 			if record.Keyword == "assertion" || record.Keyword == "equals" ||
@@ -292,20 +288,22 @@ func (s *Server) executeDebugStep(ctx context.Context, req *DebugStepRequest) (*
 				result.AssertionResults = append(result.AssertionResults, AssertionResult{
 					Name:    record.Keyword,
 					Passed:  record.Success,
-					Message: kwResult.Message,
+					Message: message,
 				})
 			}
 		}
 		if err != nil {
 			// 后置处理器失败不影响整体成功状态，但记录错误
-			result.ConsoleLogs = append(result.ConsoleLogs, "后置处理器执行失败: "+err.Error())
+			result.ConsoleLogs = append(result.ConsoleLogs, types.NewErrorEntry("后置处理器执行失败: "+err.Error()))
 		}
 	}
 
 	// 收集控制台日志
 	if logs, ok := execCtx.GetMetadata("console_logs"); ok {
 		if logSlice, ok := logs.([]string); ok {
-			result.ConsoleLogs = append(result.ConsoleLogs, logSlice...)
+			for _, log := range logSlice {
+				result.ConsoleLogs = append(result.ConsoleLogs, types.NewLogEntry(log))
+			}
 		}
 	}
 

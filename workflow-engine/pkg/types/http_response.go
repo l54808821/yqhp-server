@@ -15,10 +15,8 @@ type HTTPResponseData struct {
 	Body     string            `json:"body,omitempty"`
 	BodyType string            `json:"bodyType,omitempty"` // json, xml, html, text
 
-	// 处理器结果
-	PreProcessorResults  []ProcessorResult `json:"preProcessorResults,omitempty"`
-	PostProcessorResults []ProcessorResult `json:"postProcessorResults,omitempty"`
-	ConsoleLogs          []string          `json:"consoleLogs,omitempty"`
+	// 控制台日志（统一收集处理器执行结果和脚本日志）
+	ConsoleLogs []ConsoleLogEntry `json:"consoleLogs,omitempty"`
 
 	// 断言结果
 	Assertions []AssertionResult `json:"assertions,omitempty"`
@@ -63,14 +61,6 @@ func (r *HTTPResponseData) ToMap() map[string]interface{} {
 
 	if r.Cookies != nil {
 		result["cookies"] = r.Cookies
-	}
-
-	if r.PreProcessorResults != nil {
-		result["pre_processor_results"] = r.PreProcessorResults
-	}
-
-	if r.PostProcessorResults != nil {
-		result["post_processor_results"] = r.PostProcessorResults
 	}
 
 	if r.ConsoleLogs != nil {

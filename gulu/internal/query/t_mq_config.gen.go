@@ -6,6 +6,7 @@ package query
 
 import (
 	"context"
+	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -218,6 +219,8 @@ type ITMqConfigDo interface {
 	FirstOrCreate() (*model.TMqConfig, error)
 	FindByPage(offset int, limit int) (result []*model.TMqConfig, count int64, err error)
 	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
+	Rows() (*sql.Rows, error)
+	Row() *sql.Row
 	Scan(result interface{}) (err error)
 	Returning(value interface{}, columns ...string) ITMqConfigDo
 	UnderlyingDB() *gorm.DB

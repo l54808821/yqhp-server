@@ -6,6 +6,7 @@ package query
 
 import (
 	"context"
+	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -40,9 +41,9 @@ func newTExecution(db *gorm.DB, opts ...gen.DOOption) tExecution {
 	_tExecution.StartTime = field.NewTime(tableName, "start_time")
 	_tExecution.EndTime = field.NewTime(tableName, "end_time")
 	_tExecution.Duration = field.NewInt64(tableName, "duration")
-	_tExecution.TotalSteps = field.NewInt(tableName, "total_steps")
-	_tExecution.SuccessSteps = field.NewInt(tableName, "success_steps")
-	_tExecution.FailedSteps = field.NewInt(tableName, "failed_steps")
+	_tExecution.TotalSteps = field.NewInt32(tableName, "total_steps")
+	_tExecution.SuccessSteps = field.NewInt32(tableName, "success_steps")
+	_tExecution.FailedSteps = field.NewInt32(tableName, "failed_steps")
 	_tExecution.Result = field.NewString(tableName, "result")
 	_tExecution.Logs = field.NewString(tableName, "logs")
 	_tExecution.CreatedBy = field.NewInt64(tableName, "created_by")
@@ -70,9 +71,9 @@ type tExecution struct {
 	StartTime    field.Time   // 开始时间
 	EndTime      field.Time   // 结束时间
 	Duration     field.Int64  // 执行时长(毫秒)
-	TotalSteps   field.Int    // 总步骤数
-	SuccessSteps field.Int    // 成功步骤数
-	FailedSteps  field.Int    // 失败步骤数
+	TotalSteps   field.Int32  // 总步骤数
+	SuccessSteps field.Int32  // 成功步骤数
+	FailedSteps  field.Int32  // 失败步骤数
 	Result       field.String // 执行结果(JSON格式)
 	Logs         field.String // 执行日志
 	CreatedBy    field.Int64  // 创建人ID
@@ -105,9 +106,9 @@ func (t *tExecution) updateTableName(table string) *tExecution {
 	t.StartTime = field.NewTime(table, "start_time")
 	t.EndTime = field.NewTime(table, "end_time")
 	t.Duration = field.NewInt64(table, "duration")
-	t.TotalSteps = field.NewInt(table, "total_steps")
-	t.SuccessSteps = field.NewInt(table, "success_steps")
-	t.FailedSteps = field.NewInt(table, "failed_steps")
+	t.TotalSteps = field.NewInt32(table, "total_steps")
+	t.SuccessSteps = field.NewInt32(table, "success_steps")
+	t.FailedSteps = field.NewInt32(table, "failed_steps")
 	t.Result = field.NewString(table, "result")
 	t.Logs = field.NewString(table, "logs")
 	t.CreatedBy = field.NewInt64(table, "created_by")
@@ -226,6 +227,8 @@ type ITExecutionDo interface {
 	FirstOrCreate() (*model.TExecution, error)
 	FindByPage(offset int, limit int) (result []*model.TExecution, count int64, err error)
 	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
+	Rows() (*sql.Rows, error)
+	Row() *sql.Row
 	Scan(result interface{}) (err error)
 	Returning(value interface{}, columns ...string) ITExecutionDo
 	UnderlyingDB() *gorm.DB

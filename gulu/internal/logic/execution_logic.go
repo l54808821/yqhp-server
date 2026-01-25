@@ -541,9 +541,9 @@ type StreamExecutionDetail struct {
 	StartTime    *time.Time `json:"start_time"`
 	EndTime      *time.Time `json:"end_time"`
 	Duration     *int64     `json:"duration"`
-	TotalSteps   *int       `json:"total_steps"`
-	SuccessSteps *int       `json:"success_steps"`
-	FailedSteps  *int       `json:"failed_steps"`
+	TotalSteps   *int32     `json:"total_steps"`
+	SuccessSteps *int32     `json:"success_steps"`
+	FailedSteps  *int32     `json:"failed_steps"`
 	Result       string     `json:"result,omitempty"`
 	CreatedBy    *int64     `json:"created_by"`
 	CreatedAt    *time.Time `json:"created_at"`

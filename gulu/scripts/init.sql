@@ -35,7 +35,6 @@ CREATE TABLE IF NOT EXISTS `t_env` (
     `updated_by` BIGINT UNSIGNED DEFAULT NULL COMMENT '更新人ID',
     `project_id` BIGINT UNSIGNED NOT NULL COMMENT '所属项目ID',
     `name` VARCHAR(100) NOT NULL COMMENT '环境名称',
-    `code` VARCHAR(50) NOT NULL COMMENT '环境代码',
     `description` VARCHAR(500) DEFAULT NULL COMMENT '环境描述',
     `sort` BIGINT DEFAULT NULL COMMENT '排序',
     `status` TINYINT DEFAULT 1 COMMENT '状态: 1-启用 0-禁用',

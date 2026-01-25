@@ -26,7 +26,6 @@ func NewEnvLogic(ctx context.Context) *EnvLogic {
 type CreateEnvReq struct {
 	ProjectID   int64  `json:"project_id" validate:"required"`
 	Name        string `json:"name" validate:"required,max=100"`
-	Code        string `json:"code" validate:"required,max=50"`
 	Description string `json:"description" validate:"max=500"`
 	Sort        int64  `json:"sort"`
 	Status      int32  `json:"status"`
@@ -46,7 +45,6 @@ type EnvListReq struct {
 	PageSize  int    `query:"pageSize" validate:"min=1,max=100"`
 	ProjectID int64  `query:"project_id"`
 	Name      string `query:"name"`
-	Code      string `query:"code"`
 	Status    *int32 `query:"status"`
 }
 
@@ -66,15 +64,6 @@ func (l *EnvLogic) Create(req *CreateEnvReq, userID int64) (*model.TEnv, error) 
 		return nil, errors.New("项目不存在")
 	}
 
-	// 检查环境代码在项目内是否唯一
-	exists, err := l.CheckCodeExists(req.ProjectID, req.Code, 0)
-	if err != nil {
-		return nil, err
-	}
-	if exists {
-		return nil, errors.New("环境代码在该项目中已存在")
-	}
-
 	now := time.Now()
 	isDelete := false
 	status := req.Status
@@ -90,7 +79,6 @@ func (l *EnvLogic) Create(req *CreateEnvReq, userID int64) (*model.TEnv, error) 
 		UpdatedBy:   &userID,
 		ProjectID:   req.ProjectID,
 		Name:        req.Name,
-		Code:        req.Code,
 		Description: &req.Description,
 		Sort:        &req.Sort,
 		Status:      &status,
@@ -165,9 +153,6 @@ func (l *EnvLogic) List(req *EnvListReq) ([]*model.TEnv, int64, error) {
 	if req.Name != "" {
 		qry = qry.Where(e.Name.Like("%" + req.Name + "%"))
 	}
-	if req.Code != "" {
-		qry = qry.Where(e.Code.Like("%" + req.Code + "%"))
-	}
 	if req.Status != nil {
 		qry = qry.Where(e.Status.Eq(*req.Status))
 	}
@@ -191,24 +176,6 @@ func (l *EnvLogic) List(req *EnvListReq) ([]*model.TEnv, int64, error) {
 	}
 
 	return list, total, nil
-}
-
-// CheckCodeExists 检查环境代码在项目内是否存在
-func (l *EnvLogic) CheckCodeExists(projectID int64, code string, excludeID int64) (bool, error) {
-	q := query.Use(svc.Ctx.DB)
-	e := q.TEnv
-
-	qry := e.WithContext(l.ctx).Where(e.ProjectID.Eq(projectID), e.Code.Eq(code), e.IsDelete.Is(false))
-	if excludeID > 0 {
-		qry = qry.Where(e.ID.Neq(excludeID))
-	}
-
-	count, err := qry.Count()
-	if err != nil {
-		return false, err
-	}
-
-	return count > 0, nil
 }
 
 // GetEnvsByProjectID 获取项目下所有环境
@@ -296,20 +263,11 @@ func (l *EnvLogic) UpdateSort(req *EnvUpdateSortReq) error {
 }
 
 // CopyEnv 复制环境（包含所有配置）
-func (l *EnvLogic) CopyEnv(sourceEnvID int64, newName, newCode string, userID int64) (*model.TEnv, error) {
+func (l *EnvLogic) CopyEnv(sourceEnvID int64, newName string, userID int64) (*model.TEnv, error) {
 	// 获取源环境
 	sourceEnv, err := l.GetByID(sourceEnvID)
 	if err != nil {
 		return nil, errors.New("源环境不存在")
-	}
-
-	// 检查新代码是否已存在
-	exists, err := l.CheckCodeExists(sourceEnv.ProjectID, newCode, 0)
-	if err != nil {
-		return nil, err
-	}
-	if exists {
-		return nil, errors.New("环境代码在该项目中已存在")
 	}
 
 	// 开启事务
@@ -329,7 +287,6 @@ func (l *EnvLogic) CopyEnv(sourceEnvID int64, newName, newCode string, userID in
 			UpdatedBy:   &userID,
 			ProjectID:   sourceEnv.ProjectID,
 			Name:        newName,
-			Code:        newCode,
 			Description: sourceEnv.Description,
 			Sort:        sourceEnv.Sort,
 			Status:      &status,

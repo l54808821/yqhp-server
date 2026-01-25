@@ -6,6 +6,7 @@ package query
 
 import (
 	"context"
+	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -35,7 +36,6 @@ func newTEnv(db *gorm.DB, opts ...gen.DOOption) tEnv {
 	_tEnv.UpdatedBy = field.NewInt64(tableName, "updated_by")
 	_tEnv.ProjectID = field.NewInt64(tableName, "project_id")
 	_tEnv.Name = field.NewString(tableName, "name")
-	_tEnv.Code = field.NewString(tableName, "code")
 	_tEnv.Description = field.NewString(tableName, "description")
 	_tEnv.Sort = field.NewInt64(tableName, "sort")
 	_tEnv.Status = field.NewInt32(tableName, "status")
@@ -58,7 +58,6 @@ type tEnv struct {
 	UpdatedBy   field.Int64  // 更新人ID
 	ProjectID   field.Int64  // 所属项目ID
 	Name        field.String // 环境名称
-	Code        field.String // 环境代码
 	Description field.String // 环境描述
 	Sort        field.Int64  // 排序
 	Status      field.Int32  // 状态: 1-启用 0-禁用
@@ -86,7 +85,6 @@ func (t *tEnv) updateTableName(table string) *tEnv {
 	t.UpdatedBy = field.NewInt64(table, "updated_by")
 	t.ProjectID = field.NewInt64(table, "project_id")
 	t.Name = field.NewString(table, "name")
-	t.Code = field.NewString(table, "code")
 	t.Description = field.NewString(table, "description")
 	t.Sort = field.NewInt64(table, "sort")
 	t.Status = field.NewInt32(table, "status")
@@ -114,7 +112,7 @@ func (t *tEnv) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (t *tEnv) fillFieldMap() {
-	t.fieldMap = make(map[string]field.Expr, 12)
+	t.fieldMap = make(map[string]field.Expr, 11)
 	t.fieldMap["id"] = t.ID
 	t.fieldMap["created_at"] = t.CreatedAt
 	t.fieldMap["updated_at"] = t.UpdatedAt
@@ -123,7 +121,6 @@ func (t *tEnv) fillFieldMap() {
 	t.fieldMap["updated_by"] = t.UpdatedBy
 	t.fieldMap["project_id"] = t.ProjectID
 	t.fieldMap["name"] = t.Name
-	t.fieldMap["code"] = t.Code
 	t.fieldMap["description"] = t.Description
 	t.fieldMap["sort"] = t.Sort
 	t.fieldMap["status"] = t.Status
@@ -196,6 +193,8 @@ type ITEnvDo interface {
 	FirstOrCreate() (*model.TEnv, error)
 	FindByPage(offset int, limit int) (result []*model.TEnv, count int64, err error)
 	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
+	Rows() (*sql.Rows, error)
+	Row() *sql.Row
 	Scan(result interface{}) (err error)
 	Returning(value interface{}, columns ...string) ITEnvDo
 	UnderlyingDB() *gorm.DB

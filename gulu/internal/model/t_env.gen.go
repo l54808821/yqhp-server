@@ -20,7 +20,6 @@ type TEnv struct {
 	UpdatedBy   *int64     `gorm:"column:updated_by;type:bigint unsigned;comment:更新人ID" json:"updated_by"`                                                 // 更新人ID
 	ProjectID   int64      `gorm:"column:project_id;type:bigint unsigned;not null;index:idx_t_env_project_id,priority:1;comment:所属项目ID" json:"project_id"` // 所属项目ID
 	Name        string     `gorm:"column:name;type:varchar(100);not null;comment:环境名称" json:"name"`                                                        // 环境名称
-	Code        string     `gorm:"column:code;type:varchar(50);not null;comment:环境代码" json:"code"`                                                         // 环境代码
 	Description *string    `gorm:"column:description;type:varchar(500);comment:环境描述" json:"description"`                                                   // 环境描述
 	Sort        *int64     `gorm:"column:sort;type:bigint;comment:排序" json:"sort"`                                                                         // 排序
 	Status      *int32     `gorm:"column:status;type:tinyint;default:1;comment:状态: 1-启用 0-禁用" json:"status"`                                               // 状态: 1-启用 0-禁用

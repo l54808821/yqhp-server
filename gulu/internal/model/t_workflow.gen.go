@@ -10,47 +10,21 @@ import (
 
 const TableNameTWorkflow = "t_workflow"
 
-// WorkflowType 工作流类型
-type WorkflowType string
-
-const (
-	// WorkflowTypeNormal 普通流程 - 仅支持调试模式
-	WorkflowTypeNormal WorkflowType = "normal"
-	// WorkflowTypePerformance 压测流程 - 支持调试和执行模式
-	WorkflowTypePerformance WorkflowType = "performance"
-	// WorkflowTypeDataGeneration 造数流程 - 支持调试和执行模式
-	WorkflowTypeDataGeneration WorkflowType = "data_generation"
-)
-
-// IsValid 检查工作流类型是否有效
-func (t WorkflowType) IsValid() bool {
-	switch t {
-	case WorkflowTypeNormal, WorkflowTypePerformance, WorkflowTypeDataGeneration:
-		return true
-	}
-	return false
-}
-
-// SupportsExecuteMode 检查是否支持执行模式
-func (t WorkflowType) SupportsExecuteMode() bool {
-	return t == WorkflowTypePerformance || t == WorkflowTypeDataGeneration
-}
-
 // TWorkflow 工作流表
 type TWorkflow struct {
 	ID           int64      `gorm:"column:id;type:bigint unsigned;primaryKey;autoIncrement:true" json:"id"`
 	CreatedAt    *time.Time `gorm:"column:created_at;type:datetime" json:"created_at"`
 	UpdatedAt    *time.Time `gorm:"column:updated_at;type:datetime" json:"updated_at"`
 	IsDelete     *bool      `gorm:"column:is_delete;type:tinyint(1);index:idx_t_workflow_is_delete,priority:1" json:"is_delete"`
-	CreatedBy    *int64     `gorm:"column:created_by;type:bigint unsigned;comment:创建人ID" json:"created_by"`                                                      // 创建人ID
-	UpdatedBy    *int64     `gorm:"column:updated_by;type:bigint unsigned;comment:更新人ID" json:"updated_by"`                                                      // 更新人ID
-	ProjectID    int64      `gorm:"column:project_id;type:bigint unsigned;not null;index:idx_t_workflow_project_id,priority:1;comment:所属项目ID" json:"project_id"` // 所属项目ID
-	Name         string     `gorm:"column:name;type:varchar(100);not null;comment:工作流名称" json:"name"`                                                            // 工作流名称
-	Description  *string    `gorm:"column:description;type:varchar(500);comment:描述" json:"description"`                                                          // 描述
-	Version      *int32     `gorm:"column:version;type:int;default:1;comment:版本号" json:"version"`                                                                // 版本号
-	Definition   string     `gorm:"column:definition;type:longtext;not null;comment:工作流定义(JSON格式)" json:"definition"`                                            // 工作流定义(JSON格式)
-	Status       *int32     `gorm:"column:status;type:tinyint;default:1;comment:状态: 1-启用 0-禁用" json:"status"`                                                    // 状态: 1-启用 0-禁用
-	WorkflowType *string    `gorm:"column:workflow_type;type:varchar(20);default:normal;index:idx_t_workflow_type;comment:工作流类型" json:"workflow_type"`           // 工作流类型: normal, performance, data_generation
+	CreatedBy    *int64     `gorm:"column:created_by;type:bigint unsigned;comment:创建人ID" json:"created_by"`                                                                                                               // 创建人ID
+	UpdatedBy    *int64     `gorm:"column:updated_by;type:bigint unsigned;comment:更新人ID" json:"updated_by"`                                                                                                               // 更新人ID
+	ProjectID    int64      `gorm:"column:project_id;type:bigint unsigned;not null;index:idx_t_workflow_project_id,priority:1;comment:所属项目ID" json:"project_id"`                                                          // 所属项目ID
+	Name         string     `gorm:"column:name;type:varchar(100);not null;comment:工作流名称" json:"name"`                                                                                                                     // 工作流名称
+	Description  *string    `gorm:"column:description;type:varchar(500);comment:描述" json:"description"`                                                                                                                   // 描述
+	Version      *int32     `gorm:"column:version;type:int;default:1;comment:版本号" json:"version"`                                                                                                                         // 版本号
+	Definition   string     `gorm:"column:definition;type:longtext;not null;comment:工作流定义(JSON格式)" json:"definition"`                                                                                                     // 工作流定义(JSON格式)
+	Status       *int32     `gorm:"column:status;type:tinyint;default:1;comment:状态: 1-启用 0-禁用" json:"status"`                                                                                                             // 状态: 1-启用 0-禁用
+	WorkflowType *string    `gorm:"column:workflow_type;type:varchar(20);index:idx_t_workflow_type,priority:1;default:normal;comment:工作流类型: normal(普通流程), performance(压测流程), data_generation(造数流程)" json:"workflow_type"` // 工作流类型: normal(普通流程), performance(压测流程), data_generation(造数流程)
 }
 
 // TableName TWorkflow's table name

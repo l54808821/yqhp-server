@@ -6,6 +6,7 @@ package query
 
 import (
 	"context"
+	"database/sql"
 
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -63,7 +64,7 @@ type tWorkflow struct {
 	Version      field.Int32  // 版本号
 	Definition   field.String // 工作流定义(JSON格式)
 	Status       field.Int32  // 状态: 1-启用 0-禁用
-	WorkflowType field.String // 工作流类型: normal, performance, data_generation
+	WorkflowType field.String // 工作流类型: normal(普通流程), performance(压测流程), data_generation(造数流程)
 
 	fieldMap map[string]field.Expr
 }
@@ -202,6 +203,8 @@ type ITWorkflowDo interface {
 	FirstOrCreate() (*model.TWorkflow, error)
 	FindByPage(offset int, limit int) (result []*model.TWorkflow, count int64, err error)
 	ScanByPage(result interface{}, offset int, limit int) (count int64, err error)
+	Rows() (*sql.Rows, error)
+	Row() *sql.Row
 	Scan(result interface{}) (err error)
 	Returning(value interface{}, columns ...string) ITWorkflowDo
 	UnderlyingDB() *gorm.DB

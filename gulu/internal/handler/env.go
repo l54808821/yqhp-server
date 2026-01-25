@@ -24,9 +24,6 @@ func EnvCreate(c *fiber.Ctx) error {
 	if req.Name == "" {
 		return response.Error(c, "环境名称不能为空")
 	}
-	if req.Code == "" {
-		return response.Error(c, "环境代码不能为空")
-	}
 
 	userID := middleware.GetCurrentUserID(c)
 	envLogic := logic.NewEnvLogic(c.UserContext())
@@ -132,7 +129,6 @@ func EnvCopy(c *fiber.Ctx) error {
 
 	var req struct {
 		Name string `json:"name"`
-		Code string `json:"code"`
 	}
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
@@ -141,14 +137,11 @@ func EnvCopy(c *fiber.Ctx) error {
 	if req.Name == "" {
 		return response.Error(c, "新环境名称不能为空")
 	}
-	if req.Code == "" {
-		return response.Error(c, "新环境代码不能为空")
-	}
 
 	userID := middleware.GetCurrentUserID(c)
 	envLogic := logic.NewEnvLogic(c.UserContext())
 
-	newEnv, err := envLogic.CopyEnv(id, req.Name, req.Code, userID)
+	newEnv, err := envLogic.CopyEnv(id, req.Name, userID)
 	if err != nil {
 		return response.Error(c, err.Error())
 	}

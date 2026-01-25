@@ -349,9 +349,9 @@ func TestConditionExecutor_Execute_WithStepResults(t *testing.T) {
 	execCtx.SetResult("login", &types.StepResult{
 		StepID: "login",
 		Status: types.ResultStatusSuccess,
-		Output: &HTTPResponse{
+		Output: &types.HTTPResponseData{
 			StatusCode: 200,
-			Body:       map[string]any{"token": "abc123"},
+			Body:       `{"token": "abc123"}`,
 		},
 	})
 

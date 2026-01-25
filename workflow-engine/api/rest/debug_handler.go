@@ -573,93 +573,22 @@ func (s *Server) executeHTTPRequestUnified(ctx context.Context, config *DebugHTT
 		return nil, nil, err
 	}
 
-	// 解析响应（使用统一类型）
-	response := &types.HTTPResponseData{
-		Duration: time.Since(startTime).Milliseconds(),
-		Headers:  make(map[string]string),
-		Cookies:  make(map[string]string),
-	}
-
-	actualReq := &types.ActualRequest{
-		Headers: make(map[string]string),
-	}
-
+	// 解析响应（输出已经是统一的 HTTPResponseData 类型）
 	if result.Output != nil {
-		// 解析输出
-		if output, ok := result.Output.(*executor.HTTPResponse); ok {
-			response.StatusCode = output.StatusCode
-			response.StatusText = output.StatusText
-
-			// Body 是 any 类型，需要转换为 string
-			bodyStr := ""
-			if output.Body != nil {
-				if s, ok := output.Body.(string); ok {
-					bodyStr = s
-				} else if b, ok := output.Body.([]byte); ok {
-					bodyStr = string(b)
-				} else {
-					bodyStr = fmt.Sprintf("%v", output.Body)
-				}
+		if output, ok := result.Output.(*types.HTTPResponseData); ok {
+			// 设置耗时（如果还没有设置）
+			if output.Duration == 0 {
+				output.Duration = time.Since(startTime).Milliseconds()
 			}
-			response.Size = int64(len(bodyStr))
-			response.Body = bodyStr
-			response.BodyType = types.DetectBodyType(bodyStr)
-
-			// 解析响应头
-			for k, v := range output.Headers {
-				if len(v) > 0 {
-					response.Headers[k] = v[0]
-				}
-			}
-
-			// 解析实际请求
-			if output.Request != nil {
-				actualReq.URL = output.Request.URL
-				actualReq.Method = output.Request.Method
-				actualReq.Headers = output.Request.Headers
-				actualReq.Body = output.Request.Body
-			}
-		} else if outputMap, ok := result.Output.(map[string]interface{}); ok {
-			// 尝试从 map 解析
-			if sc, ok := outputMap["status_code"].(int); ok {
-				response.StatusCode = sc
-			} else if sc, ok := outputMap["status_code"].(float64); ok {
-				response.StatusCode = int(sc)
-			}
-			if status, ok := outputMap["status"].(string); ok {
-				response.StatusText = status
-			}
-			if body, ok := outputMap["body_raw"].(string); ok {
-				response.Body = body
-				response.Size = int64(len(body))
-				response.BodyType = types.DetectBodyType(body)
-			}
-			if headers, ok := outputMap["headers"].(map[string][]string); ok {
-				for k, v := range headers {
-					if len(v) > 0 {
-						response.Headers[k] = v[0]
-					}
-				}
-			}
-			// 解析请求信息
-			if reqInfo, ok := outputMap["request"].(map[string]interface{}); ok {
-				if url, ok := reqInfo["url"].(string); ok {
-					actualReq.URL = url
-				}
-				if method, ok := reqInfo["method"].(string); ok {
-					actualReq.Method = method
-				}
-				if headers, ok := reqInfo["headers"].(map[string]string); ok {
-					actualReq.Headers = headers
-				}
-				if body, ok := reqInfo["body"].(string); ok {
-					actualReq.Body = body
-				}
-			}
+			return output, output.ActualRequest, nil
 		}
 	}
 
-	return response, actualReq, nil
+	// 如果输出不是预期类型，返回空响应
+	return &types.HTTPResponseData{
+		Duration: time.Since(startTime).Milliseconds(),
+		Headers:  make(map[string]string),
+	}, nil, nil
 }
 
 // convertToStepConfig 转换配置为步骤配置

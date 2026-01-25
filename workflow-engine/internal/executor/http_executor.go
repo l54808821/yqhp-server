@@ -282,9 +282,7 @@ func (e *HTTPExecutor) Execute(ctx context.Context, step *types.Step, execCtx *E
 		// 将响应数据转换为 map 供处理器使用
 		respHeaders := make(map[string]interface{})
 		for k, v := range output.Headers {
-			if len(v) > 0 {
-				respHeaders[k] = v[0]
-			}
+			respHeaders[k] = v
 		}
 
 		procExecutor.SetResponse(map[string]interface{}{
@@ -581,68 +579,46 @@ func (e *HTTPExecutor) createRequest(ctx context.Context, config *HTTPConfig, me
 	return req, nil
 }
 
-// HTTPResponse 表示 HTTP 步骤的输出。
-type HTTPResponse struct {
-	// 请求信息（调试用）
-	Request *HTTPRequestInfo `json:"actualRequest,omitempty"`
-	// 响应信息
-	StatusText string              `json:"statusText"`
-	StatusCode int                 `json:"statusCode"`
-	Headers    map[string][]string `json:"headers"`
-	Body       any                 `json:"body"`
-	BodyType   string              `json:"bodyType,omitempty"`
-	Duration   int64               `json:"duration"` // 毫秒
-	Size       int64               `json:"size"`     // 字节
-	// 控制台日志（统一格式）
-	ConsoleLogs []types.ConsoleLogEntry `json:"consoleLogs,omitempty"`
-}
-
-// HTTPRequestInfo 请求详情（用于调试）
-type HTTPRequestInfo struct {
-	Method  string            `json:"method"`
-	URL     string            `json:"url"`
-	Headers map[string]string `json:"headers"`
-	Body    string            `json:"body,omitempty"`
-}
-
-// buildOutput 构建响应输出。
-func (e *HTTPExecutor) buildOutput(resp *http.Response, body []byte) *HTTPResponse {
+// buildOutput 构建响应输出（使用统一的 HTTPResponseData 结构）
+func (e *HTTPExecutor) buildOutput(resp *http.Response, body []byte) *types.HTTPResponseData {
 	bodyStr := string(body)
-	output := &HTTPResponse{
-		StatusText: resp.Status,
-		StatusCode: resp.StatusCode,
-		Headers:    resp.Header,
-		BodyType:   types.DetectBodyType(bodyStr),
-		Size:       int64(len(body)),
+
+	// 将 headers 从 map[string][]string 转换为 map[string]string
+	headers := make(map[string]string)
+	for k, v := range resp.Header {
+		if len(v) > 0 {
+			headers[k] = v[0]
+		}
 	}
 
-	// 尝试将 body 解析为 JSON
-	var jsonBody any
-	if err := json.Unmarshal(body, &jsonBody); err == nil {
-		output.Body = jsonBody
-	} else {
-		output.Body = bodyStr
+	output := &types.HTTPResponseData{
+		StatusText: resp.Status,
+		StatusCode: resp.StatusCode,
+		Headers:    headers,
+		Body:       bodyStr,
+		BodyType:   types.DetectBodyType(bodyStr),
+		Size:       int64(len(body)),
 	}
 
 	return output
 }
 
 // buildOutputWithRequest 构建包含请求信息的响应输出（用于调试）
-func (e *HTTPExecutor) buildOutputWithRequest(req *http.Request, resp *http.Response, body []byte, reqBody string) *HTTPResponse {
+func (e *HTTPExecutor) buildOutputWithRequest(req *http.Request, resp *http.Response, body []byte, reqBody string) *types.HTTPResponseData {
 	output := e.buildOutput(resp, body)
 
 	// 添加请求信息
-	headers := make(map[string]string)
+	reqHeaders := make(map[string]string)
 	for k, v := range req.Header {
 		if len(v) > 0 {
-			headers[k] = v[0]
+			reqHeaders[k] = v[0]
 		}
 	}
 
-	output.Request = &HTTPRequestInfo{
+	output.ActualRequest = &types.ActualRequest{
 		Method:  req.Method,
 		URL:     req.URL.String(),
-		Headers: headers,
+		Headers: reqHeaders,
 		Body:    reqBody,
 	}
 

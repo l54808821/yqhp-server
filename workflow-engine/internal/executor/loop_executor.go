@@ -635,8 +635,8 @@ func (e *LoopExecutor) buildEvaluationContext(execCtx *ExecutionContext) *expres
 				}
 			}
 
-			// 特殊处理 HTTPResponse
-			if httpResp, ok := result.Output.(*HTTPResponse); ok {
+			// 特殊处理 HTTPResponseData
+			if httpResp, ok := result.Output.(*types.HTTPResponseData); ok {
 				resultMap["status_code"] = httpResp.StatusCode
 				resultMap["body"] = httpResp.Body
 				resultMap["headers"] = httpResp.Headers

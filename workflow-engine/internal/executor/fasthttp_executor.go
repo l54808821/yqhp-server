@@ -252,7 +252,7 @@ func (e *FastHTTPExecutor) Execute(ctx context.Context, step *types.Step, execCt
 	}
 
 	// 捕获请求信息用于调试
-	reqInfo := &HTTPRequestInfo{
+	reqInfo := &types.ActualRequest{
 		Method:  config.Method,
 		URL:     string(req.URI().FullURI()),
 		Headers: make(map[string]string),
@@ -290,9 +290,7 @@ func (e *FastHTTPExecutor) Execute(ctx context.Context, step *types.Step, execCt
 		// 将响应数据转换为 map 供处理器使用
 		respHeaders := make(map[string]interface{})
 		for k, v := range output.Headers {
-			if len(v) > 0 {
-				respHeaders[k] = v[0]
-			}
+			respHeaders[k] = v
 		}
 
 		procExecutor.SetResponse(map[string]interface{}{
@@ -549,59 +547,36 @@ func (e *FastHTTPExecutor) buildRequest(req *fasthttp.Request, config *HTTPConfi
 	return nil
 }
 
-// FastHTTPResponse 表示 FastHTTP 步骤的输出。
-type FastHTTPResponse struct {
-	StatusText string              `json:"statusText"`
-	StatusCode int                 `json:"statusCode"`
-	Headers    map[string][]string `json:"headers"`
-	Body       any                 `json:"body"`
-	BodyType   string              `json:"bodyType,omitempty"`
-	Duration   int64               `json:"duration"` // 毫秒
-	Size       int64               `json:"size"`     // 字节
-	// 请求信息（用于调试）
-	Request *HTTPRequestInfo `json:"actualRequest,omitempty"`
-	// 控制台日志（统一格式）
-	ConsoleLogs []types.ConsoleLogEntry `json:"consoleLogs,omitempty"`
-}
-
-// buildOutput 构建响应输出。
-func (e *FastHTTPExecutor) buildOutput(resp *fasthttp.Response) *FastHTTPResponse {
+// buildOutput 构建响应输出（使用统一的 HTTPResponseData 结构）
+func (e *FastHTTPExecutor) buildOutput(resp *fasthttp.Response) *types.HTTPResponseData {
 	return e.buildOutputWithRequest(resp, nil)
 }
 
 // buildOutputWithRequest 构建响应输出，包含请求信息。
-func (e *FastHTTPExecutor) buildOutputWithRequest(resp *fasthttp.Response, reqInfo *HTTPRequestInfo) *FastHTTPResponse {
+func (e *FastHTTPExecutor) buildOutputWithRequest(resp *fasthttp.Response, reqInfo *types.ActualRequest) *types.HTTPResponseData {
 	// 复制响应体（因为 resp.Body() 返回的是内部缓冲区的引用）
 	bodyBytes := make([]byte, len(resp.Body()))
 	copy(bodyBytes, resp.Body())
 	bodyStr := string(bodyBytes)
 
-	output := &FastHTTPResponse{
-		StatusText: fmt.Sprintf("%d %s", resp.StatusCode(), fasthttp.StatusMessage(resp.StatusCode())),
-		StatusCode: resp.StatusCode(),
-		Headers:    make(map[string][]string),
-		BodyType:   types.DetectBodyType(bodyStr),
-		Size:       int64(len(bodyBytes)),
-		Request:    reqInfo,
-	}
-
-	// 复制响应头
+	// 将 headers 转换为 map[string]string（取第一个值）
+	headers := make(map[string]string)
 	resp.Header.VisitAll(func(key, value []byte) {
 		k := string(key)
-		v := string(value)
-		if existing, ok := output.Headers[k]; ok {
-			output.Headers[k] = append(existing, v)
-		} else {
-			output.Headers[k] = []string{v}
+		// 如果已存在则跳过（保留第一个值）
+		if _, exists := headers[k]; !exists {
+			headers[k] = string(value)
 		}
 	})
 
-	// 尝试将 body 解析为 JSON
-	var jsonBody any
-	if err := json.Unmarshal(bodyBytes, &jsonBody); err == nil {
-		output.Body = jsonBody
-	} else {
-		output.Body = bodyStr
+	output := &types.HTTPResponseData{
+		StatusText:    fmt.Sprintf("%d %s", resp.StatusCode(), fasthttp.StatusMessage(resp.StatusCode())),
+		StatusCode:    resp.StatusCode(),
+		Headers:       headers,
+		Body:          bodyStr,
+		BodyType:      types.DetectBodyType(bodyStr),
+		Size:          int64(len(bodyBytes)),
+		ActualRequest: reqInfo,
 	}
 
 	return output

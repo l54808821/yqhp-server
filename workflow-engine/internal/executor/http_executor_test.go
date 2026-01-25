@@ -61,7 +61,7 @@ func TestHTTPExecutor_Execute_GET(t *testing.T) {
 	assert.Equal(t, types.ResultStatusSuccess, result.Status)
 	assert.Equal(t, "test-get", result.StepID)
 
-	output, ok := result.Output.(*HTTPResponse)
+	output, ok := result.Output.(*types.HTTPResponseData)
 	require.True(t, ok)
 	assert.Equal(t, 200, output.StatusCode)
 }
@@ -104,7 +104,7 @@ func TestHTTPExecutor_Execute_POST(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, types.ResultStatusSuccess, result.Status)
 
-	output, ok := result.Output.(*HTTPResponse)
+	output, ok := result.Output.(*types.HTTPResponseData)
 	require.True(t, ok)
 	assert.Equal(t, 201, output.StatusCode)
 }

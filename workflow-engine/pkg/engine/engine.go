@@ -395,53 +395,22 @@ func (e *Engine) executeHTTPRequest(ctx context.Context, config *httpConfig, var
 		return nil, nil, err
 	}
 
-	// 解析响应
-	response := &types.HTTPResponseData{
-		Duration: time.Since(startTime).Milliseconds(),
-		Headers:  make(map[string]string),
-		Cookies:  make(map[string]string),
-	}
-
-	actualReq := &types.ActualRequest{
-		Headers: make(map[string]string),
-	}
-
+	// 解析响应（输出已经是统一的 HTTPResponseData 类型）
 	if result.Output != nil {
-		if output, ok := result.Output.(*executor.HTTPResponse); ok {
-			response.StatusCode = output.StatusCode
-			response.StatusText = output.StatusText
-
-			// Body 是 any 类型，需要转换为 string
-			bodyStr := ""
-			if output.Body != nil {
-				if s, ok := output.Body.(string); ok {
-					bodyStr = s
-				} else if b, ok := output.Body.([]byte); ok {
-					bodyStr = string(b)
-				} else {
-					bodyStr = fmt.Sprintf("%v", output.Body)
-				}
+		if output, ok := result.Output.(*types.HTTPResponseData); ok {
+			// 设置耗时（如果还没有设置）
+			if output.Duration == 0 {
+				output.Duration = time.Since(startTime).Milliseconds()
 			}
-			response.Size = int64(len(bodyStr))
-			response.Body = bodyStr
-			response.BodyType = types.DetectBodyType(bodyStr)
-
-			for k, v := range output.Headers {
-				if len(v) > 0 {
-					response.Headers[k] = v[0]
-				}
-			}
-
-			if output.Request != nil {
-				actualReq.URL = output.Request.URL
-				actualReq.Method = output.Request.Method
-				actualReq.Headers = output.Request.Headers
-				actualReq.Body = output.Request.Body
-			}
+			return output, output.ActualRequest, nil
 		}
 	}
 
-	return response, actualReq, nil
+	// 如果输出不是预期类型，返回空响应
+	return &types.HTTPResponseData{
+		Duration: time.Since(startTime).Milliseconds(),
+		Headers:  make(map[string]string),
+	}, nil, nil
 }
 
 // httpConfig HTTP 配置

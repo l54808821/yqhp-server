@@ -52,7 +52,7 @@ type EnvListReq struct {
 
 // EnvUpdateSortReq 环境排序请求
 type EnvUpdateSortReq struct {
-	ID       int64  `json:"id" validate:"required"`       // 被拖动的环境ID
+	ID       int64  `json:"id" validate:"required"`        // 被拖动的环境ID
 	TargetID int64  `json:"target_id" validate:"required"` // 目标位置的环境ID
 	Position string `json:"position" validate:"required"`  // before 或 after
 }
@@ -211,16 +211,14 @@ func (l *EnvLogic) CheckCodeExists(projectID int64, code string, excludeID int64
 	return count > 0, nil
 }
 
-// GetEnvsByProjectID 获取项目下所有启用的环境
+// GetEnvsByProjectID 获取项目下所有环境
 func (l *EnvLogic) GetEnvsByProjectID(projectID int64) ([]*model.TEnv, error) {
 	q := query.Use(svc.Ctx.DB)
 	e := q.TEnv
 
-	status := int32(1)
 	return e.WithContext(l.ctx).Where(
 		e.ProjectID.Eq(projectID),
 		e.IsDelete.Is(false),
-		e.Status.Eq(status),
 	).Order(e.Sort, e.ID).Find()
 }
 

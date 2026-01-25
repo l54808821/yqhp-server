@@ -299,7 +299,7 @@ func (e *Engine) executeScriptDebugStep(ctx context.Context, nodeConfig *types.D
 	}
 
 	if scriptCode == "" {
-		result.ScriptResult = &types.DebugScriptResult{
+		result.ScriptResult = &types.ScriptResponseData{
 			Error:      "脚本内容为空",
 			DurationMs: time.Since(startTime).Milliseconds(),
 		}
@@ -336,7 +336,7 @@ func (e *Engine) executeScriptDebugStep(ctx context.Context, nodeConfig *types.D
 		consoleLogs = append(consoleLogs, types.NewLogEntry(log))
 	}
 
-	scriptResult := &types.DebugScriptResult{
+	scriptResult := &types.ScriptResponseData{
 		Script:      scriptCode,
 		Language:    language,
 		ConsoleLogs: consoleLogs,

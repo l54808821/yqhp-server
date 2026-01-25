@@ -121,8 +121,8 @@ type DebugStepResponse struct {
 	Success bool `json:"success"`
 	// HTTP 响应（使用统一类型）
 	Response *types.HTTPResponseData `json:"response,omitempty"`
-	// 脚本执行结果
-	ScriptResult *DebugScriptResult `json:"scriptResult,omitempty"`
+	// 脚本执行结果（使用统一类型）
+	ScriptResult *types.ScriptResponseData `json:"scriptResult,omitempty"`
 	// 断言结果（使用统一类型）
 	AssertionResults []types.AssertionResult `json:"assertionResults,omitempty"`
 	// 控制台日志（统一格式）
@@ -131,17 +131,6 @@ type DebugStepResponse struct {
 	ActualRequest *types.ActualRequest `json:"actualRequest,omitempty"`
 	// 错误信息
 	Error string `json:"error,omitempty"`
-}
-
-// DebugScriptResult 脚本执行结果
-type DebugScriptResult struct {
-	Script      string                  `json:"script"`
-	Language    string                  `json:"language"`
-	Result      interface{}             `json:"result"`
-	ConsoleLogs []types.ConsoleLogEntry `json:"consoleLogs"`
-	Error       string                  `json:"error,omitempty"`
-	Variables   map[string]interface{}  `json:"variables"`
-	DurationMs  int64                   `json:"durationMs"`
 }
 
 // KeywordResult 关键字执行结果
@@ -305,7 +294,7 @@ func (s *Server) executeScriptDebugStep(ctx context.Context, nodeConfig *DebugNo
 }
 
 // executeScript 执行脚本
-func (s *Server) executeScript(ctx context.Context, nodeConfig *DebugNodeConfig, variables, envVars map[string]interface{}) (*DebugScriptResult, error) {
+func (s *Server) executeScript(ctx context.Context, nodeConfig *DebugNodeConfig, variables, envVars map[string]interface{}) (*types.ScriptResponseData, error) {
 	startTime := time.Now()
 
 	var scriptCode string
@@ -325,7 +314,7 @@ func (s *Server) executeScript(ctx context.Context, nodeConfig *DebugNodeConfig,
 	}
 
 	if scriptCode == "" {
-		return &DebugScriptResult{
+		return &types.ScriptResponseData{
 			Error:      "脚本内容为空",
 			DurationMs: time.Since(startTime).Milliseconds(),
 		}, nil
@@ -359,7 +348,7 @@ func (s *Server) executeScript(ctx context.Context, nodeConfig *DebugNodeConfig,
 		consoleLogs = append(consoleLogs, types.NewLogEntry(log))
 	}
 
-	scriptResult := &DebugScriptResult{
+	scriptResult := &types.ScriptResponseData{
 		Script:      scriptCode,
 		Language:    language,
 		ConsoleLogs: consoleLogs,

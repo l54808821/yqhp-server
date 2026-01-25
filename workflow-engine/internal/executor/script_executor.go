@@ -113,8 +113,8 @@ func (e *ScriptExecutor) executeJavaScript(ctx context.Context, step *types.Step
 		consoleLogs = append(consoleLogs, types.NewLogEntry(log))
 	}
 
-	// 构建输出
-	output := &ScriptOutput{
+	// 构建输出（使用统一的 ScriptResponseData 结构）
+	output := &types.ScriptResponseData{
 		Script:      config.Script,
 		Language:    config.Language,
 		ConsoleLogs: consoleLogs,
@@ -160,17 +160,6 @@ type ScriptConfig struct {
 	Language string `json:"language"` // 脚本语言: javascript
 	Script   string `json:"script"`   // 脚本代码
 	Timeout  int    `json:"timeout"`  // 超时时间（秒）
-}
-
-// ScriptOutput 表示脚本执行的输出。
-type ScriptOutput struct {
-	Script      string                  `json:"script"`          // 执行的脚本内容
-	Language    string                  `json:"language"`        // 脚本语言
-	Result      interface{}             `json:"result"`          // 脚本返回值
-	ConsoleLogs []types.ConsoleLogEntry `json:"consoleLogs"`     // 控制台日志
-	Error       string                  `json:"error,omitempty"` // 错误信息
-	Variables   map[string]interface{}  `json:"variables"`       // 修改的变量
-	DurationMs  int64                   `json:"durationMs"`      // 执行耗时（毫秒）
 }
 
 // parseConfig 将步骤配置解析为 ScriptConfig。

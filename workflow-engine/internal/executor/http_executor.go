@@ -304,9 +304,21 @@ func (e *HTTPExecutor) Execute(ctx context.Context, step *types.Step, execCtx *E
 		}
 	}
 
-	// 添加控制台日志到输出
+	// 添加控制台日志到输出，并提取断言结果
 	if len(allConsoleLogs) > 0 {
 		output.ConsoleLogs = allConsoleLogs
+
+		// 从处理器日志中提取断言结果
+		for _, entry := range allConsoleLogs {
+			if entry.Type == types.LogTypeProcessor && entry.Processor != nil && entry.Processor.Type == "assertion" {
+				output.Assertions = append(output.Assertions, types.AssertionResult{
+					ID:      entry.Processor.ID,
+					Name:    entry.Processor.Name,
+					Passed:  entry.Processor.Success,
+					Message: entry.Processor.Message,
+				})
+			}
+		}
 	}
 
 	// 设置耗时

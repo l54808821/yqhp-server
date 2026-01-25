@@ -4,12 +4,13 @@ package rest
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
+	"fmt"
+	"strings"
 	"time"
 
 	"yqhp/workflow-engine/internal/executor"
-	"yqhp/workflow-engine/internal/keyword"
-	kwinit "yqhp/workflow-engine/internal/keyword/init"
+	pkgExecutor "yqhp/workflow-engine/pkg/executor"
+	"yqhp/workflow-engine/pkg/script"
 	"yqhp/workflow-engine/pkg/types"
 
 	"github.com/gofiber/fiber/v2"
@@ -20,19 +21,23 @@ type DebugStepRequest struct {
 	// 节点配置
 	NodeConfig *DebugNodeConfig `json:"nodeConfig"`
 	// 环境 ID
-	EnvID int `json:"envId,omitempty"`
+	EnvID int64 `json:"envId,omitempty"`
 	// 变量上下文
-	Variables map[string]any `json:"variables,omitempty"`
+	Variables map[string]interface{} `json:"variables,omitempty"`
+	// 环境变量（从业务项目传入）
+	EnvVars map[string]interface{} `json:"envVars,omitempty"`
+	// 会话 ID（用于变量持久化）
+	SessionID string `json:"sessionId,omitempty"`
 }
 
 // DebugNodeConfig 调试节点配置
 type DebugNodeConfig struct {
-	ID             string           `json:"id"`
-	Type           string           `json:"type"`
-	Name           string           `json:"name"`
-	Config         *DebugHTTPConfig `json:"config"`
-	PreProcessors  []KeywordConfig  `json:"preProcessors,omitempty"`
-	PostProcessors []KeywordConfig  `json:"postProcessors,omitempty"`
+	ID             string                 `json:"id"`
+	Type           string                 `json:"type"`
+	Name           string                 `json:"name"`
+	Config         map[string]interface{} `json:"config"` // 通用配置，支持 http/script 等多种节点
+	PreProcessors  []KeywordConfig        `json:"preProcessors,omitempty"`
+	PostProcessors []KeywordConfig        `json:"postProcessors,omitempty"`
 }
 
 // DebugHTTPConfig HTTP 配置
@@ -104,64 +109,50 @@ type HTTPSettingsConf struct {
 
 // KeywordConfig 关键字配置
 type KeywordConfig struct {
-	ID      string         `json:"id"`
-	Type    string         `json:"type"`
-	Enabled bool           `json:"enabled"`
-	Name    string         `json:"name,omitempty"`
-	Config  map[string]any `json:"config"`
+	ID      string                 `json:"id"`
+	Type    string                 `json:"type"`
+	Enabled bool                   `json:"enabled"`
+	Name    string                 `json:"name,omitempty"`
+	Config  map[string]interface{} `json:"config"`
 }
 
-// DebugStepResponse 单步调试响应
+// DebugStepResponse 单步调试响应（统一使用 types 包中的类型）
 type DebugStepResponse struct {
 	Success bool `json:"success"`
-	// HTTP 响应
-	Response *DebugHTTPResponse `json:"response,omitempty"`
-	// 断言结果
-	AssertionResults []AssertionResult `json:"assertionResults,omitempty"`
+	// HTTP 响应（使用统一类型）
+	Response *types.HTTPResponseData `json:"response,omitempty"`
+	// 脚本执行结果
+	ScriptResult *DebugScriptResult `json:"scriptResult,omitempty"`
+	// 断言结果（使用统一类型）
+	AssertionResults []types.AssertionResult `json:"assertionResults,omitempty"`
 	// 控制台日志（统一格式）
 	ConsoleLogs []types.ConsoleLogEntry `json:"consoleLogs,omitempty"`
-	// 实际请求
-	ActualRequest *ActualRequest `json:"actualRequest,omitempty"`
+	// 实际请求（使用统一类型）
+	ActualRequest *types.ActualRequest `json:"actualRequest,omitempty"`
 	// 错误信息
 	Error string `json:"error,omitempty"`
 }
 
-// DebugHTTPResponse HTTP 响应
-type DebugHTTPResponse struct {
-	StatusCode int               `json:"statusCode"`
-	StatusText string            `json:"statusText"`
-	Duration   int64             `json:"duration"` // 毫秒
-	Size       int               `json:"size"`     // 字节
-	Headers    map[string]string `json:"headers"`
-	Cookies    map[string]string `json:"cookies,omitempty"`
-	Body       string            `json:"body"`
-	BodyType   string            `json:"bodyType"`
+// DebugScriptResult 脚本执行结果
+type DebugScriptResult struct {
+	Script      string                  `json:"script"`
+	Language    string                  `json:"language"`
+	Result      interface{}             `json:"result"`
+	ConsoleLogs []types.ConsoleLogEntry `json:"consoleLogs"`
+	Error       string                  `json:"error,omitempty"`
+	Variables   map[string]interface{}  `json:"variables"`
+	DurationMs  int64                   `json:"durationMs"`
 }
 
 // KeywordResult 关键字执行结果
 type KeywordResult struct {
-	KeywordID string         `json:"keywordId"`
-	Type      string         `json:"type"`
-	Name      string         `json:"name,omitempty"`
-	Success   bool           `json:"success"`
-	Message   string         `json:"message,omitempty"`
-	Output    map[string]any `json:"output,omitempty"`
-	Logs      []string       `json:"logs,omitempty"`
-}
-
-// AssertionResult 断言结果
-type AssertionResult struct {
-	Name    string `json:"name"`
-	Passed  bool   `json:"passed"`
-	Message string `json:"message,omitempty"`
-}
-
-// ActualRequest 实际请求
-type ActualRequest struct {
-	URL     string            `json:"url"`
-	Method  string            `json:"method"`
-	Headers map[string]string `json:"headers"`
-	Body    string            `json:"body,omitempty"`
+	KeywordID string                 `json:"keywordId"`
+	Type      string                 `json:"type"`
+	Name      string                 `json:"name,omitempty"`
+	Success   bool                   `json:"success"`
+	Message   string                 `json:"message,omitempty"`
+	Output    map[string]interface{} `json:"output,omitempty"`
+	Logs      []string               `json:"logs,omitempty"`
 }
 
 // setupDebugRoutes 设置调试路由
@@ -188,10 +179,11 @@ func (s *Server) debugStep(c *fiber.Ctx) error {
 		})
 	}
 
-	if req.NodeConfig.Type != "http" {
+	// 支持 http 和 script 节点类型
+	if req.NodeConfig.Type != "http" && req.NodeConfig.Type != "script" {
 		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
 			Error:   "invalid_request",
-			Message: "Only HTTP node type is supported for debug",
+			Message: "Only HTTP and script node types are supported for debug",
 		})
 	}
 
@@ -207,117 +199,85 @@ func (s *Server) debugStep(c *fiber.Ctx) error {
 	return c.JSON(result)
 }
 
-// executeDebugStep 执行单步调试
+// executeDebugStep 执行单步调试（统一处理 http 和 script 节点）
 func (s *Server) executeDebugStep(ctx context.Context, req *DebugStepRequest) (*DebugStepResponse, error) {
 	result := &DebugStepResponse{
 		Success:          true,
-		AssertionResults: make([]AssertionResult, 0),
+		AssertionResults: make([]types.AssertionResult, 0),
 		ConsoleLogs:      make([]types.ConsoleLogEntry, 0),
 	}
 
-	// 初始化关键字注册表
-	registry := keyword.NewRegistry()
-	kwinit.RegisterAllKeywords(registry)
-
-	// 创建执行上下文
-	execCtx := keyword.NewExecutionContextWithVars(req.Variables)
-
-	// 创建脚本执行器
-	scriptExecutor := keyword.NewScriptExecutor(registry)
-
-	// 1. 执行前置处理器
-	if len(req.NodeConfig.PreProcessors) > 0 {
-		preActions := convertToActions(req.NodeConfig.PreProcessors)
-		preRecords, err := scriptExecutor.ExecuteScripts(ctx, execCtx, preActions, "pre")
-		for _, record := range preRecords {
-			message := ""
-			if record.Error != nil {
-				message = record.Error.Error()
-			}
-			result.ConsoleLogs = append(result.ConsoleLogs, types.NewProcessorEntry("pre", types.ProcessorLogInfo{
-				ID:      record.Keyword,
-				Type:    record.Keyword,
-				Success: record.Success,
-				Message: message,
-			}))
-		}
-		if err != nil {
-			result.Success = false
-			result.Error = "前置处理器执行失败: " + err.Error()
-			return result, nil
-		}
+	// 复制变量，避免污染原始变量
+	workingVars := make(map[string]interface{})
+	for k, v := range req.Variables {
+		workingVars[k] = v
 	}
 
-	// 2. 执行 HTTP 请求
-	httpResult, actualReq, err := s.executeHTTPRequest(ctx, req.NodeConfig.Config, execCtx)
+	// 环境变量
+	envVars := make(map[string]interface{})
+	for k, v := range req.EnvVars {
+		envVars[k] = v
+	}
+
+	switch req.NodeConfig.Type {
+	case "http":
+		return s.executeHTTPDebugStep(ctx, req.NodeConfig, workingVars, envVars, result)
+	case "script":
+		return s.executeScriptDebugStep(ctx, req.NodeConfig, workingVars, envVars, result)
+	default:
+		result.Success = false
+		result.Error = fmt.Sprintf("不支持的节点类型: %s", req.NodeConfig.Type)
+		return result, nil
+	}
+}
+
+// executeHTTPDebugStep 执行 HTTP 节点单步调试
+func (s *Server) executeHTTPDebugStep(ctx context.Context, nodeConfig *DebugNodeConfig, workingVars, envVars map[string]interface{}, result *DebugStepResponse) (*DebugStepResponse, error) {
+	// 创建处理器执行器（使用统一实现）
+	procExecutor := pkgExecutor.NewProcessorExecutor(workingVars, envVars)
+
+	// 1. 执行前置处理器
+	if len(nodeConfig.PreProcessors) > 0 {
+		processors := convertToProcessors(nodeConfig.PreProcessors)
+		preLogs := procExecutor.ExecuteProcessors(ctx, processors, "pre")
+		result.ConsoleLogs = append(result.ConsoleLogs, preLogs...)
+	}
+
+	// 2. 解析 HTTP 配置
+	httpConfig, err := parseHTTPConfig(nodeConfig.Config)
+	if err != nil {
+		result.Success = false
+		result.Error = "解析 HTTP 配置失败: " + err.Error()
+		return result, nil
+	}
+
+	// 3. 执行 HTTP 请求（使用更新后的变量）
+	workingVars = procExecutor.GetVariables()
+	httpResp, actualReq, err := s.executeHTTPRequestUnified(ctx, httpConfig, workingVars)
 	if err != nil {
 		result.Success = false
 		result.Error = "HTTP 请求执行失败: " + err.Error()
 		return result, nil
 	}
-	result.Response = httpResult
+	result.Response = httpResp
 	result.ActualRequest = actualReq
 
-	// 设置响应到执行上下文
-	execCtx.SetResponse(&keyword.ResponseData{
-		Status:   httpResult.StatusCode,
-		Headers:  httpResult.Headers,
-		Body:     httpResult.Body,
-		Duration: httpResult.Duration,
-	})
+	// 4. 执行后置处理器（传递响应数据）
+	if len(nodeConfig.PostProcessors) > 0 {
+		// 设置响应数据到处理器执行器
+		procExecutor.SetResponse(httpResp.ToMap())
 
-	// 3. 执行后置处理器
-	if len(req.NodeConfig.PostProcessors) > 0 {
-		postActions := convertToActions(req.NodeConfig.PostProcessors)
-		postRecords, err := scriptExecutor.ExecuteScripts(ctx, execCtx, postActions, "post")
-		for _, record := range postRecords {
-			message := ""
-			if record.Error != nil {
-				message = record.Error.Error()
-			}
-			result.ConsoleLogs = append(result.ConsoleLogs, types.NewProcessorEntry("post", types.ProcessorLogInfo{
-				ID:      record.Keyword,
-				Type:    record.Keyword,
-				Success: record.Success,
-				Message: message,
-			}))
+		processors := convertToProcessors(nodeConfig.PostProcessors)
+		postLogs := procExecutor.ExecuteProcessors(ctx, processors, "post")
+		result.ConsoleLogs = append(result.ConsoleLogs, postLogs...)
 
-			// 收集断言结果
-			if record.Keyword == "assertion" || record.Keyword == "equals" ||
-				record.Keyword == "contains" || record.Keyword == "greater_than" {
-				result.AssertionResults = append(result.AssertionResults, AssertionResult{
-					Name:    record.Keyword,
-					Passed:  record.Success,
-					Message: message,
-				})
-			}
-		}
-		if err != nil {
-			// 后置处理器失败不影响整体成功状态，但记录错误
-			result.ConsoleLogs = append(result.ConsoleLogs, types.NewErrorEntry("后置处理器执行失败: "+err.Error()))
-		}
-	}
-
-	// 收集控制台日志
-	if logs, ok := execCtx.GetMetadata("console_logs"); ok {
-		if logSlice, ok := logs.([]string); ok {
-			for _, log := range logSlice {
-				result.ConsoleLogs = append(result.ConsoleLogs, types.NewLogEntry(log))
-			}
-		}
-	}
-
-	// 收集测试结果
-	if testResults, ok := execCtx.GetMetadata("test_results"); ok {
-		if tests, ok := testResults.([]map[string]any); ok {
-			for _, test := range tests {
-				name, _ := test["name"].(string)
-				passed, _ := test["passed"].(bool)
-				errMsg, _ := test["error"].(string)
-				result.AssertionResults = append(result.AssertionResults, AssertionResult{
-					Name:    name,
-					Passed:  passed,
-					Message: errMsg,
+		// 提取断言结果
+		for _, entry := range postLogs {
+			if entry.Type == types.LogTypeProcessor && entry.Processor != nil && entry.Processor.Type == "assertion" {
+				result.AssertionResults = append(result.AssertionResults, types.AssertionResult{
+					Name:    entry.Processor.Name,
+					Passed:  entry.Processor.Success,
+					Message: entry.Processor.Message,
 				})
 			}
 		}
@@ -326,10 +286,259 @@ func (s *Server) executeDebugStep(ctx context.Context, req *DebugStepRequest) (*
 	return result, nil
 }
 
-// executeHTTPRequest 执行 HTTP 请求
-func (s *Server) executeHTTPRequest(ctx context.Context, config *DebugHTTPConfig, execCtx *keyword.ExecutionContext) (*DebugHTTPResponse, *ActualRequest, error) {
+// executeScriptDebugStep 执行 Script 节点单步调试
+func (s *Server) executeScriptDebugStep(ctx context.Context, nodeConfig *DebugNodeConfig, workingVars, envVars map[string]interface{}, result *DebugStepResponse) (*DebugStepResponse, error) {
+	scriptResult, err := s.executeScript(ctx, nodeConfig, workingVars, envVars)
+	if err != nil {
+		result.Success = false
+		result.Error = "脚本执行失败: " + err.Error()
+		return result, nil
+	}
+	result.ScriptResult = scriptResult
+	// 脚本日志已经是 ConsoleLogEntry 格式，直接追加
+	result.ConsoleLogs = append(result.ConsoleLogs, scriptResult.ConsoleLogs...)
+	if scriptResult.Error != "" {
+		result.Success = false
+		result.Error = scriptResult.Error
+	}
+	return result, nil
+}
+
+// executeScript 执行脚本
+func (s *Server) executeScript(ctx context.Context, nodeConfig *DebugNodeConfig, variables, envVars map[string]interface{}) (*DebugScriptResult, error) {
+	startTime := time.Now()
+
+	var scriptCode string
+	var language string
+	var timeout int
+
+	if nodeConfig.Config != nil {
+		if sc, ok := nodeConfig.Config["script"].(string); ok {
+			scriptCode = sc
+		}
+		if lang, ok := nodeConfig.Config["language"].(string); ok {
+			language = lang
+		}
+		if t, ok := nodeConfig.Config["timeout"].(float64); ok {
+			timeout = int(t)
+		}
+	}
+
+	if scriptCode == "" {
+		return &DebugScriptResult{
+			Error:      "脚本内容为空",
+			DurationMs: time.Since(startTime).Milliseconds(),
+		}, nil
+	}
+
+	if language == "" {
+		language = "javascript"
+	}
+	if timeout <= 0 {
+		timeout = 60
+	}
+
+	rtConfig := &script.JSRuntimeConfig{
+		Variables: make(map[string]interface{}),
+		EnvVars:   make(map[string]interface{}),
+	}
+
+	for k, v := range variables {
+		rtConfig.Variables[k] = v
+	}
+	for k, v := range envVars {
+		rtConfig.EnvVars[k] = v
+	}
+
+	runtime := script.NewJSRuntime(rtConfig)
+	execResult, err := runtime.Execute(scriptCode, time.Duration(timeout)*time.Second)
+
+	// 将字符串日志转换为 ConsoleLogEntry 格式
+	consoleLogs := make([]types.ConsoleLogEntry, 0, len(execResult.ConsoleLogs))
+	for _, log := range execResult.ConsoleLogs {
+		consoleLogs = append(consoleLogs, types.NewLogEntry(log))
+	}
+
+	scriptResult := &DebugScriptResult{
+		Script:      scriptCode,
+		Language:    language,
+		ConsoleLogs: consoleLogs,
+		Variables:   execResult.Variables,
+		DurationMs:  time.Since(startTime).Milliseconds(),
+	}
+
+	if err != nil {
+		scriptResult.Error = err.Error()
+		return scriptResult, nil
+	}
+
+	scriptResult.Result = execResult.Value
+	return scriptResult, nil
+}
+
+// convertToProcessors 将 KeywordConfig 转换为 types.Processor
+func convertToProcessors(keywords []KeywordConfig) []types.Processor {
+	processors := make([]types.Processor, len(keywords))
+	for i, kw := range keywords {
+		processors[i] = types.Processor{
+			ID:      kw.ID,
+			Type:    kw.Type,
+			Enabled: kw.Enabled,
+			Name:    kw.Name,
+			Config:  kw.Config,
+		}
+	}
+	return processors
+}
+
+// parseHTTPConfig 从 map 解析 HTTP 配置
+func parseHTTPConfig(config map[string]interface{}) (*DebugHTTPConfig, error) {
+	if config == nil {
+		return nil, fmt.Errorf("配置为空")
+	}
+
+	httpConfig := &DebugHTTPConfig{}
+
+	if method, ok := config["method"].(string); ok {
+		httpConfig.Method = method
+	}
+	if urlStr, ok := config["url"].(string); ok {
+		httpConfig.URL = urlStr
+	}
+	if domainCode, ok := config["domainCode"].(string); ok {
+		httpConfig.DomainCode = domainCode
+	}
+
+	if params, ok := config["params"].([]interface{}); ok {
+		httpConfig.Params = parseParamItems(params)
+	}
+	if headers, ok := config["headers"].([]interface{}); ok {
+		httpConfig.Headers = parseParamItems(headers)
+	}
+	if cookies, ok := config["cookies"].([]interface{}); ok {
+		httpConfig.Cookies = parseParamItems(cookies)
+	}
+	if body, ok := config["body"].(map[string]interface{}); ok {
+		httpConfig.Body = parseBodyConfig(body)
+	}
+	if auth, ok := config["auth"].(map[string]interface{}); ok {
+		httpConfig.Auth = parseAuthConfig(auth)
+	}
+	if settings, ok := config["settings"].(map[string]interface{}); ok {
+		httpConfig.Settings = parseSettingsConfig(settings)
+	}
+
+	return httpConfig, nil
+}
+
+func parseParamItems(items []interface{}) []ParamItem {
+	result := make([]ParamItem, 0, len(items))
+	for _, item := range items {
+		if m, ok := item.(map[string]interface{}); ok {
+			p := ParamItem{}
+			if id, ok := m["id"].(string); ok {
+				p.ID = id
+			}
+			if enabled, ok := m["enabled"].(bool); ok {
+				p.Enabled = enabled
+			}
+			if key, ok := m["key"].(string); ok {
+				p.Key = key
+			}
+			if value, ok := m["value"].(string); ok {
+				p.Value = value
+			}
+			if t, ok := m["type"].(string); ok {
+				p.Type = t
+			}
+			if desc, ok := m["description"].(string); ok {
+				p.Description = desc
+			}
+			result = append(result, p)
+		}
+	}
+	return result
+}
+
+func parseBodyConfig(body map[string]interface{}) *DebugBodyConfig {
+	config := &DebugBodyConfig{}
+	if t, ok := body["type"].(string); ok {
+		config.Type = t
+	}
+	if raw, ok := body["raw"].(string); ok {
+		config.Raw = raw
+	}
+	if formData, ok := body["formData"].([]interface{}); ok {
+		config.FormData = parseParamItems(formData)
+	}
+	if urlencoded, ok := body["urlencoded"].([]interface{}); ok {
+		config.URLEncoded = parseParamItems(urlencoded)
+	}
+	return config
+}
+
+func parseAuthConfig(auth map[string]interface{}) *DebugAuthConfig {
+	config := &DebugAuthConfig{}
+	if t, ok := auth["type"].(string); ok {
+		config.Type = t
+	}
+	if basic, ok := auth["basic"].(map[string]interface{}); ok {
+		config.Basic = &DebugBasicAuth{}
+		if username, ok := basic["username"].(string); ok {
+			config.Basic.Username = username
+		}
+		if password, ok := basic["password"].(string); ok {
+			config.Basic.Password = password
+		}
+	}
+	if bearer, ok := auth["bearer"].(map[string]interface{}); ok {
+		config.Bearer = &DebugBearerAuth{}
+		if token, ok := bearer["token"].(string); ok {
+			config.Bearer.Token = token
+		}
+	}
+	if apikey, ok := auth["apikey"].(map[string]interface{}); ok {
+		config.APIKey = &DebugAPIKeyAuthConf{}
+		if key, ok := apikey["key"].(string); ok {
+			config.APIKey.Key = key
+		}
+		if value, ok := apikey["value"].(string); ok {
+			config.APIKey.Value = value
+		}
+		if addTo, ok := apikey["addTo"].(string); ok {
+			config.APIKey.AddTo = addTo
+		}
+	}
+	return config
+}
+
+func parseSettingsConfig(settings map[string]interface{}) *HTTPSettingsConf {
+	config := &HTTPSettingsConf{}
+	if connectTimeout, ok := settings["connectTimeout"].(float64); ok {
+		config.ConnectTimeout = int(connectTimeout)
+	}
+	if readTimeout, ok := settings["readTimeout"].(float64); ok {
+		config.ReadTimeout = int(readTimeout)
+	}
+	if followRedirects, ok := settings["followRedirects"].(bool); ok {
+		config.FollowRedirects = followRedirects
+	}
+	if maxRedirects, ok := settings["maxRedirects"].(float64); ok {
+		config.MaxRedirects = int(maxRedirects)
+	}
+	if verifySsl, ok := settings["verifySsl"].(bool); ok {
+		config.VerifySSL = verifySsl
+	}
+	if saveCookies, ok := settings["saveCookies"].(bool); ok {
+		config.SaveCookies = saveCookies
+	}
+	return config
+}
+
+// executeHTTPRequestUnified 执行 HTTP 请求（使用统一类型返回）
+func (s *Server) executeHTTPRequestUnified(ctx context.Context, config *DebugHTTPConfig, variables map[string]interface{}) (*types.HTTPResponseData, *types.ActualRequest, error) {
 	// 转换配置为 executor 格式
-	stepConfig := convertToStepConfig(config)
+	stepConfig := convertToStepConfig(config, variables)
 
 	// 创建 HTTP 执行器
 	httpExecutor := executor.NewHTTPExecutor()
@@ -353,7 +562,7 @@ func (s *Server) executeHTTPRequest(ctx context.Context, config *DebugHTTPConfig
 	// 创建执行上下文
 	httpExecCtx := executor.NewExecutionContext()
 	// 复制变量
-	for k, v := range execCtx.GetVariables() {
+	for k, v := range variables {
 		httpExecCtx.SetVariable(k, v)
 	}
 
@@ -364,14 +573,14 @@ func (s *Server) executeHTTPRequest(ctx context.Context, config *DebugHTTPConfig
 		return nil, nil, err
 	}
 
-	// 解析响应
-	response := &DebugHTTPResponse{
+	// 解析响应（使用统一类型）
+	response := &types.HTTPResponseData{
 		Duration: time.Since(startTime).Milliseconds(),
 		Headers:  make(map[string]string),
 		Cookies:  make(map[string]string),
 	}
 
-	actualReq := &ActualRequest{
+	actualReq := &types.ActualRequest{
 		Headers: make(map[string]string),
 	}
 
@@ -379,10 +588,22 @@ func (s *Server) executeHTTPRequest(ctx context.Context, config *DebugHTTPConfig
 		// 解析输出
 		if output, ok := result.Output.(*executor.HTTPResponse); ok {
 			response.StatusCode = output.StatusCode
-			response.StatusText = output.Status
-			response.Size = len(output.BodyRaw)
-			response.Body = output.BodyRaw
-			response.BodyType = detectBodyType(output.BodyRaw)
+			response.StatusText = output.StatusText
+
+			// Body 是 any 类型，需要转换为 string
+			bodyStr := ""
+			if output.Body != nil {
+				if s, ok := output.Body.(string); ok {
+					bodyStr = s
+				} else if b, ok := output.Body.([]byte); ok {
+					bodyStr = string(b)
+				} else {
+					bodyStr = fmt.Sprintf("%v", output.Body)
+				}
+			}
+			response.Size = int64(len(bodyStr))
+			response.Body = bodyStr
+			response.BodyType = types.DetectBodyType(bodyStr)
 
 			// 解析响应头
 			for k, v := range output.Headers {
@@ -398,7 +619,7 @@ func (s *Server) executeHTTPRequest(ctx context.Context, config *DebugHTTPConfig
 				actualReq.Headers = output.Request.Headers
 				actualReq.Body = output.Request.Body
 			}
-		} else if outputMap, ok := result.Output.(map[string]any); ok {
+		} else if outputMap, ok := result.Output.(map[string]interface{}); ok {
 			// 尝试从 map 解析
 			if sc, ok := outputMap["status_code"].(int); ok {
 				response.StatusCode = sc
@@ -410,8 +631,8 @@ func (s *Server) executeHTTPRequest(ctx context.Context, config *DebugHTTPConfig
 			}
 			if body, ok := outputMap["body_raw"].(string); ok {
 				response.Body = body
-				response.Size = len(body)
-				response.BodyType = detectBodyType(body)
+				response.Size = int64(len(body))
+				response.BodyType = types.DetectBodyType(body)
 			}
 			if headers, ok := outputMap["headers"].(map[string][]string); ok {
 				for k, v := range headers {
@@ -421,7 +642,7 @@ func (s *Server) executeHTTPRequest(ctx context.Context, config *DebugHTTPConfig
 				}
 			}
 			// 解析请求信息
-			if reqInfo, ok := outputMap["request"].(map[string]any); ok {
+			if reqInfo, ok := outputMap["request"].(map[string]interface{}); ok {
 				if url, ok := reqInfo["url"].(string); ok {
 					actualReq.URL = url
 				}
@@ -442,10 +663,10 @@ func (s *Server) executeHTTPRequest(ctx context.Context, config *DebugHTTPConfig
 }
 
 // convertToStepConfig 转换配置为步骤配置
-func convertToStepConfig(config *DebugHTTPConfig) map[string]any {
-	stepConfig := map[string]any{
+func convertToStepConfig(config *DebugHTTPConfig, variables map[string]interface{}) map[string]interface{} {
+	stepConfig := map[string]interface{}{
 		"method": config.Method,
-		"url":    config.URL,
+		"url":    replaceVariables(config.URL, variables),
 	}
 
 	// 转换参数
@@ -563,44 +784,17 @@ func convertToStepConfig(config *DebugHTTPConfig) map[string]any {
 	return stepConfig
 }
 
-// convertToActions 转换关键字配置为 Action
-func convertToActions(keywords []KeywordConfig) []keyword.Action {
-	actions := make([]keyword.Action, 0, len(keywords))
-	for _, kw := range keywords {
-		if !kw.Enabled {
-			continue
-		}
-		actions = append(actions, keyword.Action{
-			Keyword: kw.Type,
-			Params:  kw.Config,
-		})
+// replaceVariables 替换变量
+func replaceVariables(s string, variables map[string]interface{}) string {
+	if variables == nil {
+		return s
 	}
-	return actions
-}
-
-// detectBodyType 检测响应体类型
-func detectBodyType(body string) string {
-	if len(body) == 0 {
-		return "text"
+	result := s
+	for k, v := range variables {
+		placeholder := "${" + k + "}"
+		result = strings.ReplaceAll(result, placeholder, fmt.Sprintf("%v", v))
 	}
-
-	// 尝试解析为 JSON
-	var js json.RawMessage
-	if json.Unmarshal([]byte(body), &js) == nil {
-		return "json"
-	}
-
-	// 检查是否为 XML
-	if len(body) > 0 && body[0] == '<' {
-		return "xml"
-	}
-
-	// 检查是否为 HTML
-	if len(body) > 5 && (body[:5] == "<html" || body[:5] == "<!DOC") {
-		return "html"
-	}
-
-	return "text"
+	return result
 }
 
 // basicAuthEncode 编码 Basic Auth

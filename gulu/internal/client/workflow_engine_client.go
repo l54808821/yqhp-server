@@ -383,3 +383,146 @@ func (c *WorkflowEngineClient) stopExecutionExternal(executionID string) error {
 	}
 	return nil
 }
+
+// DebugStepRequest 单步调试请求
+type DebugStepRequest struct {
+	NodeConfig *DebugNodeConfig       `json:"nodeConfig"`
+	EnvID      int64                  `json:"envId,omitempty"`
+	Variables  map[string]interface{} `json:"variables,omitempty"`
+	EnvVars    map[string]interface{} `json:"envVars,omitempty"`
+	SessionID  string                 `json:"sessionId,omitempty"`
+}
+
+// DebugNodeConfig 调试节点配置
+type DebugNodeConfig struct {
+	ID             string                 `json:"id"`
+	Type           string                 `json:"type"`
+	Name           string                 `json:"name"`
+	Config         map[string]interface{} `json:"config"`
+	PreProcessors  []KeywordConfig        `json:"preProcessors,omitempty"`
+	PostProcessors []KeywordConfig        `json:"postProcessors,omitempty"`
+}
+
+// KeywordConfig 关键字配置
+type KeywordConfig struct {
+	ID      string                 `json:"id"`
+	Type    string                 `json:"type"`
+	Enabled bool                   `json:"enabled"`
+	Name    string                 `json:"name,omitempty"`
+	Config  map[string]interface{} `json:"config"`
+}
+
+// DebugStepResponse 单步调试响应
+type DebugStepResponse struct {
+	Success          bool                     `json:"success"`
+	Response         *types.HTTPResponseData  `json:"response,omitempty"`
+	ScriptResult     *DebugScriptResult       `json:"scriptResult,omitempty"`
+	AssertionResults []types.AssertionResult  `json:"assertionResults,omitempty"`
+	ConsoleLogs      []types.ConsoleLogEntry  `json:"consoleLogs,omitempty"`
+	ActualRequest    *types.ActualRequest     `json:"actualRequest,omitempty"`
+	Error            string                   `json:"error,omitempty"`
+}
+
+// DebugScriptResult 脚本执行结果
+type DebugScriptResult struct {
+	Script      string                  `json:"script"`
+	Language    string                  `json:"language"`
+	Result      interface{}             `json:"result"`
+	ConsoleLogs []types.ConsoleLogEntry `json:"consoleLogs"`
+	Error       string                  `json:"error,omitempty"`
+	Variables   map[string]interface{}  `json:"variables"`
+	DurationMs  int64                   `json:"durationMs"`
+}
+
+// DebugStep 单步调试（调用 workflow-engine API）
+func (c *WorkflowEngineClient) DebugStep(ctx context.Context, req *DebugStepRequest) (*DebugStepResponse, error) {
+	if c.embedded {
+		return c.debugStepEmbedded(ctx, req)
+	}
+	return c.debugStepExternal(req)
+}
+
+// debugStepEmbedded 内置模式单步调试
+func (c *WorkflowEngineClient) debugStepEmbedded(ctx context.Context, req *DebugStepRequest) (*DebugStepResponse, error) {
+	engine := workflow.GetEngine()
+	if engine == nil {
+		return nil, fmt.Errorf("工作流引擎未初始化")
+	}
+
+	// 调用内置引擎的 DebugStep 方法
+	result, err := engine.DebugStep(ctx, &types.DebugStepRequest{
+		NodeConfig: &types.DebugNodeConfig{
+			ID:             req.NodeConfig.ID,
+			Type:           req.NodeConfig.Type,
+			Name:           req.NodeConfig.Name,
+			Config:         req.NodeConfig.Config,
+			PreProcessors:  convertKeywordConfigs(req.NodeConfig.PreProcessors),
+			PostProcessors: convertKeywordConfigs(req.NodeConfig.PostProcessors),
+		},
+		EnvID:     req.EnvID,
+		Variables: req.Variables,
+		EnvVars:   req.EnvVars,
+		SessionID: req.SessionID,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return convertDebugStepResponse(result), nil
+}
+
+// debugStepExternal 外部模式单步调试
+func (c *WorkflowEngineClient) debugStepExternal(req *DebugStepRequest) (*DebugStepResponse, error) {
+	body, err := c.doRequest("POST", "/api/v1/debug/step", req)
+	if err != nil {
+		return nil, fmt.Errorf("单步调试请求失败: %w", err)
+	}
+
+	var result DebugStepResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("解析响应失败: %w", err)
+	}
+
+	return &result, nil
+}
+
+// convertKeywordConfigs 转换关键字配置
+func convertKeywordConfigs(configs []KeywordConfig) []types.KeywordConfig {
+	result := make([]types.KeywordConfig, len(configs))
+	for i, c := range configs {
+		result[i] = types.KeywordConfig{
+			ID:      c.ID,
+			Type:    c.Type,
+			Enabled: c.Enabled,
+			Name:    c.Name,
+			Config:  c.Config,
+		}
+	}
+	return result
+}
+
+// convertDebugStepResponse 转换调试响应
+func convertDebugStepResponse(resp *types.DebugStepResponse) *DebugStepResponse {
+	result := &DebugStepResponse{
+		Success:          resp.Success,
+		Response:         resp.Response,
+		AssertionResults: resp.AssertionResults,
+		ConsoleLogs:      resp.ConsoleLogs,
+		ActualRequest:    resp.ActualRequest,
+		Error:            resp.Error,
+	}
+
+	if resp.ScriptResult != nil {
+		result.ScriptResult = &DebugScriptResult{
+			Script:      resp.ScriptResult.Script,
+			Language:    resp.ScriptResult.Language,
+			Result:      resp.ScriptResult.Result,
+			ConsoleLogs: resp.ScriptResult.ConsoleLogs,
+			Error:       resp.ScriptResult.Error,
+			Variables:   resp.ScriptResult.Variables,
+			DurationMs:  resp.ScriptResult.DurationMs,
+		}
+	}
+
+	return result
+}

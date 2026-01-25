@@ -164,6 +164,18 @@ func (e *Engine) GetMetrics(ctx context.Context, executionID string) (*types.Agg
 	return e.embeddedEngine.GetMetrics(ctx, executionID)
 }
 
+// DebugStep 单步调试
+func (e *Engine) DebugStep(ctx context.Context, req *types.DebugStepRequest) (*types.DebugStepResponse, error) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	if e.embeddedEngine == nil {
+		return nil, nil
+	}
+
+	return e.embeddedEngine.DebugStep(ctx, req)
+}
+
 // ConvertToEngineWorkflow 将 gulu 的工作流定义转换为 workflow-engine 的工作流类型
 func ConvertToEngineWorkflow(def *WorkflowDefinition, executionID string) *types.Workflow {
 	return ConvertToEngineWorkflowWithOptions(def, executionID, false)

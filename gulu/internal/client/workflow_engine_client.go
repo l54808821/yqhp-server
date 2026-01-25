@@ -526,3 +526,99 @@ func convertDebugStepResponse(resp *types.DebugStepResponse) *DebugStepResponse 
 
 	return result
 }
+
+// ExecuteWorkflowRequest 执行工作流请求
+type ExecuteWorkflowRequest struct {
+	Workflow      *types.Workflow        `json:"workflow,omitempty"`
+	WorkflowJSON  string                 `json:"workflowJson,omitempty"`
+	EnvID         int64                  `json:"envId,omitempty"`
+	Variables     map[string]interface{} `json:"variables,omitempty"`
+	EnvVars       map[string]interface{} `json:"envVars,omitempty"`
+	Timeout       int                    `json:"timeout,omitempty"`
+	Mode          string                 `json:"mode,omitempty"`
+	ExecutorType  string                 `json:"executorType,omitempty"`
+	SlaveID       string                 `json:"slaveId,omitempty"`
+	SessionID     string                 `json:"sessionId,omitempty"`
+	SelectedSteps []string               `json:"selectedSteps,omitempty"`
+}
+
+// ExecuteWorkflowResponse 执行工作流响应
+type ExecuteWorkflowResponse struct {
+	Success     bool                     `json:"success"`
+	ExecutionID string                   `json:"executionId,omitempty"`
+	SessionID   string                   `json:"sessionId,omitempty"`
+	Summary     *types.ExecuteSummary  `json:"summary,omitempty"`
+	Error       string                   `json:"error,omitempty"`
+}
+
+// ExecuteWorkflowBlocking 阻塞式执行工作流
+func (c *WorkflowEngineClient) ExecuteWorkflowBlocking(ctx context.Context, req *ExecuteWorkflowRequest) (*ExecuteWorkflowResponse, error) {
+	if c.embedded {
+		return c.executeWorkflowBlockingEmbedded(ctx, req)
+	}
+	return c.executeWorkflowBlockingExternal(req)
+}
+
+// executeWorkflowBlockingEmbedded 内置模式阻塞式执行
+func (c *WorkflowEngineClient) executeWorkflowBlockingEmbedded(ctx context.Context, req *ExecuteWorkflowRequest) (*ExecuteWorkflowResponse, error) {
+	engine := workflow.GetEngine()
+	if engine == nil {
+		return nil, fmt.Errorf("工作流引擎未初始化")
+	}
+
+	// 调用内置引擎的 ExecuteWorkflow 方法
+	result, err := engine.ExecuteWorkflowBlocking(ctx, &types.ExecuteWorkflowRequest{
+		Workflow:      req.Workflow,
+		WorkflowJSON:  req.WorkflowJSON,
+		EnvID:         req.EnvID,
+		Variables:     req.Variables,
+		EnvVars:       req.EnvVars,
+		Timeout:       req.Timeout,
+		Mode:          req.Mode,
+		ExecutorType:  req.ExecutorType,
+		SlaveID:       req.SlaveID,
+		SessionID:     req.SessionID,
+		SelectedSteps: req.SelectedSteps,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &ExecuteWorkflowResponse{
+		Success:     result.Success,
+		ExecutionID: result.ExecutionID,
+		SessionID:   result.SessionID,
+		Summary:     result.Summary,
+		Error:       result.Error,
+	}, nil
+}
+
+// executeWorkflowBlockingExternal 外部模式阻塞式执行
+func (c *WorkflowEngineClient) executeWorkflowBlockingExternal(req *ExecuteWorkflowRequest) (*ExecuteWorkflowResponse, error) {
+	body, err := c.doRequest("POST", "/api/v1/execute", req)
+	if err != nil {
+		return nil, fmt.Errorf("执行工作流请求失败: %w", err)
+	}
+
+	var result ExecuteWorkflowResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("解析响应失败: %w", err)
+	}
+
+	return &result, nil
+}
+
+// ExecuteWorkflowStreamURL 获取流式执行工作流的 URL
+func (c *WorkflowEngineClient) ExecuteWorkflowStreamURL() string {
+	return c.baseURL + "/api/v1/execute/stream"
+}
+
+// IsEmbedded 是否为内置模式
+func (c *WorkflowEngineClient) IsEmbedded() bool {
+	return c.embedded
+}
+
+// GetBaseURL 获取基础 URL
+func (c *WorkflowEngineClient) GetBaseURL() string {
+	return c.baseURL
+}

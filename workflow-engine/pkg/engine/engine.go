@@ -3,6 +3,7 @@ package engine
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -715,4 +716,126 @@ func replaceVariablesInString(s string, variables map[string]interface{}) string
 		result = strings.ReplaceAll(result, placeholder, fmt.Sprintf("%v", v))
 	}
 	return result
+}
+
+// ExecuteWorkflowBlocking 阻塞式执行工作流
+func (e *Engine) ExecuteWorkflowBlocking(ctx context.Context, req *types.ExecuteWorkflowRequest) (*types.ExecuteWorkflowResponse, error) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	if e.master == nil {
+		return nil, fmt.Errorf("引擎未启动")
+	}
+
+	// 解析工作流
+	wf := req.Workflow
+	if wf == nil && req.WorkflowJSON != "" {
+		var parsedWf types.Workflow
+		if err := json.Unmarshal([]byte(req.WorkflowJSON), &parsedWf); err != nil {
+			return nil, fmt.Errorf("解析工作流 JSON 失败: %w", err)
+		}
+		wf = &parsedWf
+	}
+
+	if wf == nil {
+		return nil, fmt.Errorf("工作流定义不能为空")
+	}
+
+	// 设置会话 ID
+	if req.SessionID != "" {
+		wf.ID = req.SessionID
+	}
+
+	// 合并变量
+	if req.Variables != nil {
+		if wf.Variables == nil {
+			wf.Variables = make(map[string]interface{})
+		}
+		for k, v := range req.Variables {
+			wf.Variables[k] = v
+		}
+	}
+
+	// 设置超时
+	timeout := 30 * time.Minute
+	if req.Timeout > 0 {
+		timeout = time.Duration(req.Timeout) * time.Second
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	// 提交执行
+	execID, err := e.master.SubmitWorkflow(ctx, wf)
+	if err != nil {
+		return &types.ExecuteWorkflowResponse{
+			Success: false,
+			Error:   "提交执行失败: " + err.Error(),
+		}, nil
+	}
+
+	// 等待执行完成
+	var execErr error
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+
+	totalSteps := 0
+	successSteps := 0
+	failedSteps := 0
+
+	for {
+		select {
+		case <-ctx.Done():
+			execErr = ctx.Err()
+			goto done
+		case <-ticker.C:
+			state, err := e.master.GetExecutionStatus(ctx, execID)
+			if err != nil {
+				continue
+			}
+
+			switch state.Status {
+			case types.ExecutionStatusCompleted:
+				goto done
+			case types.ExecutionStatusFailed:
+				if len(state.Errors) > 0 {
+					execErr = fmt.Errorf(state.Errors[0].Message)
+				} else {
+					execErr = fmt.Errorf("执行失败")
+				}
+				goto done
+			case types.ExecutionStatusAborted:
+				execErr = fmt.Errorf("执行被中止")
+				goto done
+			}
+		}
+	}
+
+done:
+	status := "success"
+	if execErr != nil {
+		status = "failed"
+	} else if failedSteps > 0 {
+		status = "failed"
+	}
+
+	return &types.ExecuteWorkflowResponse{
+		Success:     execErr == nil && failedSteps == 0,
+		ExecutionID: execID,
+		SessionID:   wf.ID,
+		Summary: &types.ExecuteSummary{
+			SessionID:     wf.ID,
+			TotalSteps:    totalSteps,
+			SuccessSteps:  successSteps,
+			FailedSteps:   failedSteps,
+			TotalDuration: 0, // 由调用方计算
+			Status:        status,
+		},
+		Error: func() string {
+			if execErr != nil {
+				return execErr.Error()
+			}
+			return ""
+		}(),
+	}, nil
 }

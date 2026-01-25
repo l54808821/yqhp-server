@@ -264,6 +264,9 @@ func (s *Server) setupRoutes() {
 	// 调试路由
 	api.Post("/debug/step", s.debugStep)
 
+	// 执行路由
+	s.setupExecuteRoutes()
+
 	// WebSocket routes
 	s.setupWebSocketRoutes()
 }

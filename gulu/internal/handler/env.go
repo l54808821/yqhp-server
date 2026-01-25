@@ -173,3 +173,30 @@ func EnvGetByProjectID(c *fiber.Ctx) error {
 
 	return response.Success(c, list)
 }
+
+// EnvUpdateSort 更新环境排序
+// PUT /api/envs/sort
+func EnvUpdateSort(c *fiber.Ctx) error {
+	var req logic.EnvUpdateSortReq
+	if err := c.BodyParser(&req); err != nil {
+		return response.Error(c, "参数解析失败")
+	}
+
+	if req.ID <= 0 {
+		return response.Error(c, "环境ID不能为空")
+	}
+	if req.TargetID <= 0 {
+		return response.Error(c, "目标环境ID不能为空")
+	}
+	if req.Position != "before" && req.Position != "after" {
+		return response.Error(c, "position 必须是 before 或 after")
+	}
+
+	envLogic := logic.NewEnvLogic(c.UserContext())
+
+	if err := envLogic.UpdateSort(&req); err != nil {
+		return response.Error(c, err.Error())
+	}
+
+	return response.Success(c, nil)
+}

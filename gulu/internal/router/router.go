@@ -101,6 +101,7 @@ func Setup(app *fiber.App) {
 	envs := api.Group("/envs")
 	envs.Post("", handler.EnvCreate)
 	envs.Get("", handler.EnvList)
+	envs.Put("/sort", handler.EnvUpdateSort)
 	envs.Get("/project/:projectId", handler.EnvGetByProjectID)
 	envs.Get("/:id", handler.EnvGetByID)
 	envs.Put("/:id", handler.EnvUpdate)

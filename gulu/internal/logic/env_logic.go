@@ -50,6 +50,13 @@ type EnvListReq struct {
 	Status    *int32 `query:"status"`
 }
 
+// EnvUpdateSortReq 环境排序请求
+type EnvUpdateSortReq struct {
+	ID       int64  `json:"id" validate:"required"`       // 被拖动的环境ID
+	TargetID int64  `json:"target_id" validate:"required"` // 目标位置的环境ID
+	Position string `json:"position" validate:"required"`  // before 或 after
+}
+
 // Create 创建环境
 func (l *EnvLogic) Create(req *CreateEnvReq, userID int64) (*model.TEnv, error) {
 	// 检查项目是否存在
@@ -214,7 +221,80 @@ func (l *EnvLogic) GetEnvsByProjectID(projectID int64) ([]*model.TEnv, error) {
 		e.ProjectID.Eq(projectID),
 		e.IsDelete.Is(false),
 		e.Status.Eq(status),
-	).Order(e.Sort.Desc(), e.ID.Desc()).Find()
+	).Order(e.Sort, e.ID).Find()
+}
+
+// UpdateSort 更新环境排序
+func (l *EnvLogic) UpdateSort(req *EnvUpdateSortReq) error {
+	q := query.Use(svc.Ctx.DB)
+	e := q.TEnv
+
+	// 获取被拖动的环境
+	draggedEnv, err := e.WithContext(l.ctx).Where(e.ID.Eq(req.ID), e.IsDelete.Is(false)).First()
+	if err != nil {
+		return errors.New("被拖动的环境不存在")
+	}
+
+	// 获取目标位置的环境
+	targetEnv, err := e.WithContext(l.ctx).Where(e.ID.Eq(req.TargetID), e.IsDelete.Is(false)).First()
+	if err != nil {
+		return errors.New("目标环境不存在")
+	}
+
+	// 确保是同一个项目
+	if draggedEnv.ProjectID != targetEnv.ProjectID {
+		return errors.New("只能在同一项目内排序")
+	}
+
+	// 获取项目下所有环境，按 sort 排序
+	envs, err := e.WithContext(l.ctx).Where(
+		e.ProjectID.Eq(draggedEnv.ProjectID),
+		e.IsDelete.Is(false),
+	).Order(e.Sort, e.ID).Find()
+	if err != nil {
+		return err
+	}
+
+	// 找到拖动项和目标项的索引
+	var draggedIdx, targetIdx int
+	for i, env := range envs {
+		if env.ID == req.ID {
+			draggedIdx = i
+		}
+		if env.ID == req.TargetID {
+			targetIdx = i
+		}
+	}
+
+	// 从列表中移除拖动项
+	envs = append(envs[:draggedIdx], envs[draggedIdx+1:]...)
+
+	// 重新计算目标索引（因为移除了一项）
+	if draggedIdx < targetIdx {
+		targetIdx--
+	}
+
+	// 根据 position 插入到正确位置
+	var insertIdx int
+	if req.Position == "before" {
+		insertIdx = targetIdx
+	} else {
+		insertIdx = targetIdx + 1
+	}
+
+	// 插入拖动项到新位置
+	envs = append(envs[:insertIdx], append([]*model.TEnv{draggedEnv}, envs[insertIdx:]...)...)
+
+	// 批量更新排序值
+	for i, env := range envs {
+		sort := int64(i)
+		_, err := e.WithContext(l.ctx).Where(e.ID.Eq(env.ID)).Update(e.Sort, sort)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // CopyEnv 复制环境（包含所有配置）

@@ -29,9 +29,7 @@ const (
 
 // LoopExecutor 执行循环类型的步骤
 type LoopExecutor struct {
-	*BaseExecutor
-	evaluator expression.ExpressionEvaluator
-	registry  *Registry
+	*NestedExecutorBase
 }
 
 // LoopOutput 循环执行的输出
@@ -46,17 +44,14 @@ type LoopOutput struct {
 // NewLoopExecutor 创建一个新的循环执行器
 func NewLoopExecutor() *LoopExecutor {
 	return &LoopExecutor{
-		BaseExecutor: NewBaseExecutor(LoopExecutorType),
-		evaluator:    expression.NewEvaluator(),
+		NestedExecutorBase: NewNestedExecutorBase(LoopExecutorType),
 	}
 }
 
 // NewLoopExecutorWithRegistry 使用自定义注册表创建循环执行器
 func NewLoopExecutorWithRegistry(registry *Registry) *LoopExecutor {
 	return &LoopExecutor{
-		BaseExecutor: NewBaseExecutor(LoopExecutorType),
-		evaluator:    expression.NewEvaluator(),
-		registry:     registry,
+		NestedExecutorBase: NewNestedExecutorBaseWithRegistry(LoopExecutorType, registry),
 	}
 }
 
@@ -86,7 +81,7 @@ func (e *LoopExecutor) Execute(ctx context.Context, step *types.Step, execCtx *E
 	}
 
 	// 构建求值上下文
-	evalCtx := e.buildEvaluationContext(execCtx)
+	evalCtx := execCtx.BuildEvaluationContext()
 
 	// 根据模式执行循环
 	var output *LoopOutput
@@ -378,7 +373,7 @@ func (e *LoopExecutor) executeLoopBody(ctx context.Context, parentStep *types.St
 		}
 
 		// 获取执行器
-		executor, err := e.getExecutor(step.Type)
+		executor, err := e.GetExecutor(step.Type)
 		if err != nil {
 			if callback != nil {
 				callback.OnStepFailed(ctx, step, err, 0, parentStep.ID, iteration+1)
@@ -600,65 +595,9 @@ func (e *LoopExecutor) toSlice(v any) ([]any, error) {
 }
 
 // evaluateCondition 评估条件表达式
+// 注意：此方法接收已经设置了循环变量的 EvaluationContext
 func (e *LoopExecutor) evaluateCondition(condition string, evalCtx *expression.EvaluationContext) (bool, error) {
-	return e.evaluator.EvaluateString(condition, evalCtx)
-}
-
-// buildEvaluationContext 构建求值上下文
-func (e *LoopExecutor) buildEvaluationContext(execCtx *ExecutionContext) *expression.EvaluationContext {
-	evalCtx := expression.NewEvaluationContext()
-
-	if execCtx == nil {
-		return evalCtx
-	}
-
-	// 复制变量
-	for k, v := range execCtx.Variables {
-		evalCtx.Set(k, v)
-	}
-
-	// 将步骤结果转换为求值上下文格式
-	for stepID, result := range execCtx.Results {
-		resultMap := map[string]any{
-			"status":   string(result.Status),
-			"duration": result.Duration.Milliseconds(),
-			"step_id":  result.StepID,
-		}
-
-		if result.Output != nil {
-			resultMap["output"] = result.Output
-
-			// 如果输出是 map，展平以便于访问
-			if outputMap, ok := result.Output.(map[string]any); ok {
-				for k, v := range outputMap {
-					resultMap[k] = v
-				}
-			}
-
-			// 特殊处理 HTTPResponseData
-			if httpResp, ok := result.Output.(*types.HTTPResponseData); ok {
-				resultMap["status_code"] = httpResp.StatusCode
-				resultMap["body"] = httpResp.Body
-				resultMap["headers"] = httpResp.Headers
-			}
-		}
-
-		if result.Error != nil {
-			resultMap["error"] = result.Error.Error()
-		}
-
-		evalCtx.SetResult(stepID, resultMap)
-	}
-
-	return evalCtx
-}
-
-// getExecutor 获取指定类型的执行器
-func (e *LoopExecutor) getExecutor(execType string) (Executor, error) {
-	if e.registry != nil {
-		return e.registry.GetOrError(execType)
-	}
-	return DefaultRegistry.GetOrError(execType)
+	return e.GetEvaluator().EvaluateString(condition, evalCtx)
 }
 
 // init 在默认注册表中注册循环执行器

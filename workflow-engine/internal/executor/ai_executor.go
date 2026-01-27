@@ -378,12 +378,13 @@ func (e *AIExecutor) resolveVariables(config *AIConfig, execCtx *ExecutionContex
 	}
 
 	evalCtx := execCtx.ToEvaluationContext()
-	config.APIKey = resolveString(config.APIKey, evalCtx)
-	config.SystemPrompt = resolveString(config.SystemPrompt, evalCtx)
-	config.Prompt = resolveString(config.Prompt, evalCtx)
-	config.InteractionPrompt = resolveString(config.InteractionPrompt, evalCtx)
-	config.InteractionDefault = resolveString(config.InteractionDefault, evalCtx)
-	config.BaseURL = resolveString(config.BaseURL, evalCtx)
+	resolver := GetVariableResolver()
+	config.APIKey = resolver.ResolveString(config.APIKey, evalCtx)
+	config.SystemPrompt = resolver.ResolveString(config.SystemPrompt, evalCtx)
+	config.Prompt = resolver.ResolveString(config.Prompt, evalCtx)
+	config.InteractionPrompt = resolver.ResolveString(config.InteractionPrompt, evalCtx)
+	config.InteractionDefault = resolver.ResolveString(config.InteractionDefault, evalCtx)
+	config.BaseURL = resolver.ResolveString(config.BaseURL, evalCtx)
 
 	return config
 }

@@ -146,12 +146,13 @@ func (e *DBExecutor) Execute(ctx context.Context, step *types.Step, execCtx *Exe
 	// 变量解析
 	if execCtx != nil {
 		evalCtx := execCtx.ToEvaluationContext()
-		op.SQL = resolveString(op.SQL, evalCtx)
-		stepConfig.DSN = resolveString(stepConfig.DSN, evalCtx)
+		resolver := GetVariableResolver()
+		op.SQL = resolver.ResolveString(op.SQL, evalCtx)
+		stepConfig.DSN = resolver.ResolveString(stepConfig.DSN, evalCtx)
 		// 解析参数中的变量
 		for i, param := range op.Params {
 			if s, ok := param.(string); ok {
-				op.Params[i] = resolveString(s, evalCtx)
+				op.Params[i] = resolver.ResolveString(s, evalCtx)
 			}
 		}
 	}

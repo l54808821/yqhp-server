@@ -113,9 +113,10 @@ func (e *SocketExecutor) Execute(ctx context.Context, step *types.Step, execCtx 
 	// 变量解析
 	if execCtx != nil {
 		evalCtx := execCtx.ToEvaluationContext()
-		op.Data = resolveString(op.Data, evalCtx)
-		op.Delimiter = resolveString(op.Delimiter, evalCtx)
-		stepConfig.Host = resolveString(stepConfig.Host, evalCtx)
+		resolver := GetVariableResolver()
+		op.Data = resolver.ResolveString(op.Data, evalCtx)
+		op.Delimiter = resolver.ResolveString(op.Delimiter, evalCtx)
+		stepConfig.Host = resolver.ResolveString(stepConfig.Host, evalCtx)
 	}
 
 	// 执行操作

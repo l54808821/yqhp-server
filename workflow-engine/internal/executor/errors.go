@@ -1,8 +1,50 @@
+// Package executor 提供工作流步骤执行的执行器框架。
+//
+// # 错误处理规范
+//
+// 执行器的 Execute 方法应遵循以下错误处理规范：
+//
+// ## 返回模式
+//
+// Execute 方法签名: Execute(ctx, step, execCtx) (*StepResult, error)
+//
+// 1. **正常执行（成功或业务失败）**：返回 (StepResult, nil)
+//   - 步骤执行成功：返回 CreateSuccessResult(...)
+//   - 步骤执行失败（如断言失败、HTTP 错误）：返回 CreateFailedResult(...)
+//   - 步骤超时：返回 CreateTimeoutResult(...)
+//   - 步骤跳过：返回 CreateSkippedResult(...)
+//
+// 2. **系统级错误**：返回 (nil, error) 或 (partialResult, error)
+//   - 仅在以下情况返回 error：
+//     - 上下文取消（context.Canceled）
+//     - 需要中断整个工作流的严重错误
+//   - 一般的执行错误应封装在 StepResult.Error 中
+//
+// ## 内部方法
+//
+// 执行器的内部方法（如 parseConfig, buildRequest 等）可以返回 error，
+// 但在 Execute 方法中应将其转换为 StepResult：
+//
+//	config, err := e.parseConfig(step.Config)
+//	if err != nil {
+//	    return CreateFailedResult(step.ID, startTime, err), nil  // 转换为 FailedResult
+//	}
+//
+// ## 错误类型
+//
+// 使用预定义的错误构造函数创建错误：
+//   - NewConfigError: 配置解析错误
+//   - NewExecutionError: 执行过程错误
+//   - NewTimeoutError: 超时错误
+//   - NewInitError: 初始化错误
 package executor
 
 import (
+	"context"
 	"fmt"
 	"time"
+
+	"yqhp/workflow-engine/pkg/types"
 )
 
 // ExecutorError 表示执行器操作期间的错误。
@@ -127,4 +169,62 @@ func IsExecutionError(err error) bool {
 		return execErr.Code == ErrCodeExecution
 	}
 	return false
+}
+
+// ========== 错误转换辅助方法 ==========
+
+// WrapErrorAsResult 将错误转换为失败的 StepResult。
+// 这是推荐的错误处理方式，用于将内部错误统一转换为 StepResult。
+//
+// 使用示例:
+//
+//	config, err := e.parseConfig(step.Config)
+//	if err != nil {
+//	    return WrapErrorAsResult(step.ID, startTime, err)
+//	}
+func WrapErrorAsResult(stepID string, startTime time.Time, err error) (*types.StepResult, error) {
+	return CreateFailedResult(stepID, startTime, err), nil
+}
+
+// WrapTimeoutAsResult 将超时转换为超时的 StepResult。
+func WrapTimeoutAsResult(stepID string, startTime time.Time, timeout time.Duration) (*types.StepResult, error) {
+	return CreateTimeoutResult(stepID, startTime, timeout), nil
+}
+
+// ShouldPropagateError 判断错误是否需要向上传播（而不是封装到 StepResult）。
+// 以下情况需要传播错误：
+//   - context.Canceled: 用户主动取消
+//   - context.DeadlineExceeded: 上下文超时（注意：步骤级超时应转为 TimeoutResult）
+//   - 标记了 propagate 的自定义错误
+func ShouldPropagateError(err error) bool {
+	if err == nil {
+		return false
+	}
+	// 上下文取消需要传播
+	if err == context.Canceled {
+		return true
+	}
+	// 上下文超时在某些场景需要传播
+	if err == context.DeadlineExceeded {
+		return true
+	}
+	return false
+}
+
+// HandleExecuteError 统一处理 Execute 方法中的错误。
+// 根据错误类型决定是封装为 StepResult 还是向上传播。
+//
+// 使用示例:
+//
+//	result, err := e.doExecute(ctx, step, execCtx)
+//	if err != nil {
+//	    return HandleExecuteError(step.ID, startTime, err)
+//	}
+func HandleExecuteError(stepID string, startTime time.Time, err error) (*types.StepResult, error) {
+	if ShouldPropagateError(err) {
+		// 需要传播的错误，返回部分结果和错误
+		return CreateFailedResult(stepID, startTime, err), err
+	}
+	// 其他错误封装为 FailedResult
+	return CreateFailedResult(stepID, startTime, err), nil
 }

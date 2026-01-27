@@ -491,54 +491,34 @@ func (e *HTTPExecutor) parseConfig(config map[string]any) (*HTTPConfig, error) {
 }
 
 // resolveVariables 解析配置中的变量引用。
+// 使用优化后的 VariableResolver，通过正则表达式一次性提取所有变量引用。
 func (e *HTTPExecutor) resolveVariables(config *HTTPConfig, execCtx *ExecutionContext) *HTTPConfig {
 	if execCtx == nil {
 		return config
 	}
 
 	evalCtx := execCtx.ToEvaluationContext()
+	resolver := GetVariableResolver()
 
 	// 解析 URL
-	config.URL = resolveString(config.URL, evalCtx)
+	config.URL = resolver.ResolveString(config.URL, evalCtx)
 
 	// 解析 headers
 	for k, v := range config.Headers {
-		config.Headers[k] = resolveString(v, evalCtx)
+		config.Headers[k] = resolver.ResolveString(v, evalCtx)
 	}
 
 	// 解析 params
 	for k, v := range config.Params {
-		config.Params[k] = resolveString(v, evalCtx)
+		config.Params[k] = resolver.ResolveString(v, evalCtx)
 	}
 
 	// 如果 body 是字符串则解析
 	if bodyStr, ok := config.Body.(string); ok {
-		config.Body = resolveString(bodyStr, evalCtx)
+		config.Body = resolver.ResolveString(bodyStr, evalCtx)
 	}
 
 	return config
-}
-
-// resolveString 解析字符串中的变量引用。
-func resolveString(s string, ctx map[string]any) string {
-	result := s
-	for key, value := range ctx {
-		placeholder := fmt.Sprintf("${%s}", key)
-		if strings.Contains(result, placeholder) {
-			result = strings.ReplaceAll(result, placeholder, fmt.Sprintf("%v", value))
-		}
-
-		// 同时处理嵌套访问，如 ${login.token}
-		if m, ok := value.(map[string]any); ok {
-			for subKey, subValue := range m {
-				nestedPlaceholder := fmt.Sprintf("${%s.%s}", key, subKey)
-				if strings.Contains(result, nestedPlaceholder) {
-					result = strings.ReplaceAll(result, nestedPlaceholder, fmt.Sprintf("%v", subValue))
-				}
-			}
-		}
-	}
-	return result
 }
 
 // createRequest 从配置创建 HTTP 请求。

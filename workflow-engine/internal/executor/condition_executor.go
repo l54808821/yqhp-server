@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"yqhp/workflow-engine/internal/expression"
 	"yqhp/workflow-engine/pkg/types"
 )
 
@@ -15,25 +14,20 @@ const (
 
 // ConditionExecutor 执行条件逻辑步骤。
 type ConditionExecutor struct {
-	*BaseExecutor
-	evaluator expression.ExpressionEvaluator
-	registry  *Registry
+	*NestedExecutorBase
 }
 
 // NewConditionExecutor 创建一个新的条件执行器。
 func NewConditionExecutor() *ConditionExecutor {
 	return &ConditionExecutor{
-		BaseExecutor: NewBaseExecutor(ConditionExecutorType),
-		evaluator:    expression.NewEvaluator(),
+		NestedExecutorBase: NewNestedExecutorBase(ConditionExecutorType),
 	}
 }
 
 // NewConditionExecutorWithRegistry 使用自定义注册表创建一个新的条件执行器。
 func NewConditionExecutorWithRegistry(registry *Registry) *ConditionExecutor {
 	return &ConditionExecutor{
-		BaseExecutor: NewBaseExecutor(ConditionExecutorType),
-		evaluator:    expression.NewEvaluator(),
-		registry:     registry,
+		NestedExecutorBase: NewNestedExecutorBaseWithRegistry(ConditionExecutorType, registry),
 	}
 }
 
@@ -77,7 +71,7 @@ func (e *ConditionExecutor) Execute(ctx context.Context, step *types.Step, execC
 	}
 
 	// 构建求值上下文
-	evalCtx := e.buildEvaluationContext(execCtx)
+	evalCtx := execCtx.BuildEvaluationContext()
 
 	var shouldExecute bool
 	var err error
@@ -92,7 +86,7 @@ func (e *ConditionExecutor) Execute(ctx context.Context, step *types.Step, execC
 	case types.ConditionTypeIf:
 		// if: 重置条件组状态，求值表达式
 		execCtx.SetVariable("__condition_group_matched__", false)
-		shouldExecute, err = e.evaluator.EvaluateString(expression, evalCtx)
+		shouldExecute, err = e.GetEvaluator().EvaluateString(expression, evalCtx)
 		if err != nil {
 			return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "条件表达式求值失败", err)), nil
 		}
@@ -105,7 +99,7 @@ func (e *ConditionExecutor) Execute(ctx context.Context, step *types.Step, execC
 		if conditionGroupMatched {
 			shouldExecute = false
 		} else {
-			shouldExecute, err = e.evaluator.EvaluateString(expression, evalCtx)
+			shouldExecute, err = e.GetEvaluator().EvaluateString(expression, evalCtx)
 			if err != nil {
 				return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "条件表达式求值失败", err)), nil
 			}
@@ -124,7 +118,7 @@ func (e *ConditionExecutor) Execute(ctx context.Context, step *types.Step, execC
 	default:
 		// 默认当作 if 处理
 		execCtx.SetVariable("__condition_group_matched__", false)
-		shouldExecute, err = e.evaluator.EvaluateString(expression, evalCtx)
+		shouldExecute, err = e.GetEvaluator().EvaluateString(expression, evalCtx)
 		if err != nil {
 			return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "条件表达式求值失败", err)), nil
 		}
@@ -189,7 +183,7 @@ type ConditionOutput struct {
 // executeWithBranches 按新格式执行条件步骤（Step.Branches）
 func (e *ConditionExecutor) executeWithBranches(ctx context.Context, step *types.Step, execCtx *ExecutionContext, startTime time.Time) (*types.StepResult, error) {
 	// 构建求值上下文
-	evalCtx := e.buildEvaluationContext(execCtx)
+	evalCtx := execCtx.BuildEvaluationContext()
 
 	var (
 		conditionGroupMatched bool
@@ -216,7 +210,7 @@ func (e *ConditionExecutor) executeWithBranches(ctx context.Context, step *types
 				// 没有表达式视为 false
 				shouldExecute = false
 			} else {
-				result, err := e.evaluator.EvaluateString(expr, evalCtx)
+				result, err := e.GetEvaluator().EvaluateString(expr, evalCtx)
 				if err != nil {
 					return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "条件表达式求值失败", err)), nil
 				}
@@ -237,7 +231,7 @@ func (e *ConditionExecutor) executeWithBranches(ctx context.Context, step *types
 				if expr == "" {
 					shouldExecute = false
 				} else {
-					result, err := e.evaluator.EvaluateString(expr, evalCtx)
+					result, err := e.GetEvaluator().EvaluateString(expr, evalCtx)
 					if err != nil {
 						return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "条件表达式求值失败", err)), nil
 					}
@@ -267,7 +261,7 @@ func (e *ConditionExecutor) executeWithBranches(ctx context.Context, step *types
 			if expr == "" {
 				shouldExecute = false
 			} else {
-				result, err := e.evaluator.EvaluateString(expr, evalCtx)
+				result, err := e.GetEvaluator().EvaluateString(expr, evalCtx)
 				if err != nil {
 					return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "条件表达式求值失败", err)), nil
 				}
@@ -338,128 +332,10 @@ func (e *ConditionExecutor) executeWithBranches(ctx context.Context, step *types
 	return successResult, nil
 }
 
-// buildEvaluationContext 将 ExecutionContext 转换为表达式求值上下文。
-func (e *ConditionExecutor) buildEvaluationContext(execCtx *ExecutionContext) *expression.EvaluationContext {
-	evalCtx := expression.NewEvaluationContext()
-
-	if execCtx == nil {
-		return evalCtx
-	}
-
-	// 复制变量
-	for k, v := range execCtx.Variables {
-		evalCtx.Set(k, v)
-	}
-
-	// 将步骤结果转换为求值上下文格式
-	for stepID, result := range execCtx.Results {
-		resultMap := map[string]any{
-			"status":   string(result.Status),
-			"duration": result.Duration.Milliseconds(),
-			"step_id":  result.StepID,
-		}
-
-		// 添加输出字段
-		if result.Output != nil {
-			resultMap["output"] = result.Output
-
-			// 如果输出是 map，展平以便于访问
-			if outputMap, ok := result.Output.(map[string]any); ok {
-				for k, v := range outputMap {
-					resultMap[k] = v
-				}
-			}
-
-			// 特殊处理 HTTPResponseData
-			if httpResp, ok := result.Output.(*types.HTTPResponseData); ok {
-				resultMap["status_code"] = httpResp.StatusCode
-				resultMap["body"] = httpResp.Body
-				resultMap["headers"] = httpResp.Headers
-			}
-		}
-
-		if result.Error != nil {
-			resultMap["error"] = result.Error.Error()
-		}
-
-		evalCtx.SetResult(stepID, resultMap)
-	}
-
-	return evalCtx
-}
-
 // executeBranch 执行分支中的步骤序列。
+// 使用公共的 ExecuteNestedSteps 方法，iteration 为 0 表示条件分支场景。
 func (e *ConditionExecutor) executeBranch(ctx context.Context, steps []types.Step, execCtx *ExecutionContext, parentID string) ([]*types.StepResult, error) {
-	results := make([]*types.StepResult, 0, len(steps))
-
-	// 获取回调
-	callback := execCtx.GetCallback()
-
-	for i := range steps {
-		step := &steps[i]
-
-		// 跳过禁用的步骤
-		if step.Disabled {
-			if callback != nil {
-				callback.OnStepSkipped(ctx, step, "步骤已禁用", parentID, 0)
-			}
-			continue
-		}
-
-		// 发送步骤开始事件
-		if callback != nil {
-			callback.OnStepStart(ctx, step, parentID, 0)
-		}
-
-		// 获取步骤类型的执行器
-		executor, err := e.getExecutor(step.Type)
-		if err != nil {
-			return results, err
-		}
-
-		// 执行步骤
-		result, err := executor.Execute(ctx, step, execCtx)
-		if err != nil {
-			return results, err
-		}
-
-		// 发送步骤完成事件
-		if callback != nil {
-			callback.OnStepComplete(ctx, step, result, parentID, 0)
-		}
-
-		// 将结果存储到上下文中供后续步骤使用
-		execCtx.SetResult(step.ID, result)
-		results = append(results, result)
-
-		// 处理错误策略
-		if result.Status == types.ResultStatusFailed || result.Status == types.ResultStatusTimeout {
-			switch step.OnError {
-			case types.ErrorStrategyAbort:
-				return results, result.Error
-			case types.ErrorStrategyContinue:
-				// 继续下一步
-			case types.ErrorStrategySkip:
-				// 跳过分支中的剩余步骤
-				return results, nil
-			default:
-				// 默认是中止
-				return results, result.Error
-			}
-		}
-	}
-
-	return results, nil
-}
-
-// getExecutor 获取给定类型的执行器。
-func (e *ConditionExecutor) getExecutor(execType string) (Executor, error) {
-	// 如果提供了自定义注册表则使用
-	if e.registry != nil {
-		return e.registry.GetOrError(execType)
-	}
-	// 回退到默认注册表
-	return DefaultRegistry.GetOrError(execType)
+	return e.ExecuteNestedSteps(ctx, steps, execCtx, parentID, 0)
 }
 
 // boolToFloat 将布尔值转换为 float64。

@@ -69,11 +69,12 @@ func (e *CallExecutor) Execute(ctx context.Context, step *types.Step, execCtx *E
 	// 变量解析
 	if execCtx != nil {
 		evalCtx := execCtx.ToEvaluationContext()
-		callConfig.Script = resolveString(callConfig.Script, evalCtx)
+		resolver := GetVariableResolver()
+		callConfig.Script = resolver.ResolveString(callConfig.Script, evalCtx)
 		// 解析参数中的变量
 		for k, v := range callConfig.Params {
 			if s, ok := v.(string); ok {
-				callConfig.Params[k] = resolveString(s, evalCtx)
+				callConfig.Params[k] = resolver.ResolveString(s, evalCtx)
 			}
 		}
 	}

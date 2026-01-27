@@ -112,9 +112,7 @@ func (r *VariableResolver) resolveVariablePath(path string, ctx map[string]any) 
 		switch m := current.(type) {
 		case map[string]any:
 			current = m[parts[i]]
-		case map[string]interface{}:
-			current = m[parts[i]]
-		case map[interface{}]interface{}:
+		case map[any]any:
 			current = m[parts[i]]
 		default:
 			// 不支持的类型

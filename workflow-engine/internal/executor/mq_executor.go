@@ -184,11 +184,12 @@ func (e *MQExecutor) Execute(ctx context.Context, step *types.Step, execCtx *Exe
 	// 变量解析
 	if execCtx != nil {
 		evalCtx := execCtx.ToEvaluationContext()
-		op.Message = resolveString(op.Message, evalCtx)
-		op.Topic = resolveString(op.Topic, evalCtx)
-		op.Queue = resolveString(op.Queue, evalCtx)
-		op.Key = resolveString(op.Key, evalCtx)
-		stepConfig.Broker = resolveString(stepConfig.Broker, evalCtx)
+		resolver := GetVariableResolver()
+		op.Message = resolver.ResolveString(op.Message, evalCtx)
+		op.Topic = resolver.ResolveString(op.Topic, evalCtx)
+		op.Queue = resolver.ResolveString(op.Queue, evalCtx)
+		op.Key = resolver.ResolveString(op.Key, evalCtx)
+		stepConfig.Broker = resolver.ResolveString(stepConfig.Broker, evalCtx)
 	}
 
 	// 获取适配器

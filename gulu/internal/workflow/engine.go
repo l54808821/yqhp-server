@@ -164,18 +164,6 @@ func (e *Engine) GetMetrics(ctx context.Context, executionID string) (*types.Agg
 	return e.embeddedEngine.GetMetrics(ctx, executionID)
 }
 
-// DebugStep 单步调试
-func (e *Engine) DebugStep(ctx context.Context, req *types.DebugStepRequest) (*types.DebugStepResponse, error) {
-	e.mu.RLock()
-	defer e.mu.RUnlock()
-
-	if e.embeddedEngine == nil {
-		return nil, nil
-	}
-
-	return e.embeddedEngine.DebugStep(ctx, req)
-}
-
 // ExecuteWorkflowBlocking 阻塞式执行工作流
 func (e *Engine) ExecuteWorkflowBlocking(ctx context.Context, req *types.ExecuteWorkflowRequest) (*types.ExecuteWorkflowResponse, error) {
 	e.mu.RLock()

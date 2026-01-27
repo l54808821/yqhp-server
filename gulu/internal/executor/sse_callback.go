@@ -56,6 +56,16 @@ func (c *SSECallback) OnStepComplete(ctx context.Context, step *types.Step, resu
 		}
 	}
 
+	// 收集步骤执行结果（用于阻塞模式返回）
+	c.session.AddStepResult(StepExecutionResult{
+		StepID:     step.ID,
+		StepName:   step.Name,
+		StepType:   step.Type,
+		Success:    true,
+		DurationMs: result.Duration.Milliseconds(),
+		Result:     result.Output,
+	})
+
 	c.writer.WriteEvent(&sse.Event{
 		Type: sse.EventStepCompleted,
 		Data: &sse.StepCompletedData{
@@ -79,6 +89,16 @@ func (c *SSECallback) OnStepFailed(ctx context.Context, step *types.Step, err er
 	if err != nil {
 		errMsg = err.Error()
 	}
+
+	// 收集步骤执行结果（用于阻塞模式返回）
+	c.session.AddStepResult(StepExecutionResult{
+		StepID:     step.ID,
+		StepName:   step.Name,
+		StepType:   step.Type,
+		Success:    false,
+		DurationMs: duration.Milliseconds(),
+		Error:      errMsg,
+	})
 
 	c.writer.WriteEvent(&sse.Event{
 		Type: sse.EventStepFailed,

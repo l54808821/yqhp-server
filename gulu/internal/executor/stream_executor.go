@@ -33,14 +33,26 @@ type ExecuteRequest struct {
 
 // ExecutionSummary 执行汇总
 type ExecutionSummary struct {
-	SessionID     string    `json:"session_id"`
-	TotalSteps    int       `json:"total_steps"`
-	SuccessSteps  int       `json:"success_steps"`
-	FailedSteps   int       `json:"failed_steps"`
-	TotalDuration int64     `json:"total_duration_ms"`
-	Status        string    `json:"status"`
-	StartTime     time.Time `json:"start_time"`
-	EndTime       time.Time `json:"end_time"`
+	SessionID     string                `json:"session_id"`
+	TotalSteps    int                   `json:"total_steps"`
+	SuccessSteps  int                   `json:"success_steps"`
+	FailedSteps   int                   `json:"failed_steps"`
+	TotalDuration int64                 `json:"total_duration_ms"`
+	Status        string                `json:"status"`
+	StartTime     time.Time             `json:"start_time"`
+	EndTime       time.Time             `json:"end_time"`
+	Steps         []StepExecutionResult `json:"steps,omitempty"` // 步骤执行详情
+}
+
+// StepExecutionResult 步骤执行结果
+type StepExecutionResult struct {
+	StepID     string      `json:"stepId"`
+	StepName   string      `json:"stepName"`
+	StepType   string      `json:"stepType"`
+	Success    bool        `json:"success"`
+	DurationMs int64       `json:"durationMs"`
+	Result     interface{} `json:"result,omitempty"`
+	Error      string      `json:"error,omitempty"`
 }
 
 // StreamExecutor 流式执行器
@@ -211,6 +223,7 @@ func (e *StreamExecutor) ExecuteBlocking(ctx context.Context, req *ExecuteReques
 		Status:        status,
 		StartTime:     session.StartTime,
 		EndTime:       time.Now(),
+		Steps:         session.GetStepResults(),
 	}, execErr
 }
 

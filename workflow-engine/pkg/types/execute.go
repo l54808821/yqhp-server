@@ -6,6 +6,8 @@ type ExecuteWorkflowRequest struct {
 	Workflow *Workflow `json:"workflow,omitempty"`
 	// 工作流定义（JSON 字符串格式）
 	WorkflowJSON string `json:"workflowJson,omitempty"`
+	// 单步快捷方式：传入单个步骤，自动包装为工作流
+	Step *Step `json:"step,omitempty"`
 	// 环境 ID
 	EnvID int64 `json:"envId,omitempty"`
 	// 变量
@@ -26,6 +28,8 @@ type ExecuteWorkflowRequest struct {
 	SelectedSteps []string `json:"selectedSteps,omitempty"`
 	// 回调 URL（用于接收执行事件）
 	CallbackURL string `json:"callbackUrl,omitempty"`
+	// 是否使用 SSE 流式响应
+	Stream bool `json:"stream,omitempty"`
 }
 
 // ExecuteWorkflowResponse 执行工作流响应
@@ -44,12 +48,24 @@ type ExecuteWorkflowResponse struct {
 
 // ExecuteSummary 执行汇总（用于 API 响应）
 type ExecuteSummary struct {
-	SessionID     string `json:"sessionId"`
-	TotalSteps    int    `json:"totalSteps"`
-	SuccessSteps  int    `json:"successSteps"`
-	FailedSteps   int    `json:"failedSteps"`
-	TotalDuration int64  `json:"totalDurationMs"`
-	Status        string `json:"status"` // success, failed, timeout, stopped
+	SessionID     string                `json:"sessionId"`
+	TotalSteps    int                   `json:"totalSteps"`
+	SuccessSteps  int                   `json:"successSteps"`
+	FailedSteps   int                   `json:"failedSteps"`
+	TotalDuration int64                 `json:"totalDurationMs"`
+	Status        string                `json:"status"` // success, failed, timeout, stopped
+	Steps         []StepExecutionResult `json:"steps,omitempty"` // 步骤执行详情
+}
+
+// StepExecutionResult 步骤执行结果
+type StepExecutionResult struct {
+	StepID     string      `json:"stepId"`
+	StepName   string      `json:"stepName"`
+	StepType   string      `json:"stepType"`
+	Success    bool        `json:"success"`
+	DurationMs int64       `json:"durationMs"`
+	Result     interface{} `json:"result,omitempty"` // HTTPResponseData / ScriptResponseData / 其他
+	Error      string      `json:"error,omitempty"`
 }
 
 // SSEEvent SSE 事件

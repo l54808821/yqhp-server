@@ -3,7 +3,7 @@ package handler
 import (
 	"bufio"
 	"encoding/json"
-	"strconv"
+	"strings"
 	"time"
 
 	"yqhp/common/response"
@@ -37,208 +37,102 @@ func NewStreamExecutionHandler(sched scheduler.Scheduler, streamExec *executor.S
 	}
 }
 
-// RunStreamRequest 流式执行请求
-type RunStreamRequest struct {
-	EnvID         int64                  `json:"env_id" query:"env_id"`
-	Variables     map[string]interface{} `json:"variables,omitempty" query:"variables"`
-	Timeout       int                    `json:"timeout,omitempty" query:"timeout"`
-	ExecutorType  string                 `json:"executor_type,omitempty" query:"executor_type"`
-	SlaveID       string                 `json:"slave_id,omitempty" query:"slave_id"`
-	Definition    interface{}            `json:"definition,omitempty" query:"definition"`
-	SelectedSteps []string               `json:"selected_steps,omitempty" query:"selected_steps"`
-	Persist       *bool                  `json:"persist,omitempty" query:"persist"`
-	Mode          string                 `json:"mode,omitempty" query:"mode"` // debug 或 normal
+// ExecuteRequest 统一执行请求
+type ExecuteRequest struct {
+	// 工作流定义（完整工作流）
+	Workflow interface{} `json:"workflow,omitempty"`
+	// 单步快捷方式：传入单个步骤，自动包装为工作流
+	Step *StepConfig `json:"step,omitempty"`
+	// 环境 ID
+	EnvID int64 `json:"envId,omitempty"`
+	// 变量
+	Variables map[string]interface{} `json:"variables,omitempty"`
+	// 执行模式：debug（失败即停止）或 normal（继续执行）
+	Mode string `json:"mode,omitempty"`
+	// 会话 ID
+	SessionID string `json:"sessionId,omitempty"`
+	// 选中的步骤 ID
+	SelectedSteps []string `json:"selectedSteps,omitempty"`
+	// 超时时间（秒）
+	Timeout int `json:"timeout,omitempty"`
+	// 执行器类型
+	ExecutorType string `json:"executorType,omitempty"`
+	// 指定的 Slave ID
+	SlaveID string `json:"slaveId,omitempty"`
+	// 是否使用 SSE 流式响应
+	Stream bool `json:"stream,omitempty"`
+	// 是否持久化执行记录
+	Persist *bool `json:"persist,omitempty"`
 }
 
-// RunBlockingRequest 阻塞式执行请求
-type RunBlockingRequest struct {
-	EnvID        int64                  `json:"env_id"`
-	Variables    map[string]interface{} `json:"variables,omitempty"`
-	Timeout      int                    `json:"timeout,omitempty"`
-	ExecutorType string                 `json:"executor_type,omitempty"`
-	SlaveID      string                 `json:"slave_id,omitempty"`
-	Persist      *bool                  `json:"persist,omitempty"`
+// StepConfig 步骤配置（单步执行快捷方式）
+type StepConfig struct {
+	ID             string                 `json:"id"`
+	Type           string                 `json:"type"`
+	Name           string                 `json:"name"`
+	Config         map[string]interface{} `json:"config"`
+	PreProcessors  []ProcessorConfig      `json:"preProcessors,omitempty"`
+	PostProcessors []ProcessorConfig      `json:"postProcessors,omitempty"`
 }
 
-// InteractionRequest 交互请求
-type InteractionRequest struct {
-	Value   string `json:"value"`
-	Skipped bool   `json:"skipped"`
+// ProcessorConfig 处理器配置
+type ProcessorConfig struct {
+	ID      string                 `json:"id"`
+	Type    string                 `json:"type"`
+	Enabled bool                   `json:"enabled"`
+	Name    string                 `json:"name,omitempty"`
+	Config  map[string]interface{} `json:"config"`
 }
 
-// ExecutionContext 执行上下文（公共逻辑抽取）
-type ExecutionContext struct {
-	WorkflowID   int64
-	SessionID    string
-	EnvID        int64
-	UserID       int64
-	EngineWf     *types.Workflow
-	Persist      bool
-	ExecMode     scheduler.ExecutionMode
-	ExecLogic    *logic.ExecutionLogic
-	ScheduleRes  *scheduler.ScheduleResult
-	ExecReq      *executor.ExecuteRequest
-}
-
-// shouldPersist 判断是否需要持久化
-func shouldPersist(persist *bool) bool {
-	if persist == nil {
-		return true
-	}
-	return *persist
-}
-
-// prepareExecution 准备执行上下文（公共逻辑）
-func (h *StreamExecutionHandler) prepareExecution(c *fiber.Ctx, workflowID int64, envID int64, variables map[string]interface{}, definition interface{}, mode string, persist bool, executorType string, slaveID string, timeout int) (*ExecutionContext, error) {
-	userID := middleware.GetCurrentUserID(c)
-
-	// 获取工作流信息
-	workflowLogic := logic.NewWorkflowLogic(c.UserContext())
-	wf, err := workflowLogic.GetByID(workflowID)
-	if err != nil {
-		return nil, &executionError{code: "NOT_FOUND", message: "工作流不存在"}
-	}
-
-	// 生成会话 ID
-	sessionID := uuid.New().String()
-
-	// 获取工作流类型
-	workflowType := string(model.WorkflowTypeNormal)
-	if wf.WorkflowType != nil {
-		workflowType = *wf.WorkflowType
-	}
-
-	// 确定执行模式
-	execMode := scheduler.ModeDebug
-	if mode == "normal" {
-		execMode = scheduler.ModeExecute
-	}
-
-	// 创建调度请求并调度
-	schedReq := &scheduler.ScheduleRequest{
-		WorkflowID:   workflowID,
-		WorkflowType: workflowType,
-		Mode:         execMode,
-		EnvID:        envID,
-		SessionID:    sessionID,
-		UserID:       userID,
-		ExecutorID:   slaveID,
-	}
-
-	schedRes, err := h.scheduler.Schedule(c.UserContext(), schedReq)
-	if err != nil {
-		return nil, &executionError{code: "SCHEDULE_ERROR", message: "调度失败: " + err.Error()}
-	}
-
-	logger.Debug("调度完成", "target_type", schedRes.TargetType, "target_id", schedRes.TargetID)
-
-	// 创建执行记录（仅当 persist=true 时）
-	var execLogic *logic.ExecutionLogic
-	if persist {
-		execLogic = logic.NewExecutionLogic(c.UserContext())
-		modeStr := string(model.ExecutionModeDebug)
-		if mode == "normal" {
-			modeStr = string(model.ExecutionModeExecute)
-		}
-		if err := execLogic.CreateStreamExecution(sessionID, wf.ProjectID, workflowID, envID, userID, modeStr); err != nil {
-			return nil, &executionError{code: "DB_ERROR", message: "创建执行记录失败: " + err.Error()}
-		}
-	}
-
-	// 确定工作流定义
-	definitionToUse := wf.Definition
-	if definition != nil {
-		switch v := definition.(type) {
-		case string:
-			if v != "" {
-				definitionToUse = v
-				logger.Debug("使用请求中的工作流定义（字符串格式）")
-			}
-		case map[string]interface{}:
-			defBytes, err := json.Marshal(v)
-			if err != nil {
-				return nil, &executionError{code: "PARSE_ERROR", message: "工作流定义序列化失败: " + err.Error()}
-			}
-			definitionToUse = string(defBytes)
-			logger.Debug("使用请求中的工作流定义（对象格式）")
-		}
-	}
-
-	// 转换工作流定义
-	var engineWf *types.Workflow
-	if mode == "normal" {
-		engineWf, err = logic.ConvertToEngineWorkflow(definitionToUse, sessionID)
-	} else {
-		engineWf, err = logic.ConvertToEngineWorkflowStopOnError(definitionToUse, sessionID)
-	}
-	if err != nil {
-		return nil, &executionError{code: "CONVERT_ERROR", message: "工作流转换失败: " + err.Error()}
-	}
-
-	logger.Debug("工作流转换完成", "id", engineWf.ID, "name", engineWf.Name, "steps", len(engineWf.Steps))
-
-	// 创建执行请求
-	execReq := &executor.ExecuteRequest{
-		WorkflowID:   workflowID,
-		EnvID:        envID,
-		Variables:    variables,
-		Timeout:      timeout,
-		ExecutorType: executor.ExecutorType(executorType),
-		SlaveID:      slaveID,
-	}
-
-	// 根据调度结果设置执行类型
-	if schedRes.TargetType == "slave" && slaveID == "" {
-		execReq.SlaveID = schedRes.TargetID
-		execReq.ExecutorType = executor.ExecutorTypeRemote
-	}
-
-	return &ExecutionContext{
-		WorkflowID:  workflowID,
-		SessionID:   sessionID,
-		EnvID:       envID,
-		UserID:      userID,
-		EngineWf:    engineWf,
-		Persist:     persist,
-		ExecMode:    execMode,
-		ExecLogic:   execLogic,
-		ScheduleRes: schedRes,
-		ExecReq:     execReq,
-	}, nil
-}
-
-// executionError 执行错误
-type executionError struct {
-	code    string
-	message string
-}
-
-func (e *executionError) Error() string {
-	return e.message
-}
-
-// RunStream 流式执行（SSE）
-// GET/POST /api/workflows/:id/run/stream
-func (h *StreamExecutionHandler) RunStream(c *fiber.Ctx) error {
-	workflowID, err := strconv.ParseInt(c.Params("id"), 10, 64)
-	if err != nil {
-		return response.Error(c, "无效的工作流ID")
-	}
-
-	var req RunStreamRequest
-	// 优先解析 JSON body（POST），否则解析 query（GET）
+// Execute 统一执行入口
+// POST /api/execute
+// 通过 stream 参数或 Accept 头判断响应方式：
+// - stream=true 或 Accept: text/event-stream → SSE 流式响应
+// - 否则 → 阻塞式 JSON 响应
+func (h *StreamExecutionHandler) Execute(c *fiber.Ctx) error {
+	var req ExecuteRequest
 	if err := c.BodyParser(&req); err != nil {
-		if err := c.QueryParser(&req); err != nil {
-			return response.Error(c, "参数解析失败: "+err.Error())
+		return response.Error(c, "参数解析失败: "+err.Error())
+	}
+
+	// 判断是否使用 SSE 流式响应
+	isSSE := req.Stream || strings.Contains(c.Get("Accept"), "text/event-stream")
+
+	// 处理 Step 快捷方式：将单个步骤包装为工作流
+	var workflowDef interface{}
+	if req.Step != nil {
+		// 构建单步工作流
+		workflowDef = map[string]interface{}{
+			"steps": []interface{}{
+				map[string]interface{}{
+					"id":             req.Step.ID,
+					"type":           req.Step.Type,
+					"name":           req.Step.Name,
+					"config":         req.Step.Config,
+					"preProcessors":  req.Step.PreProcessors,
+					"postProcessors": req.Step.PostProcessors,
+				},
+			},
 		}
+	} else if req.Workflow != nil {
+		workflowDef = req.Workflow
+	} else {
+		return response.Error(c, "工作流定义不能为空（需要提供 workflow 或 step）")
 	}
 
-	if req.EnvID <= 0 {
-		return response.Error(c, "环境ID不能为空")
+	// 流程执行时环境ID必填，单步调试时可选
+	if req.Workflow != nil && req.EnvID <= 0 {
+		return response.Error(c, "流程执行时环境ID不能为空")
 	}
 
-	// 准备执行上下文
-	execCtx, err := h.prepareExecution(c, workflowID, req.EnvID, req.Variables, req.Definition, req.Mode, shouldPersist(req.Persist), req.ExecutorType, req.SlaveID, req.Timeout)
+	// 默认调试模式
+	mode := req.Mode
+	if mode == "" {
+		mode = "debug"
+	}
+
+	// 准备执行上下文（无 workflowID，直接使用定义）
+	execCtx, err := h.prepareExecutionFromDefinition(c, workflowDef, req.EnvID, req.Variables, mode, shouldPersist(req.Persist), req.ExecutorType, req.SlaveID, req.Timeout, req.SessionID)
 	if err != nil {
 		if execErr, ok := err.(*executionError); ok {
 			if execErr.code == "NOT_FOUND" {
@@ -254,6 +148,100 @@ func (h *StreamExecutionHandler) RunStream(c *fiber.Ctx) error {
 		execCtx.EngineWf.Steps = filterSteps(execCtx.EngineWf.Steps, req.SelectedSteps)
 	}
 
+	if isSSE {
+		return h.executeSSE(c, execCtx)
+	}
+	return h.executeBlocking(c, execCtx)
+}
+
+// prepareExecutionFromDefinition 从工作流定义准备执行上下文
+func (h *StreamExecutionHandler) prepareExecutionFromDefinition(c *fiber.Ctx, definition interface{}, envID int64, variables map[string]interface{}, mode string, persist bool, executorType string, slaveID string, timeout int, sessionID string) (*ExecutionContext, error) {
+	userID := middleware.GetCurrentUserID(c)
+
+	// 生成会话 ID
+	if sessionID == "" {
+		sessionID = uuid.New().String()
+	}
+
+	// 确定执行模式
+	execMode := scheduler.ModeDebug
+	if mode == "normal" {
+		execMode = scheduler.ModeExecute
+	}
+
+	// 转换工作流定义
+	var definitionStr string
+	switch v := definition.(type) {
+	case string:
+		definitionStr = v
+	case map[string]interface{}:
+		defBytes, err := json.Marshal(v)
+		if err != nil {
+			return nil, &executionError{code: "PARSE_ERROR", message: "工作流定义序列化失败: " + err.Error()}
+		}
+		definitionStr = string(defBytes)
+	default:
+		defBytes, err := json.Marshal(v)
+		if err != nil {
+			return nil, &executionError{code: "PARSE_ERROR", message: "工作流定义序列化失败: " + err.Error()}
+		}
+		definitionStr = string(defBytes)
+	}
+
+	// 转换工作流
+	var engineWf *types.Workflow
+	var err error
+	if mode == "normal" {
+		engineWf, err = logic.ConvertToEngineWorkflow(definitionStr, sessionID)
+	} else {
+		engineWf, err = logic.ConvertToEngineWorkflowStopOnError(definitionStr, sessionID)
+	}
+	if err != nil {
+		return nil, &executionError{code: "CONVERT_ERROR", message: "工作流转换失败: " + err.Error()}
+	}
+
+	logger.Debug("工作流转换完成", "id", engineWf.ID, "name", engineWf.Name, "steps", len(engineWf.Steps))
+
+	// 创建执行记录（仅当 persist=true 时）
+	var execLogic *logic.ExecutionLogic
+	if persist {
+		execLogic = logic.NewExecutionLogic(c.UserContext())
+		modeStr := string(model.ExecutionModeDebug)
+		if mode == "normal" {
+			modeStr = string(model.ExecutionModeExecute)
+		}
+		// 无 workflowID 时使用 0
+		if err := execLogic.CreateStreamExecution(sessionID, 0, 0, envID, userID, modeStr); err != nil {
+			return nil, &executionError{code: "DB_ERROR", message: "创建执行记录失败: " + err.Error()}
+		}
+	}
+
+	// 创建执行请求
+	execReq := &executor.ExecuteRequest{
+		WorkflowID:   0,
+		EnvID:        envID,
+		Variables:    variables,
+		Timeout:      timeout,
+		ExecutorType: executor.ExecutorType(executorType),
+		SlaveID:      slaveID,
+	}
+
+	return &ExecutionContext{
+		WorkflowID:  0,
+		SessionID:   sessionID,
+		EnvID:       envID,
+		UserID:      userID,
+		EngineWf:    engineWf,
+		Persist:     persist,
+		ExecMode:    execMode,
+		ExecLogic:   execLogic,
+		ScheduleRes: nil,
+		ExecReq:     execReq,
+	}, nil
+}
+
+// executeSSE SSE 流式执行
+func (h *StreamExecutionHandler) executeSSE(c *fiber.Ctx, execCtx *ExecutionContext) error {
 	// 设置 SSE 响应头
 	c.Set("Content-Type", "text/event-stream; charset=utf-8")
 	c.Set("Cache-Control", "no-cache")
@@ -295,34 +283,8 @@ func (h *StreamExecutionHandler) RunStream(c *fiber.Ctx) error {
 	return nil
 }
 
-// RunBlocking 阻塞式执行
-// POST /api/workflows/:id/run
-func (h *StreamExecutionHandler) RunBlocking(c *fiber.Ctx) error {
-	workflowID, err := strconv.ParseInt(c.Params("id"), 10, 64)
-	if err != nil {
-		return response.Error(c, "无效的工作流ID")
-	}
-
-	var req RunBlockingRequest
-	if err := c.BodyParser(&req); err != nil {
-		return response.Error(c, "参数解析失败: "+err.Error())
-	}
-
-	if req.EnvID <= 0 {
-		return response.Error(c, "环境ID不能为空")
-	}
-
-	// 准备执行上下文
-	execCtx, err := h.prepareExecution(c, workflowID, req.EnvID, req.Variables, nil, "normal", shouldPersist(req.Persist), req.ExecutorType, req.SlaveID, req.Timeout)
-	if err != nil {
-		if execErr, ok := err.(*executionError); ok {
-			if execErr.code == "NOT_FOUND" {
-				return response.NotFound(c, execErr.message)
-			}
-		}
-		return response.Error(c, err.Error())
-	}
-
+// executeBlocking 阻塞式执行
+func (h *StreamExecutionHandler) executeBlocking(c *fiber.Ctx, execCtx *ExecutionContext) error {
 	// 执行工作流（阻塞）
 	summary, execErr := h.streamExecutor.ExecuteBlocking(c.UserContext(), execCtx.ExecReq, execCtx.EngineWf)
 
@@ -338,6 +300,45 @@ func (h *StreamExecutionHandler) RunBlocking(c *fiber.Ctx) error {
 	}
 
 	return response.Success(c, summary)
+}
+
+// InteractionRequest 交互请求
+type InteractionRequest struct {
+	Value   string `json:"value"`
+	Skipped bool   `json:"skipped"`
+}
+
+// ExecutionContext 执行上下文（公共逻辑抽取）
+type ExecutionContext struct {
+	WorkflowID   int64
+	SessionID    string
+	EnvID        int64
+	UserID       int64
+	EngineWf     *types.Workflow
+	Persist      bool
+	ExecMode     scheduler.ExecutionMode
+	ExecLogic    *logic.ExecutionLogic
+	ScheduleRes  *scheduler.ScheduleResult
+	ExecReq      *executor.ExecuteRequest
+}
+
+// shouldPersist 判断是否需要持久化
+func shouldPersist(persist *bool) bool {
+	if persist == nil {
+		return true
+	}
+	return *persist
+}
+
+
+// executionError 执行错误
+type executionError struct {
+	code    string
+	message string
+}
+
+func (e *executionError) Error() string {
+	return e.message
 }
 
 // updateExecutionStatus 更新执行状态（SSE 模式）

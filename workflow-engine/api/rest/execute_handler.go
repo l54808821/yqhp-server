@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,6 +28,7 @@ type ExecuteSession struct {
 	StartTime     time.Time
 	Cancel        context.CancelFunc
 	InteractionCh chan *types.InteractionResponse
+	StepResults   []types.StepExecutionResult // 步骤执行结果（阻塞模式收集）
 	mu            sync.RWMutex
 }
 
@@ -44,10 +46,8 @@ var globalSessionManager = &ExecuteSessionManager{
 func (s *Server) setupExecuteRoutes() {
 	api := s.app.Group("/api/v1")
 
-	// 执行工作流（SSE 流式）
-	api.Post("/execute/stream", s.executeWorkflowStream)
-	// 执行工作流（阻塞式）
-	api.Post("/execute", s.executeWorkflowBlocking)
+	// 统一执行接口（同时支持 SSE 和阻塞，通过 stream 参数或 Accept 头控制）
+	api.Post("/execute", s.executeWorkflow)
 	// 提交交互响应
 	api.Post("/execute/:sessionId/interaction", s.submitExecuteInteraction)
 	// 停止执行
@@ -56,16 +56,22 @@ func (s *Server) setupExecuteRoutes() {
 	api.Get("/execute/:sessionId/status", s.getExecuteSessionStatus)
 }
 
-// executeWorkflowStream 流式执行工作流（SSE）
-// POST /api/v1/execute/stream
-func (s *Server) executeWorkflowStream(c *fiber.Ctx) error {
+// executeWorkflow 统一执行工作流入口
+// POST /api/v1/execute
+// 通过 stream 参数或 Accept 头判断响应方式：
+// - stream=true 或 Accept: text/event-stream → SSE 流式响应
+// - 否则 → 阻塞式 JSON 响应
+func (s *Server) executeWorkflow(c *fiber.Ctx) error {
 	var req types.ExecuteWorkflowRequest
 	if err := c.BodyParser(&req); err != nil {
 		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
 			Error:   "invalid_request",
-			Message: "Failed to parse request body: " + err.Error(),
+			Message: "解析请求体失败: " + err.Error(),
 		})
 	}
+
+	// 判断是否使用 SSE 流式响应
+	isSSE := req.Stream || strings.Contains(c.Get("Accept"), "text/event-stream")
 
 	// 解析工作流
 	wf, err := s.parseWorkflow(&req)
@@ -125,6 +131,14 @@ func (s *Server) executeWorkflowStream(c *fiber.Ctx) error {
 	defer cancel()
 	session.Cancel = cancel
 
+	if isSSE {
+		return s.executeWithSSE(c, ctx, &req, wf, session)
+	}
+	return s.executeWithBlocking(c, ctx, &req, wf, session)
+}
+
+// executeWithSSE SSE 流式执行
+func (s *Server) executeWithSSE(c *fiber.Ctx, ctx context.Context, req *types.ExecuteWorkflowRequest, wf *types.Workflow, session *ExecuteSession) error {
 	// 设置 SSE 响应头
 	c.Set("Content-Type", "text/event-stream; charset=utf-8")
 	c.Set("Cache-Control", "no-cache")
@@ -145,7 +159,7 @@ func (s *Server) executeWorkflowStream(c *fiber.Ctx) error {
 
 		// 发送连接成功事件
 		writer.WriteEvent(string(types.EventTypeConnected), map[string]interface{}{
-			"session_id": sessionID,
+			"session_id": session.ID,
 			"message":    "SSE 连接成功",
 		})
 
@@ -187,65 +201,8 @@ func (s *Server) executeWorkflowStream(c *fiber.Ctx) error {
 	return nil
 }
 
-// executeWorkflowBlocking 阻塞式执行工作流
-// POST /api/v1/execute
-func (s *Server) executeWorkflowBlocking(c *fiber.Ctx) error {
-	var req types.ExecuteWorkflowRequest
-	if err := c.BodyParser(&req); err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
-			Error:   "invalid_request",
-			Message: "Failed to parse request body: " + err.Error(),
-		})
-	}
-
-	// 解析工作流
-	wf, err := s.parseWorkflow(&req)
-	if err != nil {
-		return c.Status(fiber.StatusBadRequest).JSON(ErrorResponse{
-			Error:   "invalid_workflow",
-			Message: err.Error(),
-		})
-	}
-
-	// 生成会话 ID
-	sessionID := req.SessionID
-	if sessionID == "" {
-		sessionID = uuid.New().String()
-	}
-	wf.ID = sessionID
-
-	// 创建执行会话
-	session := &ExecuteSession{
-		ID:        sessionID,
-		Status:    "running",
-		StartTime: time.Now(),
-	}
-
-	// 过滤选中的步骤
-	if len(req.SelectedSteps) > 0 {
-		wf.Steps = filterSelectedSteps(wf.Steps, req.SelectedSteps)
-	}
-
-	// 合并变量
-	if req.Variables != nil {
-		if wf.Variables == nil {
-			wf.Variables = make(map[string]interface{})
-		}
-		for k, v := range req.Variables {
-			wf.Variables[k] = v
-		}
-	}
-
-	// 设置超时
-	timeout := 30 * time.Minute
-	if req.Timeout > 0 {
-		timeout = time.Duration(req.Timeout) * time.Second
-	}
-
-	ctx, cancel := context.WithTimeout(c.UserContext(), timeout)
-	defer cancel()
-	session.Cancel = cancel
-
+// executeWithBlocking 阻塞式执行
+func (s *Server) executeWithBlocking(c *fiber.Ctx, ctx context.Context, req *types.ExecuteWorkflowRequest, wf *types.Workflow, session *ExecuteSession) error {
 	// 根据执行器类型选择执行方式
 	var execErr error
 	if req.ExecutorType == "remote" && req.SlaveID != "" {
@@ -265,14 +222,15 @@ func (s *Server) executeWorkflowBlocking(c *fiber.Ctx) error {
 	resp := &types.ExecuteWorkflowResponse{
 		Success:     execErr == nil && session.FailedSteps == 0,
 		ExecutionID: session.ExecutionID,
-		SessionID:   sessionID,
+		SessionID:   session.ID,
 		Summary: &types.ExecuteSummary{
-			SessionID:     sessionID,
+			SessionID:     session.ID,
 			TotalSteps:    session.TotalSteps,
 			SuccessSteps:  session.SuccessSteps,
 			FailedSteps:   session.FailedSteps,
 			TotalDuration: time.Since(session.StartTime).Milliseconds(),
 			Status:        status,
+			Steps:         session.StepResults,
 		},
 	}
 
@@ -403,10 +361,12 @@ func (s *Server) getExecuteSessionStatus(c *fiber.Ctx) error {
 
 // parseWorkflow 解析工作流
 func (s *Server) parseWorkflow(req *types.ExecuteWorkflowRequest) (*types.Workflow, error) {
+	// 优先使用 Workflow
 	if req.Workflow != nil {
 		return req.Workflow, nil
 	}
 
+	// 其次使用 WorkflowJSON
 	if req.WorkflowJSON != "" {
 		var wf types.Workflow
 		if err := json.Unmarshal([]byte(req.WorkflowJSON), &wf); err != nil {
@@ -415,7 +375,19 @@ func (s *Server) parseWorkflow(req *types.ExecuteWorkflowRequest) (*types.Workfl
 		return &wf, nil
 	}
 
-	return nil, fmt.Errorf("工作流定义不能为空")
+	// 最后处理 Step 快捷方式：将单个步骤包装为工作流
+	if req.Step != nil {
+		wf := &types.Workflow{
+			ID:   uuid.New().String(),
+			Name: "单步执行",
+			Steps: []types.Step{
+				*req.Step,
+			},
+		}
+		return wf, nil
+	}
+
+	return nil, fmt.Errorf("工作流定义不能为空（需要提供 workflow、workflowJson 或 step）")
 }
 
 // executeLocalStream 本地流式执行
@@ -802,6 +774,21 @@ func (c *blockingCallback) OnStepComplete(ctx context.Context, step *types.Step,
 	} else {
 		c.session.FailedSteps++
 	}
+
+	// 收集步骤执行结果
+	stepResult := types.StepExecutionResult{
+		StepID:     step.ID,
+		StepName:   step.Name,
+		StepType:   step.Type,
+		Success:    result.Success,
+		DurationMs: result.Duration.Milliseconds(),
+		Result:     result.Output,
+	}
+	if result.Error != nil {
+		stepResult.Error = result.Error.Error()
+	}
+	c.session.StepResults = append(c.session.StepResults, stepResult)
+
 	c.session.mu.Unlock()
 }
 

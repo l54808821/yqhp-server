@@ -41,6 +41,9 @@ type Session struct {
 	SuccessSteps int
 	FailedSteps  int
 
+	// 步骤执行结果（阻塞模式收集）
+	StepResults []StepExecutionResult
+
 	// 变量上下文（用于单步调试时获取会话变量）
 	Variables map[string]interface{}
 
@@ -271,6 +274,20 @@ func (s *Session) GetStats() (total, success, failed int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.TotalSteps, s.SuccessSteps, s.FailedSteps
+}
+
+// AddStepResult 添加步骤执行结果
+func (s *Session) AddStepResult(result StepExecutionResult) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.StepResults = append(s.StepResults, result)
+}
+
+// GetStepResults 获取步骤执行结果
+func (s *Session) GetStepResults() []StepExecutionResult {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.StepResults
 }
 
 // SetStatus 设置状态

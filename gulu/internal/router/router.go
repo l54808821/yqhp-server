@@ -40,8 +40,7 @@ func Setup(app *fiber.App) {
 	sched := scheduler.NewScheduler(engineClient)
 	sessionManager := executor.NewSessionManager()
 	streamExecutor := executor.NewStreamExecutor(sessionManager, 30*time.Minute)
-	executionStreamHandler := handler.NewStreamExecutionHandler(sched, streamExecutor, sessionManager)
-	debugStepHandler := handler.NewDebugStepHandler(sessionManager)
+	executionHandler := handler.NewStreamExecutionHandler(sched, streamExecutor, sessionManager)
 
 	// API 路由组 (需要认证)
 	api := app.Group("/api", middleware.AuthMiddleware(), middleware.ProjectMiddleware())
@@ -185,18 +184,12 @@ func Setup(app *fiber.App) {
 	executions.Post("/:id/pause", handler.ExecutionPause)
 	executions.Post("/:id/resume", handler.ExecutionResume)
 
-	// 流式执行路由（同时支持 GET 和 POST）- 需要依赖注入的 handler
-	workflows.Get("/:id/run/stream", executionStreamHandler.RunStream)
-	workflows.Post("/:id/run/stream", executionStreamHandler.RunStream) // POST 方式，支持大数据量
-	workflows.Post("/:id/run", executionStreamHandler.RunBlocking)
-
-	// 单步调试路由 - 需要依赖注入的 handler
-	debug := api.Group("/debug")
-	debug.Post("/step", debugStepHandler.DebugStep)
+	// 统一执行接口（同时支持单步和流程执行，支持 SSE 和阻塞）
+	api.Post("/execute", executionHandler.Execute)
 
 	// 执行会话管理路由 - 需要依赖注入的 handler
 	streamExecutions := api.Group("/executions")
-	streamExecutions.Get("/:sessionId/status", executionStreamHandler.GetExecutionStatus)
-	streamExecutions.Delete("/:sessionId/stop", executionStreamHandler.StopExecution)
-	streamExecutions.Post("/:sessionId/interaction", executionStreamHandler.SubmitInteraction)
+	streamExecutions.Get("/:sessionId/status", executionHandler.GetExecutionStatus)
+	streamExecutions.Delete("/:sessionId/stop", executionHandler.StopExecution)
+	streamExecutions.Post("/:sessionId/interaction", executionHandler.SubmitInteraction)
 }

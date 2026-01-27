@@ -261,10 +261,7 @@ func (s *Server) setupRoutes() {
 	// 指标报告路由
 	api.Post("/executions/:id/metrics/report", s.receiveMetricsReport)
 
-	// 调试路由
-	api.Post("/debug/step", s.debugStep)
-
-	// 执行路由
+	// 执行路由（统一执行入口，支持单步和流程执行，支持 SSE 和阻塞）
 	s.setupExecuteRoutes()
 
 	// WebSocket routes

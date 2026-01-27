@@ -33,14 +33,14 @@ type ExecuteRequest struct {
 
 // ExecutionSummary 执行汇总
 type ExecutionSummary struct {
-	SessionID     string                `json:"session_id"`
-	TotalSteps    int                   `json:"total_steps"`
-	SuccessSteps  int                   `json:"success_steps"`
-	FailedSteps   int                   `json:"failed_steps"`
-	TotalDuration int64                 `json:"total_duration_ms"`
+	SessionID     string                `json:"sessionId"`
+	TotalSteps    int                   `json:"totalSteps"`
+	SuccessSteps  int                   `json:"successSteps"`
+	FailedSteps   int                   `json:"failedSteps"`
+	TotalDuration int64                 `json:"totalDurationMs"`
 	Status        string                `json:"status"`
-	StartTime     time.Time             `json:"start_time"`
-	EndTime       time.Time             `json:"end_time"`
+	StartTime     time.Time             `json:"startTime"`
+	EndTime       time.Time             `json:"endTime"`
 	Steps         []StepExecutionResult `json:"steps,omitempty"` // 步骤执行详情
 }
 
@@ -331,9 +331,9 @@ func (e *StreamExecutor) executeRemote(ctx context.Context, req *ExecuteRequest,
 		case "workflow_completed":
 			var completedData struct {
 				Status       string `json:"status"`
-				TotalSteps   int    `json:"total_steps"`
-				SuccessSteps int    `json:"success_steps"`
-				FailedSteps  int    `json:"failed_steps"`
+				TotalSteps   int    `json:"totalSteps"`
+				SuccessSteps int    `json:"successSteps"`
+				FailedSteps  int    `json:"failedSteps"`
 			}
 			if err := json.Unmarshal(data, &completedData); err == nil {
 				if completedData.FailedSteps > 0 || completedData.Status == "failed" {
@@ -351,7 +351,7 @@ func (e *StreamExecutor) executeRemote(ctx context.Context, req *ExecuteRequest,
 			}
 
 			var interactionData struct {
-				StepID  string `json:"step_id"`
+				StepID  string `json:"stepId"`
 				Timeout int    `json:"timeout"`
 			}
 			if err := json.Unmarshal(data, &interactionData); err != nil {

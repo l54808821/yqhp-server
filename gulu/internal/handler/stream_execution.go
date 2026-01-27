@@ -267,9 +267,9 @@ func (h *StreamExecutionHandler) executeSSE(c *fiber.Ctx, execCtx *ExecutionCont
 		writer.WriteEvent(&sse.Event{
 			Type: "connected",
 			Data: map[string]interface{}{
-				"session_id": execCtx.SessionID,
-				"message":    "SSE 连接成功",
-				"persist":    execCtx.Persist,
+				"sessionId": execCtx.SessionID,
+				"message":   "SSE 连接成功",
+				"persist":   execCtx.Persist,
 			},
 		})
 
@@ -356,9 +356,9 @@ func (h *StreamExecutionHandler) updateExecutionStatus(execCtx *ExecutionContext
 					status = "failed"
 				}
 				execCtx.ExecLogic.UpdateStreamExecutionStatus(execCtx.SessionID, status, map[string]interface{}{
-					"total_steps":   total,
-					"success_steps": success,
-					"failed_steps":  failed,
+					"totalSteps":   total,
+					"successSteps": success,
+					"failedSteps":  failed,
 				})
 			}
 		}
@@ -423,13 +423,13 @@ func (h *StreamExecutionHandler) GetExecutionStatus(c *fiber.Ctx) error {
 	if ok {
 		total, success, failed := session.GetStats()
 		return response.Success(c, map[string]interface{}{
-			"session_id":    sessionID,
-			"status":        session.GetStatus(),
-			"total_steps":   total,
-			"success_steps": success,
-			"failed_steps":  failed,
-			"start_time":    session.StartTime,
-			"duration_ms":   time.Since(session.StartTime).Milliseconds(),
+			"sessionId":    sessionID,
+			"status":       session.GetStatus(),
+			"totalSteps":   total,
+			"successSteps": success,
+			"failedSteps":  failed,
+			"startTime":    session.StartTime,
+			"durationMs":   time.Since(session.StartTime).Milliseconds(),
 		})
 	}
 

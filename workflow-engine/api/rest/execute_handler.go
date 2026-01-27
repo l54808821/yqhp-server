@@ -159,8 +159,8 @@ func (s *Server) executeWithSSE(c *fiber.Ctx, ctx context.Context, req *types.Ex
 
 		// 发送连接成功事件
 		writer.WriteEvent(string(types.EventTypeConnected), map[string]interface{}{
-			"session_id": session.ID,
-			"message":    "SSE 连接成功",
+			"sessionId": session.ID,
+			"message":   "SSE 连接成功",
 		})
 
 		// 根据执行器类型选择执行方式
@@ -348,14 +348,14 @@ func (s *Server) getExecuteSessionStatus(c *fiber.Ctx) error {
 	defer session.mu.RUnlock()
 
 	return c.JSON(map[string]interface{}{
-		"session_id":    session.ID,
-		"execution_id":  session.ExecutionID,
-		"status":        session.Status,
-		"total_steps":   session.TotalSteps,
-		"success_steps": session.SuccessSteps,
-		"failed_steps":  session.FailedSteps,
-		"start_time":    session.StartTime,
-		"duration_ms":   time.Since(session.StartTime).Milliseconds(),
+		"sessionId":    session.ID,
+		"executionId":  session.ExecutionID,
+		"status":       session.Status,
+		"totalSteps":   session.TotalSteps,
+		"successSteps": session.SuccessSteps,
+		"failedSteps":  session.FailedSteps,
+		"startTime":    session.StartTime,
+		"durationMs":   time.Since(session.StartTime).Milliseconds(),
 	})
 }
 

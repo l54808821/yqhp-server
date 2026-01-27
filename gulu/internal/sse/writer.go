@@ -41,7 +41,7 @@ func (t Timestamp) MarshalJSON() ([]byte, error) {
 // Event SSE 事件结构
 type Event struct {
 	Type      EventType   `json:"type"`
-	SessionID string      `json:"session_id"`
+	SessionID string      `json:"sessionId"`
 	Timestamp Timestamp   `json:"timestamp"`
 	Data      interface{} `json:"data"`
 }
@@ -178,85 +178,85 @@ func escapeNewlines(s string) string {
 
 // StepStartedData 步骤开始数据
 type StepStartedData struct {
-	StepID    string `json:"step_id"`
-	StepName  string `json:"step_name"`
-	StepType  string `json:"step_type,omitempty"`
-	ParentID  string `json:"parent_id,omitempty"`
+	StepID    string `json:"stepId"`
+	StepName  string `json:"stepName"`
+	StepType  string `json:"stepType,omitempty"`
+	ParentID  string `json:"parentId,omitempty"`
 	Iteration int    `json:"iteration,omitempty"`
 }
 
 // StepCompletedData 步骤完成数据
 type StepCompletedData struct {
-	StepID    string                 `json:"step_id"`
-	StepName  string                 `json:"step_name"`
-	StepType  string                 `json:"step_type,omitempty"`
-	ParentID  string                 `json:"parent_id,omitempty"`
+	StepID    string                 `json:"stepId"`
+	StepName  string                 `json:"stepName"`
+	StepType  string                 `json:"stepType,omitempty"`
+	ParentID  string                 `json:"parentId,omitempty"`
 	Iteration int                    `json:"iteration,omitempty"`
 	Status    string                 `json:"status"`
-	Duration  int64                  `json:"duration_ms"`
+	Duration  int64                  `json:"durationMs"`
 	Output    map[string]interface{} `json:"output,omitempty"`
 }
 
 // StepFailedData 步骤失败数据
 type StepFailedData struct {
-	StepID    string `json:"step_id"`
-	StepName  string `json:"step_name"`
-	StepType  string `json:"step_type,omitempty"`
-	ParentID  string `json:"parent_id,omitempty"`
+	StepID    string `json:"stepId"`
+	StepName  string `json:"stepName"`
+	StepType  string `json:"stepType,omitempty"`
+	ParentID  string `json:"parentId,omitempty"`
 	Iteration int    `json:"iteration,omitempty"`
 	Status    string `json:"status"`
 	Error     string `json:"error"`
 	Details   string `json:"details,omitempty"`
-	Duration  int64  `json:"duration_ms"`
+	Duration  int64  `json:"durationMs"`
 }
 
 // StepSkippedData 步骤跳过数据
 type StepSkippedData struct {
-	StepID    string `json:"step_id"`
-	StepName  string `json:"step_name"`
-	StepType  string `json:"step_type,omitempty"`
-	ParentID  string `json:"parent_id,omitempty"`
+	StepID    string `json:"stepId"`
+	StepName  string `json:"stepName"`
+	StepType  string `json:"stepType,omitempty"`
+	ParentID  string `json:"parentId,omitempty"`
 	Iteration int    `json:"iteration,omitempty"`
 	Reason    string `json:"reason"`
 }
 
 // ProgressData 进度数据
 type ProgressData struct {
-	CurrentStep int    `json:"current_step"`
-	TotalSteps  int    `json:"total_steps"`
+	CurrentStep int    `json:"currentStep"`
+	TotalSteps  int    `json:"totalSteps"`
 	Percentage  int    `json:"percentage"`
-	StepName    string `json:"step_name"`
+	StepName    string `json:"stepName"`
 }
 
 // WorkflowCompletedData 工作流完成数据
 type WorkflowCompletedData struct {
-	SessionID     string `json:"session_id"`
-	TotalSteps    int    `json:"total_steps"`
-	SuccessSteps  int    `json:"success_steps"`
-	FailedSteps   int    `json:"failed_steps"`
-	TotalDuration int64  `json:"total_duration_ms"`
+	SessionID     string `json:"sessionId"`
+	TotalSteps    int    `json:"totalSteps"`
+	SuccessSteps  int    `json:"successSteps"`
+	FailedSteps   int    `json:"failedSteps"`
+	TotalDuration int64  `json:"totalDurationMs"`
 	Status        string `json:"status"`
 }
 
 // AIChunkData AI 块数据
 type AIChunkData struct {
-	StepID string `json:"step_id"`
+	StepID string `json:"stepId"`
 	Chunk  string `json:"chunk"`
 	Index  int    `json:"index"`
 }
 
 // AICompleteData AI 完成数据
 type AICompleteData struct {
-	StepID           string `json:"step_id"`
+	StepID           string `json:"stepId"`
 	Content          string `json:"content"`
-	PromptTokens     int    `json:"prompt_tokens"`
-	CompletionTokens int    `json:"completion_tokens"`
-	TotalTokens      int    `json:"total_tokens"`
+	PromptTokens     int    `json:"promptTokens"`
+	CompletionTokens int    `json:"completionTokens"`
+	TotalTokens      int    `json:"totalTokens"`
 }
 
 // AIErrorData AI 错误数据
 type AIErrorData struct {
-	StepID  string `json:"step_id"`
+	StepID  string `json:"stepId"`
 	Error   string `json:"error"`
 	Details string `json:"details,omitempty"`
 }
@@ -278,11 +278,11 @@ type InteractionOption struct {
 
 // AIInteractionData AI 交互数据
 type AIInteractionData struct {
-	StepID       string              `json:"step_id"`
+	StepID       string              `json:"stepId"`
 	Type         InteractionType     `json:"type"`
 	Prompt       string              `json:"prompt"`
 	Options      []InteractionOption `json:"options,omitempty"`
-	DefaultValue string              `json:"default_value,omitempty"`
+	DefaultValue string              `json:"defaultValue,omitempty"`
 	Timeout      int                 `json:"timeout"`
 }
 

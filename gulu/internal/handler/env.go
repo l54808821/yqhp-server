@@ -193,3 +193,154 @@ func EnvUpdateSort(c *fiber.Ctx) error {
 
 	return response.Success(c, nil)
 }
+
+// ============================================
+// 域名配置接口（存储在 t_env.domains_json）
+// ============================================
+
+// EnvGetDomains 获取环境的域名配置
+// GET /api/envs/:id/domains
+func EnvGetDomains(c *fiber.Ctx) error {
+	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	if err != nil {
+		return response.Error(c, "无效的环境ID")
+	}
+
+	envLogic := logic.NewEnvLogic(c.UserContext())
+
+	domains, version, err := envLogic.GetDomains(id)
+	if err != nil {
+		return response.Error(c, err.Error())
+	}
+
+	return response.Success(c, fiber.Map{
+		"version": version,
+		"domains": domains,
+	})
+}
+
+// EnvUpdateDomains 更新环境的域名配置
+// PUT /api/envs/:id/domains
+func EnvUpdateDomains(c *fiber.Ctx) error {
+	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	if err != nil {
+		return response.Error(c, "无效的环境ID")
+	}
+
+	var req logic.UpdateDomainsReq
+	if err := c.BodyParser(&req); err != nil {
+		return response.Error(c, "参数解析失败")
+	}
+
+	userID := middleware.GetCurrentUserID(c)
+	envLogic := logic.NewEnvLogic(c.UserContext())
+
+	resp, err := envLogic.UpdateDomains(id, &req, userID)
+	if err != nil {
+		if err == logic.ErrVersionConflict {
+			return response.ErrorWithCode(c, 409, err.Error())
+		}
+		return response.Error(c, err.Error())
+	}
+
+	return response.Success(c, resp)
+}
+
+// ============================================
+// 变量配置接口（存储在 t_env.vars_json）
+// ============================================
+
+// EnvGetVars 获取环境的变量配置
+// GET /api/envs/:id/vars
+func EnvGetVars(c *fiber.Ctx) error {
+	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	if err != nil {
+		return response.Error(c, "无效的环境ID")
+	}
+
+	envLogic := logic.NewEnvLogic(c.UserContext())
+
+	vars, version, err := envLogic.GetVars(id)
+	if err != nil {
+		return response.Error(c, err.Error())
+	}
+
+	return response.Success(c, fiber.Map{
+		"version": version,
+		"vars":    vars,
+	})
+}
+
+// EnvUpdateVars 更新环境的变量配置
+// PUT /api/envs/:id/vars
+func EnvUpdateVars(c *fiber.Ctx) error {
+	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	if err != nil {
+		return response.Error(c, "无效的环境ID")
+	}
+
+	var req logic.UpdateVarsReq
+	if err := c.BodyParser(&req); err != nil {
+		return response.Error(c, "参数解析失败")
+	}
+
+	userID := middleware.GetCurrentUserID(c)
+	envLogic := logic.NewEnvLogic(c.UserContext())
+
+	resp, err := envLogic.UpdateVars(id, &req, userID)
+	if err != nil {
+		if err == logic.ErrVersionConflict {
+			return response.ErrorWithCode(c, 409, err.Error())
+		}
+		return response.Error(c, err.Error())
+	}
+
+	return response.Success(c, resp)
+}
+
+// EnvExportVars 导出环境变量
+// GET /api/envs/:id/vars/export
+func EnvExportVars(c *fiber.Ctx) error {
+	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	if err != nil {
+		return response.Error(c, "无效的环境ID")
+	}
+
+	envLogic := logic.NewEnvLogic(c.UserContext())
+
+	items, err := envLogic.ExportVars(id)
+	if err != nil {
+		return response.Error(c, err.Error())
+	}
+
+	return response.Success(c, items)
+}
+
+// EnvImportVars 导入环境变量
+// POST /api/envs/:id/vars/import
+func EnvImportVars(c *fiber.Ctx) error {
+	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	if err != nil {
+		return response.Error(c, "无效的环境ID")
+	}
+
+	var req struct {
+		Items []logic.VarExportItem `json:"items"`
+	}
+	if err := c.BodyParser(&req); err != nil {
+		return response.Error(c, "参数解析失败")
+	}
+
+	if len(req.Items) == 0 {
+		return response.Error(c, "导入数据不能为空")
+	}
+
+	userID := middleware.GetCurrentUserID(c)
+	envLogic := logic.NewEnvLogic(c.UserContext())
+
+	if err := envLogic.ImportVars(id, req.Items, userID); err != nil {
+		return response.Error(c, err.Error())
+	}
+
+	return response.Success(c, nil)
+}

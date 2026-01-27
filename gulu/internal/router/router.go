@@ -106,26 +106,14 @@ func Setup(app *fiber.App) {
 	envs.Put("/:id", handler.EnvUpdate)
 	envs.Delete("/:id", handler.EnvDelete)
 	envs.Post("/:id/copy", handler.EnvCopy)
-
-	// 域名管理路由
-	domains := api.Group("/domains")
-	domains.Post("", handler.DomainCreate)
-	domains.Get("", handler.DomainList)
-	domains.Get("/env/:envId", handler.DomainGetByEnvID)
-	domains.Get("/:id", handler.DomainGetByID)
-	domains.Put("/:id", handler.DomainUpdate)
-	domains.Delete("/:id", handler.DomainDelete)
-
-	// 变量管理路由
-	vars := api.Group("/vars")
-	vars.Post("", handler.VarCreate)
-	vars.Get("", handler.VarList)
-	vars.Get("/env/:envId", handler.VarGetByEnvID)
-	vars.Get("/export", handler.VarExport)
-	vars.Post("/import", handler.VarImport)
-	vars.Get("/:id", handler.VarGetByID)
-	vars.Put("/:id", handler.VarUpdate)
-	vars.Delete("/:id", handler.VarDelete)
+	// 域名配置接口（JSON 存储在 t_env.domains）
+	envs.Get("/:id/domains", handler.EnvGetDomains)
+	envs.Put("/:id/domains", handler.EnvUpdateDomains)
+	// 变量配置接口（JSON 存储在 t_env.vars）
+	envs.Get("/:id/vars", handler.EnvGetVars)
+	envs.Put("/:id/vars", handler.EnvUpdateVars)
+	envs.Get("/:id/vars/export", handler.EnvExportVars)
+	envs.Post("/:id/vars/import", handler.EnvImportVars)
 
 	// 数据库配置路由
 	dbConfigs := api.Group("/database-configs")

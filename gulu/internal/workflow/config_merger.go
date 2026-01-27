@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"yqhp/gulu/internal/model"
+	"yqhp/gulu/internal/utils"
 )
 
 // MergedConfig 合并后的配置
@@ -49,10 +50,9 @@ type MQConfig struct {
 
 // ConfigMerger 配置合并器
 type ConfigMerger struct {
-	domains   []*model.TDomain
-	variables []*model.TVar
-	databases []*model.TDatabaseConfig
-	mqs       []*model.TMqConfig
+	env       *model.TEnv              // 环境配置（包含 domains_json 和 vars_json）
+	databases []*model.TDatabaseConfig // 数据库配置（仍然从独立表获取）
+	mqs       []*model.TMqConfig       // MQ配置（仍然从独立表获取）
 }
 
 // NewConfigMerger 创建配置合并器
@@ -60,15 +60,9 @@ func NewConfigMerger() *ConfigMerger {
 	return &ConfigMerger{}
 }
 
-// SetDomains 设置域名配置
-func (m *ConfigMerger) SetDomains(domains []*model.TDomain) *ConfigMerger {
-	m.domains = domains
-	return m
-}
-
-// SetVariables 设置变量配置
-func (m *ConfigMerger) SetVariables(variables []*model.TVar) *ConfigMerger {
-	m.variables = variables
+// SetEnv 设置环境配置（新方法，推荐使用）
+func (m *ConfigMerger) SetEnv(env *model.TEnv) *ConfigMerger {
+	m.env = env
 	return m
 }
 
@@ -93,65 +87,69 @@ func (m *ConfigMerger) Merge() (*MergedConfig, error) {
 		MQs:       make(map[string]*MQConfig),
 	}
 
-	// 合并域名配置
-	for _, domain := range m.domains {
-		if domain.Status != nil && *domain.Status != 1 {
-			continue
-		}
-		dc := &DomainConfig{
-			Code:    domain.Code,
-			BaseURL: domain.BaseURL,
-		}
-		// 解析 Headers
-		if domain.Headers != nil && *domain.Headers != "" {
-			var headers []struct {
-				Key   string `json:"key"`
-				Value string `json:"value"`
+	// 从 TEnv 的 JSON 字段合并域名配置
+	if m.env != nil && m.env.Domains != nil && *m.env.Domains != "" {
+		var domains []model.DomainItem
+		if err := json.Unmarshal([]byte(*m.env.Domains), &domains); err == nil {
+			for _, domain := range domains {
+				if domain.Status != 1 {
+					continue
+				}
+				dc := &DomainConfig{
+					Code:    domain.Code,
+					BaseURL: domain.BaseURL,
+				}
+				// 转换 Headers
+				if len(domain.Headers) > 0 {
+					dc.Headers = make(map[string]string)
+					for _, h := range domain.Headers {
+						dc.Headers[h.Key] = h.Value
+					}
+				}
+				config.Domains[domain.Code] = dc
 			}
-			if err := json.Unmarshal([]byte(*domain.Headers), &headers); err == nil {
-				dc.Headers = make(map[string]string)
-				for _, h := range headers {
-					dc.Headers[h.Key] = h.Value
+		}
+	}
+
+	// 从 TEnv 的 JSON 字段合并变量配置
+	if m.env != nil && m.env.Vars != nil && *m.env.Vars != "" {
+		var vars []model.VarItem
+		if err := json.Unmarshal([]byte(*m.env.Vars), &vars); err == nil {
+			for _, v := range vars {
+				value := v.Value
+				// 敏感数据需要解密
+				if v.IsSensitive && value != "" {
+					decrypted, err := utils.Decrypt(value)
+					if err == nil {
+						value = decrypted
+					}
+				}
+				// 根据类型转换值
+				switch v.Type {
+				case "number":
+					var num float64
+					if err := json.Unmarshal([]byte(value), &num); err == nil {
+						config.Variables[v.Key] = num
+					} else {
+						config.Variables[v.Key] = value
+					}
+				case "boolean":
+					config.Variables[v.Key] = strings.ToLower(value) == "true"
+				case "json":
+					var jsonVal interface{}
+					if err := json.Unmarshal([]byte(value), &jsonVal); err == nil {
+						config.Variables[v.Key] = jsonVal
+					} else {
+						config.Variables[v.Key] = value
+					}
+				default:
+					config.Variables[v.Key] = value
 				}
 			}
 		}
-		config.Domains[domain.Code] = dc
 	}
 
-	// 合并变量配置
-	for _, v := range m.variables {
-		var value string
-		if v.Value != nil {
-			value = *v.Value
-		}
-		varType := "string"
-		if v.Type != nil {
-			varType = *v.Type
-		}
-		// 根据类型转换值
-		switch varType {
-		case "number":
-			var num float64
-			if err := json.Unmarshal([]byte(value), &num); err == nil {
-				config.Variables[v.Key] = num
-			} else {
-				config.Variables[v.Key] = value
-			}
-		case "boolean":
-			config.Variables[v.Key] = strings.ToLower(value) == "true"
-		case "json":
-			var jsonVal interface{}
-			if err := json.Unmarshal([]byte(value), &jsonVal); err == nil {
-				config.Variables[v.Key] = jsonVal
-			} else {
-				config.Variables[v.Key] = value
-			}
-		default:
-			config.Variables[v.Key] = value
-		}
-	}
-
-	// 合并数据库配置
+	// 合并数据库配置（仍然从独立表获取）
 	for _, db := range m.databases {
 		if db.Status != nil && *db.Status != 1 {
 			continue
@@ -177,7 +175,7 @@ func (m *ConfigMerger) Merge() (*MergedConfig, error) {
 		config.Databases[db.Code] = dbc
 	}
 
-	// 合并 MQ 配置
+	// 合并 MQ 配置（仍然从独立表获取）
 	for _, mq := range m.mqs {
 		if mq.Status != nil && *mq.Status != 1 {
 			continue

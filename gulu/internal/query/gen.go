@@ -19,7 +19,6 @@ var (
 	Q                  = new(Query)
 	TCategoryWorkflow  *tCategoryWorkflow
 	TDatabaseConfig    *tDatabaseConfig
-	TDomain            *tDomain
 	TEnv               *tEnv
 	TExecution         *tExecution
 	TExecutor          *tExecutor
@@ -29,7 +28,6 @@ var (
 	TProjectPermission *tProjectPermission
 	TTeam              *tTeam
 	TTeamMember        *tTeamMember
-	TVar               *tVar
 	TWorkflow          *tWorkflow
 )
 
@@ -37,7 +35,6 @@ func SetDefault(db *gorm.DB, opts ...gen.DOOption) {
 	*Q = *Use(db, opts...)
 	TCategoryWorkflow = &Q.TCategoryWorkflow
 	TDatabaseConfig = &Q.TDatabaseConfig
-	TDomain = &Q.TDomain
 	TEnv = &Q.TEnv
 	TExecution = &Q.TExecution
 	TExecutor = &Q.TExecutor
@@ -47,7 +44,6 @@ func SetDefault(db *gorm.DB, opts ...gen.DOOption) {
 	TProjectPermission = &Q.TProjectPermission
 	TTeam = &Q.TTeam
 	TTeamMember = &Q.TTeamMember
-	TVar = &Q.TVar
 	TWorkflow = &Q.TWorkflow
 }
 
@@ -56,7 +52,6 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		db:                 db,
 		TCategoryWorkflow:  newTCategoryWorkflow(db, opts...),
 		TDatabaseConfig:    newTDatabaseConfig(db, opts...),
-		TDomain:            newTDomain(db, opts...),
 		TEnv:               newTEnv(db, opts...),
 		TExecution:         newTExecution(db, opts...),
 		TExecutor:          newTExecutor(db, opts...),
@@ -66,7 +61,6 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		TProjectPermission: newTProjectPermission(db, opts...),
 		TTeam:              newTTeam(db, opts...),
 		TTeamMember:        newTTeamMember(db, opts...),
-		TVar:               newTVar(db, opts...),
 		TWorkflow:          newTWorkflow(db, opts...),
 	}
 }
@@ -76,7 +70,6 @@ type Query struct {
 
 	TCategoryWorkflow  tCategoryWorkflow
 	TDatabaseConfig    tDatabaseConfig
-	TDomain            tDomain
 	TEnv               tEnv
 	TExecution         tExecution
 	TExecutor          tExecutor
@@ -86,7 +79,6 @@ type Query struct {
 	TProjectPermission tProjectPermission
 	TTeam              tTeam
 	TTeamMember        tTeamMember
-	TVar               tVar
 	TWorkflow          tWorkflow
 }
 
@@ -97,7 +89,6 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		db:                 db,
 		TCategoryWorkflow:  q.TCategoryWorkflow.clone(db),
 		TDatabaseConfig:    q.TDatabaseConfig.clone(db),
-		TDomain:            q.TDomain.clone(db),
 		TEnv:               q.TEnv.clone(db),
 		TExecution:         q.TExecution.clone(db),
 		TExecutor:          q.TExecutor.clone(db),
@@ -107,7 +98,6 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		TProjectPermission: q.TProjectPermission.clone(db),
 		TTeam:              q.TTeam.clone(db),
 		TTeamMember:        q.TTeamMember.clone(db),
-		TVar:               q.TVar.clone(db),
 		TWorkflow:          q.TWorkflow.clone(db),
 	}
 }
@@ -125,7 +115,6 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		db:                 db,
 		TCategoryWorkflow:  q.TCategoryWorkflow.replaceDB(db),
 		TDatabaseConfig:    q.TDatabaseConfig.replaceDB(db),
-		TDomain:            q.TDomain.replaceDB(db),
 		TEnv:               q.TEnv.replaceDB(db),
 		TExecution:         q.TExecution.replaceDB(db),
 		TExecutor:          q.TExecutor.replaceDB(db),
@@ -135,7 +124,6 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		TProjectPermission: q.TProjectPermission.replaceDB(db),
 		TTeam:              q.TTeam.replaceDB(db),
 		TTeamMember:        q.TTeamMember.replaceDB(db),
-		TVar:               q.TVar.replaceDB(db),
 		TWorkflow:          q.TWorkflow.replaceDB(db),
 	}
 }
@@ -143,7 +131,6 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 type queryCtx struct {
 	TCategoryWorkflow  ITCategoryWorkflowDo
 	TDatabaseConfig    ITDatabaseConfigDo
-	TDomain            ITDomainDo
 	TEnv               ITEnvDo
 	TExecution         ITExecutionDo
 	TExecutor          ITExecutorDo
@@ -153,7 +140,6 @@ type queryCtx struct {
 	TProjectPermission ITProjectPermissionDo
 	TTeam              ITTeamDo
 	TTeamMember        ITTeamMemberDo
-	TVar               ITVarDo
 	TWorkflow          ITWorkflowDo
 }
 
@@ -161,7 +147,6 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 	return &queryCtx{
 		TCategoryWorkflow:  q.TCategoryWorkflow.WithContext(ctx),
 		TDatabaseConfig:    q.TDatabaseConfig.WithContext(ctx),
-		TDomain:            q.TDomain.WithContext(ctx),
 		TEnv:               q.TEnv.WithContext(ctx),
 		TExecution:         q.TExecution.WithContext(ctx),
 		TExecutor:          q.TExecutor.WithContext(ctx),
@@ -171,7 +156,6 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		TProjectPermission: q.TProjectPermission.WithContext(ctx),
 		TTeam:              q.TTeam.WithContext(ctx),
 		TTeamMember:        q.TTeamMember.WithContext(ctx),
-		TVar:               q.TVar.WithContext(ctx),
 		TWorkflow:          q.TWorkflow.WithContext(ctx),
 	}
 }

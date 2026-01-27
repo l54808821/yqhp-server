@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS `t_project` (
 
 -- ============================================
 -- 2. 环境表 (t_env)
+-- 包含域名配置和变量配置的 JSON 字段
 -- ============================================
 CREATE TABLE IF NOT EXISTS `t_env` (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -38,58 +39,17 @@ CREATE TABLE IF NOT EXISTS `t_env` (
     `description` VARCHAR(500) DEFAULT NULL COMMENT '环境描述',
     `sort` BIGINT DEFAULT NULL COMMENT '排序',
     `status` TINYINT DEFAULT 1 COMMENT '状态: 1-启用 0-禁用',
+    `domains` JSON DEFAULT NULL COMMENT '域名配置数组 [{"code":"main","name":"主域名","base_url":"https://...","headers":[...],"status":1,"sort":0}]',
+    `vars` JSON DEFAULT NULL COMMENT '变量配置数组 [{"key":"API_KEY","name":"密钥","value":"...","type":"string","is_sensitive":false}]',
+    `domains_version` INT DEFAULT 0 COMMENT '域名配置版本号(乐观锁)',
+    `vars_version` INT DEFAULT 0 COMMENT '变量配置版本号(乐观锁)',
     PRIMARY KEY (`id`),
     INDEX `idx_t_env_project_id` (`project_id`),
     INDEX `idx_t_env_is_delete` (`is_delete`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='环境表';
 
 -- ============================================
--- 3. 域名表 (t_domain)
--- ============================================
-CREATE TABLE IF NOT EXISTS `t_domain` (
-    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    `created_at` DATETIME DEFAULT NULL,
-    `updated_at` DATETIME DEFAULT NULL,
-    `is_delete` TINYINT(1) DEFAULT 0,
-    `project_id` BIGINT UNSIGNED NOT NULL COMMENT '所属项目ID',
-    `env_id` BIGINT UNSIGNED NOT NULL COMMENT '所属环境ID',
-    `name` VARCHAR(100) NOT NULL COMMENT '域名名称',
-    `code` VARCHAR(50) NOT NULL COMMENT '域名代码，用于工作流中引用',
-    `base_url` VARCHAR(500) NOT NULL COMMENT '基础URL',
-    `headers` JSON DEFAULT NULL COMMENT '公共请求头 [{"key":"xxx","value":"xxx"}]',
-    `description` VARCHAR(500) DEFAULT NULL COMMENT '描述',
-    `sort` BIGINT DEFAULT NULL COMMENT '排序',
-    `status` TINYINT DEFAULT 1 COMMENT '状态: 1-启用 0-禁用',
-    PRIMARY KEY (`id`),
-    INDEX `idx_t_domain_project_id` (`project_id`),
-    INDEX `idx_t_domain_env_id` (`env_id`),
-    INDEX `idx_t_domain_is_delete` (`is_delete`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='域名表';
-
--- ============================================
--- 4. 变量表 (t_var)
--- ============================================
-CREATE TABLE IF NOT EXISTS `t_var` (
-    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-    `created_at` DATETIME DEFAULT NULL,
-    `updated_at` DATETIME DEFAULT NULL,
-    `is_delete` TINYINT(1) DEFAULT 0,
-    `project_id` BIGINT UNSIGNED NOT NULL COMMENT '所属项目ID',
-    `env_id` BIGINT UNSIGNED NOT NULL COMMENT '所属环境ID',
-    `name` VARCHAR(100) NOT NULL COMMENT '变量名称',
-    `key` VARCHAR(100) NOT NULL COMMENT '变量键',
-    `value` TEXT DEFAULT NULL COMMENT '变量值',
-    `type` VARCHAR(20) DEFAULT 'string' COMMENT '变量类型: string, number, boolean, json',
-    `is_sensitive` TINYINT(1) DEFAULT 0 COMMENT '是否敏感数据',
-    `description` VARCHAR(500) DEFAULT NULL COMMENT '描述',
-    PRIMARY KEY (`id`),
-    INDEX `idx_t_var_project_id` (`project_id`),
-    INDEX `idx_t_var_env_id` (`env_id`),
-    INDEX `idx_t_var_is_delete` (`is_delete`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='变量表';
-
--- ============================================
--- 5. 数据库配置表 (t_database_config)
+-- 3. 数据库配置表 (t_database_config)
 -- ============================================
 CREATE TABLE IF NOT EXISTS `t_database_config` (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

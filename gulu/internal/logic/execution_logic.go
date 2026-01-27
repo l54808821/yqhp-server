@@ -100,7 +100,7 @@ func (l *ExecutionLogic) Execute(req *ExecuteWorkflowReq, userID int64) (*model.
 		return nil, errors.New("工作流定义验证失败")
 	}
 
-	// 获取环境配置
+	// 获取环境配置（包含 domains_json 和 vars_json）
 	envLogic := NewEnvLogic(l.ctx)
 	env, err := envLogic.GetByID(req.EnvID)
 	if err != nil {
@@ -112,28 +112,7 @@ func (l *ExecutionLogic) Execute(req *ExecuteWorkflowReq, userID int64) (*model.
 		return nil, errors.New("环境与工作流不属于同一项目")
 	}
 
-	// 获取环境下的配置
-	domainLogic := NewDomainLogic(l.ctx)
-	domainResps, err := domainLogic.GetDomainsByEnvID(req.EnvID)
-	if err != nil {
-		return nil, err
-	}
-	// 转换为 model.TDomain
-	domains := make([]*model.TDomain, len(domainResps))
-	for i, dr := range domainResps {
-		domains[i] = &model.TDomain{
-			Code:    dr.Code,
-			BaseURL: dr.BaseURL,
-			Headers: dr.Headers,
-		}
-	}
-
-	varLogic := NewVarLogic(l.ctx)
-	vars, err := varLogic.GetVarsByEnvID(req.EnvID)
-	if err != nil {
-		return nil, err
-	}
-
+	// 获取数据库和 MQ 配置（仍然从独立表获取）
 	dbConfigLogic := NewDatabaseConfigLogic(l.ctx)
 	dbConfigs, err := dbConfigLogic.GetConfigsByEnvID(req.EnvID)
 	if err != nil {
@@ -146,10 +125,9 @@ func (l *ExecutionLogic) Execute(req *ExecuteWorkflowReq, userID int64) (*model.
 		return nil, err
 	}
 
-	// 合并环境配置到工作流
+	// 合并环境配置到工作流（域名和变量从 t_env 的 JSON 字段读取）
 	merger := workflow.NewConfigMerger().
-		SetDomains(domains).
-		SetVariables(vars).
+		SetEnv(env).
 		SetDatabases(dbConfigs).
 		SetMQs(mqConfigs)
 

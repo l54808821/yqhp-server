@@ -64,10 +64,6 @@ func main() {
 		g.GenerateModel("t_category_workflow"),
 		// 环境管理
 		g.GenerateModel("t_env"),
-		// 域名管理
-		g.GenerateModel("t_domain"),
-		// 变量管理
-		g.GenerateModel("t_var"),
 		// 数据库配置
 		g.GenerateModel("t_database_config"),
 		// MQ配置

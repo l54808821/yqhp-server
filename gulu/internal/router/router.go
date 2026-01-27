@@ -171,25 +171,27 @@ func Setup(app *fiber.App) {
 	workflows.Post("/:id/validate", handler.WorkflowValidate)
 	workflows.Put("/:id/status", handler.WorkflowUpdateStatus)
 
-	// 执行管理路由
+	// 执行记录管理路由（历史记录查询等）
+	executionRecords := api.Group("/execution-records")
+	executionRecords.Post("", handler.ExecutionExecute)
+	executionRecords.Get("", handler.ExecutionList)
+	executionRecords.Post("/webhook", handler.ExecutionWebhook)
+	executionRecords.Get("/by-execution-id/:executionId", handler.ExecutionGetByExecutionID)
+	executionRecords.Get("/:id", handler.ExecutionGetByID)
+	executionRecords.Get("/:id/logs", handler.ExecutionGetLogs)
+	executionRecords.Get("/:id/status", handler.ExecutionGetStatus)
+	executionRecords.Delete("/:id", handler.ExecutionStop)
+	executionRecords.Post("/:id/pause", handler.ExecutionPause)
+	executionRecords.Post("/:id/resume", handler.ExecutionResume)
+
+	// 统一执行接口（RESTful 风格）
+	// POST   /api/executions              - 创建执行（支持 SSE 和阻塞模式）
+	// GET    /api/executions/:sessionId   - 获取执行状态
+	// DELETE /api/executions/:sessionId   - 停止执行
+	// POST   /api/executions/:sessionId/interact - 提交交互响应
 	executions := api.Group("/executions")
-	executions.Post("", handler.ExecutionExecute)
-	executions.Get("", handler.ExecutionList)
-	executions.Post("/webhook", handler.ExecutionWebhook)
-	executions.Get("/by-execution-id/:executionId", handler.ExecutionGetByExecutionID)
-	executions.Get("/:id", handler.ExecutionGetByID)
-	executions.Get("/:id/logs", handler.ExecutionGetLogs)
-	executions.Get("/:id/status", handler.ExecutionGetStatus)
-	executions.Delete("/:id", handler.ExecutionStop)
-	executions.Post("/:id/pause", handler.ExecutionPause)
-	executions.Post("/:id/resume", handler.ExecutionResume)
-
-	// 统一执行接口（同时支持单步和流程执行，支持 SSE 和阻塞）
-	api.Post("/execute", executionHandler.Execute)
-
-	// 执行会话管理路由 - 需要依赖注入的 handler
-	streamExecutions := api.Group("/executions")
-	streamExecutions.Get("/:sessionId/status", executionHandler.GetExecutionStatus)
-	streamExecutions.Delete("/:sessionId/stop", executionHandler.StopExecution)
-	streamExecutions.Post("/:sessionId/interaction", executionHandler.SubmitInteraction)
+	executions.Post("", executionHandler.Execute)
+	executions.Get("/:sessionId", executionHandler.GetExecutionStatus)
+	executions.Delete("/:sessionId", executionHandler.StopExecution)
+	executions.Post("/:sessionId/interact", executionHandler.SubmitInteraction)
 }

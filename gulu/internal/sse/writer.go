@@ -193,8 +193,10 @@ type StepCompletedData struct {
 	ParentID  string                 `json:"parentId,omitempty"`
 	Iteration int                    `json:"iteration,omitempty"`
 	Status    string                 `json:"status"`
+	Success   bool                   `json:"success"`
 	Duration  int64                  `json:"durationMs"`
 	Output    map[string]interface{} `json:"output,omitempty"`
+	Result    interface{}            `json:"result,omitempty"` // 兼容 workflow-engine 格式
 }
 
 // StepFailedData 步骤失败数据

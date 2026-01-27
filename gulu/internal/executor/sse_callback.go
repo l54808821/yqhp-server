@@ -75,8 +75,10 @@ func (c *SSECallback) OnStepComplete(ctx context.Context, step *types.Step, resu
 			ParentID:  parentID,
 			Iteration: iteration,
 			Status:    "success",
+			Success:   true,
 			Duration:  result.Duration.Milliseconds(),
 			Output:    outputMap,
+			Result:    result.Output,
 		},
 	})
 }

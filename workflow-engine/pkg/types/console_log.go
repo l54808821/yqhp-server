@@ -1,5 +1,7 @@
 package types
 
+import "time"
+
 // ConsoleLogType 日志类型
 type ConsoleLogType string
 
@@ -12,12 +14,38 @@ const (
 	LogTypeError ConsoleLogType = "error"
 	// LogTypeProcessor 处理器执行日志
 	LogTypeProcessor ConsoleLogType = "processor"
+	// LogTypeVariable 变量变更日志
+	LogTypeVariable ConsoleLogType = "variable"
+	// LogTypeSnapshot 变量快照日志
+	LogTypeSnapshot ConsoleLogType = "snapshot"
 )
+
+// VariableChangeInfo 变量变更信息
+type VariableChangeInfo struct {
+	// Name 变量名
+	Name string `json:"name"`
+	// OldValue 旧值
+	OldValue any `json:"oldValue,omitempty"`
+	// NewValue 新值
+	NewValue any `json:"newValue"`
+	// Scope 作用域：env（环境变量）或 temp（临时变量）
+	Scope string `json:"scope"`
+	// Source 变更来源：set_variable/extract_param/js_script/loop 等
+	Source string `json:"source"`
+}
+
+// VariableSnapshotInfo 变量快照信息
+type VariableSnapshotInfo struct {
+	// EnvVars 环境变量
+	EnvVars map[string]any `json:"envVars"`
+	// TempVars 临时变量
+	TempVars map[string]any `json:"tempVars"`
+}
 
 // ConsoleLogEntry 统一的控制台日志条目
 // 用于收集执行过程中的所有日志输出，包括处理器执行结果和脚本日志
 type ConsoleLogEntry struct {
-	// Type 日志类型：log/warn/error/processor
+	// Type 日志类型：log/warn/error/processor/variable/snapshot
 	Type ConsoleLogType `json:"type"`
 	// Message 日志消息（log/warn/error 类型时使用）
 	Message string `json:"message,omitempty"`
@@ -25,6 +53,10 @@ type ConsoleLogEntry struct {
 	Timestamp int64 `json:"ts,omitempty"`
 	// Processor 处理器详情（type=processor 时有值）
 	Processor *ProcessorLogInfo `json:"processor,omitempty"`
+	// Variable 变量变更详情（type=variable 时有值）
+	Variable *VariableChangeInfo `json:"variable,omitempty"`
+	// Snapshot 变量快照详情（type=snapshot 时有值）
+	Snapshot *VariableSnapshotInfo `json:"snapshot,omitempty"`
 }
 
 // ProcessorLogInfo 处理器执行日志详情
@@ -75,5 +107,23 @@ func NewProcessorEntry(phase string, info ProcessorLogInfo) ConsoleLogEntry {
 	return ConsoleLogEntry{
 		Type:      LogTypeProcessor,
 		Processor: &info,
+	}
+}
+
+// NewVariableChangeEntry 创建变量变更日志条目
+func NewVariableChangeEntry(info VariableChangeInfo) ConsoleLogEntry {
+	return ConsoleLogEntry{
+		Type:      LogTypeVariable,
+		Timestamp: time.Now().UnixMilli(),
+		Variable:  &info,
+	}
+}
+
+// NewSnapshotEntry 创建变量快照日志条目
+func NewSnapshotEntry(snapshot VariableSnapshotInfo) ConsoleLogEntry {
+	return ConsoleLogEntry{
+		Type:      LogTypeSnapshot,
+		Timestamp: time.Now().UnixMilli(),
+		Snapshot:  &snapshot,
 	}
 }

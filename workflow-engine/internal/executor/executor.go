@@ -52,14 +52,18 @@ type ExecutionContext struct {
 	// LoopIteration 循环迭代次数（从1开始）
 	LoopIteration int
 
+	// logCollector 日志收集器（用于统一收集执行过程中的日志）
+	logCollector *types.LogCollector
+
 	mu sync.RWMutex
 }
 
 // NewExecutionContext 创建一个新的 ExecutionContext。
 func NewExecutionContext() *ExecutionContext {
 	return &ExecutionContext{
-		Variables: make(map[string]any),
-		Results:   make(map[string]*types.StepResult),
+		Variables:    make(map[string]any),
+		Results:      make(map[string]*types.StepResult),
+		logCollector: types.NewLogCollector(),
 	}
 }
 
@@ -148,6 +152,7 @@ func (c *ExecutionContext) Clone() *ExecutionContext {
 		Callback:      c.Callback,
 		ParentStepID:  c.ParentStepID,
 		LoopIteration: c.LoopIteration,
+		logCollector:  c.logCollector.Clone(),
 	}
 
 	for k, v := range c.Variables {
@@ -230,4 +235,121 @@ func (c *ExecutionContext) ToEvaluationContext() map[string]any {
 	}
 
 	return evalCtx
+}
+
+// ========== 日志收集相关方法 ==========
+
+// GetLogCollector 获取日志收集器
+func (c *ExecutionContext) GetLogCollector() *types.LogCollector {
+	return c.logCollector
+}
+
+// AppendLog 添加单条日志
+func (c *ExecutionContext) AppendLog(entry types.ConsoleLogEntry) {
+	if c.logCollector != nil {
+		c.logCollector.AppendLog(entry)
+	}
+}
+
+// AppendLogs 批量添加日志
+func (c *ExecutionContext) AppendLogs(entries []types.ConsoleLogEntry) {
+	if c.logCollector != nil {
+		c.logCollector.AppendLogs(entries)
+	}
+}
+
+// FlushLogs 获取并清空所有日志
+func (c *ExecutionContext) FlushLogs() []types.ConsoleLogEntry {
+	if c.logCollector != nil {
+		return c.logCollector.FlushLogs()
+	}
+	return nil
+}
+
+// GetLogs 获取所有日志（不清空）
+func (c *ExecutionContext) GetLogs() []types.ConsoleLogEntry {
+	if c.logCollector != nil {
+		return c.logCollector.GetLogs()
+	}
+	return nil
+}
+
+// SetVariableWithTracking 设置变量并记录变更
+// scope: "env" 表示环境变量，"temp" 表示临时变量
+// source: 变更来源，如 "set_variable", "extract_param", "js_script", "loop" 等
+func (c *ExecutionContext) SetVariableWithTracking(name string, value any, scope, source string) {
+	c.mu.Lock()
+	oldValue, _ := c.Variables[name]
+	c.Variables[name] = value
+	c.mu.Unlock()
+
+	if c.logCollector != nil {
+		// 标记环境变量
+		if scope == "env" {
+			c.logCollector.MarkAsEnvVar(name)
+		}
+		// 记录变量变更
+		c.logCollector.RecordVariableChange(name, oldValue, value, scope, source)
+	}
+}
+
+// MarkAsEnvVar 标记某个变量为环境变量
+func (c *ExecutionContext) MarkAsEnvVar(name string) {
+	if c.logCollector != nil {
+		c.logCollector.MarkAsEnvVar(name)
+	}
+}
+
+// IsEnvVar 检查是否是环境变量
+func (c *ExecutionContext) IsEnvVar(name string) bool {
+	if c.logCollector != nil {
+		return c.logCollector.IsEnvVar(name)
+	}
+	return false
+}
+
+// CreateVariableSnapshot 创建变量快照
+func (c *ExecutionContext) CreateVariableSnapshot() {
+	c.CreateVariableSnapshotWithEnvVars(nil)
+}
+
+// CreateVariableSnapshotWithEnvVars 创建变量快照（支持单独传入环境变量）
+func (c *ExecutionContext) CreateVariableSnapshotWithEnvVars(envVars map[string]interface{}) {
+	if c.logCollector == nil {
+		return
+	}
+
+	c.mu.RLock()
+	tempVars := make(map[string]any)
+	envVarsAny := make(map[string]any)
+
+	// 分离临时变量和环境变量
+	for k, v := range c.Variables {
+		if c.logCollector.IsEnvVar(k) {
+			envVarsAny[k] = v
+		} else {
+			tempVars[k] = v
+		}
+	}
+	c.mu.RUnlock()
+
+	// 合并传入的环境变量
+	if envVars != nil {
+		for k, v := range envVars {
+			envVarsAny[k] = v
+		}
+	}
+
+	// 直接创建快照条目
+	c.logCollector.AppendLog(types.NewSnapshotEntry(types.VariableSnapshotInfo{
+		EnvVars:  envVarsAny,
+		TempVars: tempVars,
+	}))
+}
+
+// MergeLogsFrom 从另一个上下文合并日志
+func (c *ExecutionContext) MergeLogsFrom(other *ExecutionContext) {
+	if c.logCollector != nil && other != nil && other.logCollector != nil {
+		c.logCollector.MergeFrom(other.logCollector)
+	}
 }

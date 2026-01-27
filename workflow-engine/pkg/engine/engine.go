@@ -11,7 +11,6 @@ import (
 
 	"yqhp/workflow-engine/internal/executor"
 	"yqhp/workflow-engine/internal/master"
-	pkgExecutor "yqhp/workflow-engine/pkg/executor"
 	"yqhp/workflow-engine/pkg/script"
 	"yqhp/workflow-engine/pkg/types"
 )
@@ -226,56 +225,112 @@ func (e *Engine) DebugStep(ctx context.Context, req *types.DebugStepRequest) (*t
 }
 
 // executeHTTPDebugStep 执行 HTTP 节点单步调试
+// 重构：直接复用 HTTPExecutor，确保与流程执行逻辑一致
 func (e *Engine) executeHTTPDebugStep(ctx context.Context, nodeConfig *types.DebugNodeConfig, workingVars, envVars map[string]interface{}, result *types.DebugStepResponse) (*types.DebugStepResponse, error) {
-	// 创建处理器执行器
-	procExecutor := pkgExecutor.NewProcessorExecutor(workingVars, envVars)
-
-	// 1. 执行前置处理器
-	if len(nodeConfig.PreProcessors) > 0 {
-		processors := convertKeywordToProcessors(nodeConfig.PreProcessors)
-		preLogs := procExecutor.ExecuteProcessors(ctx, processors, "pre")
-		result.ConsoleLogs = append(result.ConsoleLogs, preLogs...)
-	}
-
-	// 2. 解析 HTTP 配置
-	httpConfig, err := parseHTTPConfigFromMap(nodeConfig.Config)
+	// 1. 将 DebugNodeConfig 转换为标准 Step
+	step, err := convertDebugNodeConfigToStep(nodeConfig, workingVars)
 	if err != nil {
 		result.Success = false
-		result.Error = "解析 HTTP 配置失败: " + err.Error()
+		result.Error = "转换节点配置失败: " + err.Error()
 		return result, nil
 	}
 
-	// 3. 执行 HTTP 请求
-	workingVars = procExecutor.GetVariables()
-	httpResp, actualReq, err := e.executeHTTPRequest(ctx, httpConfig, workingVars)
-	if err != nil {
+	// 2. 创建 ExecutionContext
+	execCtx := executor.NewExecutionContext()
+	// 设置临时变量
+	for k, v := range workingVars {
+		execCtx.SetVariable(k, v)
+	}
+	// 设置环境变量并标记
+	for k, v := range envVars {
+		execCtx.SetVariable(k, v)
+		execCtx.MarkAsEnvVar(k)
+	}
+
+	// 3. 创建并调用 HTTPExecutor（复用流程执行的逻辑）
+	httpExecutor := executor.NewFastHTTPExecutor()
+	if err := httpExecutor.Init(ctx, nil); err != nil {
 		result.Success = false
-		result.Error = "HTTP 请求执行失败: " + err.Error()
+		result.Error = "初始化 HTTP 执行器失败: " + err.Error()
 		return result, nil
 	}
-	result.Response = httpResp
-	result.ActualRequest = actualReq
+	defer httpExecutor.Cleanup(ctx)
 
-	// 4. 执行后置处理器
-	if len(nodeConfig.PostProcessors) > 0 {
-		procExecutor.SetResponse(httpResp.ToMap())
-		processors := convertKeywordToProcessors(nodeConfig.PostProcessors)
-		postLogs := procExecutor.ExecuteProcessors(ctx, processors, "post")
-		result.ConsoleLogs = append(result.ConsoleLogs, postLogs...)
+	stepResult, execErr := httpExecutor.Execute(ctx, step, execCtx)
 
-		// 提取断言结果
-		for _, entry := range postLogs {
-			if entry.Type == types.LogTypeProcessor && entry.Processor != nil && entry.Processor.Type == "assertion" {
-				result.AssertionResults = append(result.AssertionResults, types.AssertionResult{
-					Name:    entry.Processor.Name,
-					Passed:  entry.Processor.Success,
-					Message: entry.Processor.Message,
-				})
+	// 4. 转换结果
+	if stepResult != nil && stepResult.Output != nil {
+		if httpResp, ok := stepResult.Output.(*types.HTTPResponseData); ok {
+			result.Response = httpResp
+			result.ActualRequest = httpResp.ActualRequest
+			result.ConsoleLogs = httpResp.ConsoleLogs
+
+			// 提取断言结果
+			for _, entry := range httpResp.ConsoleLogs {
+				if entry.Type == types.LogTypeProcessor && entry.Processor != nil && entry.Processor.Type == "assertion" {
+					result.AssertionResults = append(result.AssertionResults, types.AssertionResult{
+						Name:    entry.Processor.Name,
+						Passed:  entry.Processor.Success,
+						Message: entry.Processor.Message,
+					})
+				}
 			}
 		}
 	}
 
+	// 5. 处理错误
+	if execErr != nil {
+		result.Success = false
+		result.Error = execErr.Error()
+	} else if stepResult != nil && stepResult.Status != types.ResultStatusSuccess {
+		result.Success = false
+		if stepResult.Error != nil {
+			result.Error = stepResult.Error.Error()
+		}
+	}
+
 	return result, nil
+}
+
+// convertDebugNodeConfigToStep 将 DebugNodeConfig 转换为标准 types.Step
+func convertDebugNodeConfigToStep(nodeConfig *types.DebugNodeConfig, variables map[string]interface{}) (*types.Step, error) {
+	// 解析并转换 HTTP 配置
+	httpConfig, err := parseHTTPConfigFromMap(nodeConfig.Config)
+	if err != nil {
+		return nil, fmt.Errorf("解析 HTTP 配置失败: %w", err)
+	}
+
+	// 转换为 Step.Config 格式
+	stepConfig := convertHTTPConfigToStepConfig(httpConfig, variables)
+
+	step := &types.Step{
+		ID:             nodeConfig.ID,
+		Name:           nodeConfig.Name,
+		Type:           "http", // 使用 fasthttp 执行器
+		Config:         stepConfig,
+		PreProcessors:  convertKeywordToProcessors(nodeConfig.PreProcessors),
+		PostProcessors: convertKeywordToProcessors(nodeConfig.PostProcessors),
+	}
+
+	return step, nil
+}
+
+// createVariableSnapshotEntry 创建变量快照日志条目
+func createVariableSnapshotEntry(tempVars, envVars map[string]interface{}) types.ConsoleLogEntry {
+	tempVarsAny := make(map[string]any, len(tempVars))
+	for k, v := range tempVars {
+		tempVarsAny[k] = v
+	}
+
+	envVarsAny := make(map[string]any, len(envVars))
+	for k, v := range envVars {
+		envVarsAny[k] = v
+	}
+
+	return types.NewSnapshotEntry(types.VariableSnapshotInfo{
+		EnvVars:  envVarsAny,
+		TempVars: tempVarsAny,
+	})
 }
 
 // executeScriptDebugStep 执行 Script 节点单步调试
@@ -355,62 +410,18 @@ func (e *Engine) executeScriptDebugStep(ctx context.Context, nodeConfig *types.D
 	result.ScriptResult = scriptResult
 	result.ConsoleLogs = append(result.ConsoleLogs, consoleLogs...)
 
+	// 创建变量快照（合并脚本执行后的变量）
+	finalVars := make(map[string]interface{})
+	for k, v := range workingVars {
+		finalVars[k] = v
+	}
+	for k, v := range execResult.Variables {
+		finalVars[k] = v
+	}
+	snapshot := createVariableSnapshotEntry(finalVars, envVars)
+	result.ConsoleLogs = append(result.ConsoleLogs, snapshot)
+
 	return result, nil
-}
-
-// executeHTTPRequest 执行 HTTP 请求
-func (e *Engine) executeHTTPRequest(ctx context.Context, config *httpConfig, variables map[string]interface{}) (*types.HTTPResponseData, *types.ActualRequest, error) {
-	// 转换配置为 executor 格式
-	stepConfig := convertHTTPConfigToStepConfig(config, variables)
-
-	// 创建 HTTP 执行器
-	httpExecutor := executor.NewHTTPExecutor()
-	if err := httpExecutor.Init(ctx, nil); err != nil {
-		return nil, nil, err
-	}
-	defer httpExecutor.Cleanup(ctx)
-
-	// 创建步骤
-	step := &types.Step{
-		ID:     "debug-step",
-		Type:   "http-std",
-		Config: stepConfig,
-	}
-
-	// 设置超时
-	if config.Settings != nil && config.Settings.ReadTimeout > 0 {
-		step.Timeout = time.Duration(config.Settings.ReadTimeout) * time.Millisecond
-	}
-
-	// 创建执行上下文
-	httpExecCtx := executor.NewExecutionContext()
-	for k, v := range variables {
-		httpExecCtx.SetVariable(k, v)
-	}
-
-	// 执行请求
-	startTime := time.Now()
-	result, err := httpExecutor.Execute(ctx, step, httpExecCtx)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// 解析响应（输出已经是统一的 HTTPResponseData 类型）
-	if result.Output != nil {
-		if output, ok := result.Output.(*types.HTTPResponseData); ok {
-			// 设置耗时（如果还没有设置）
-			if output.Duration == 0 {
-				output.Duration = time.Since(startTime).Milliseconds()
-			}
-			return output, output.ActualRequest, nil
-		}
-	}
-
-	// 如果输出不是预期类型，返回空响应
-	return &types.HTTPResponseData{
-		Duration: time.Since(startTime).Milliseconds(),
-		Headers:  make(map[string]string),
-	}, nil, nil
 }
 
 // httpConfig HTTP 配置

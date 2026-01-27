@@ -190,13 +190,13 @@ func (e *HTTPExecutor) Execute(ctx context.Context, step *types.Step, execCtx *E
 	}
 	procExecutor := pkgExecutor.NewProcessorExecutor(variables, envVars)
 
-	// 收集所有控制台日志
-	allConsoleLogs := make([]types.ConsoleLogEntry, 0)
-
 	// 1. 执行前置处理器
 	if len(step.PreProcessors) > 0 {
 		preLogs := procExecutor.ExecuteProcessors(ctx, step.PreProcessors, "pre")
-		allConsoleLogs = append(allConsoleLogs, preLogs...)
+		// 使用统一的日志接口
+		execCtx.AppendLogs(preLogs)
+		// 追踪变量变更
+		e.trackVariableChanges(execCtx, preLogs)
 
 		// 更新执行上下文中的变量
 		if execCtx != nil && execCtx.Variables != nil {
@@ -294,7 +294,10 @@ func (e *HTTPExecutor) Execute(ctx context.Context, step *types.Step, execCtx *E
 		})
 
 		postLogs := procExecutor.ExecuteProcessors(ctx, step.PostProcessors, "post")
-		allConsoleLogs = append(allConsoleLogs, postLogs...)
+		// 使用统一的日志接口
+		execCtx.AppendLogs(postLogs)
+		// 追踪变量变更
+		e.trackVariableChanges(execCtx, postLogs)
 
 		// 更新执行上下文中的变量
 		if execCtx != nil && execCtx.Variables != nil {
@@ -304,7 +307,12 @@ func (e *HTTPExecutor) Execute(ctx context.Context, step *types.Step, execCtx *E
 		}
 	}
 
-	// 添加控制台日志到输出，并提取断言结果
+	// 创建变量快照（在 FlushLogs 之前，因为 FlushLogs 会清空日志）
+	// 使用处理器执行器获取最新的变量状态
+	execCtx.CreateVariableSnapshotWithEnvVars(nil)
+
+	// 从执行上下文获取所有日志，并提取断言结果
+	allConsoleLogs := execCtx.FlushLogs()
 	if len(allConsoleLogs) > 0 {
 		output.ConsoleLogs = allConsoleLogs
 
@@ -635,6 +643,80 @@ func (e *HTTPExecutor) buildOutputWithRequest(req *http.Request, resp *http.Resp
 	}
 
 	return output
+}
+
+// trackVariableChanges 从处理器日志中追踪变量变更
+func (e *HTTPExecutor) trackVariableChanges(execCtx *ExecutionContext, logs []types.ConsoleLogEntry) {
+	if execCtx == nil {
+		return
+	}
+
+	for _, entry := range logs {
+		if entry.Type != types.LogTypeProcessor || entry.Processor == nil {
+			continue
+		}
+
+		output := entry.Processor.Output
+		if output == nil {
+			continue
+		}
+
+		// 处理 set_variable 和 extract_param 的变量变更
+		if entry.Processor.Type == "set_variable" || entry.Processor.Type == "extract_param" {
+			varName, _ := output["variableName"].(string)
+			if varName == "" {
+				continue
+			}
+			scope, _ := output["scope"].(string)
+			if scope == "" {
+				scope = "temp"
+			}
+			source, _ := output["source"].(string)
+			if source == "" {
+				source = entry.Processor.Type
+			}
+
+			// 记录变量变更（变量值已经通过 procExecutor.GetVariables() 更新）
+			execCtx.AppendLog(types.NewVariableChangeEntry(types.VariableChangeInfo{
+				Name:     varName,
+				OldValue: output["oldValue"],
+				NewValue: output["value"],
+				Scope:    scope,
+				Source:   source,
+			}))
+
+			// 标记环境变量
+			if scope == "env" {
+				execCtx.MarkAsEnvVar(varName)
+			}
+		}
+
+		// 处理 js_script 的变量变更
+		if entry.Processor.Type == "js_script" {
+			if varChanges, ok := output["varChanges"].([]map[string]any); ok {
+				for _, change := range varChanges {
+					name, _ := change["name"].(string)
+					if name == "" {
+						continue
+					}
+					scope, _ := change["scope"].(string)
+					source, _ := change["source"].(string)
+
+					execCtx.AppendLog(types.NewVariableChangeEntry(types.VariableChangeInfo{
+						Name:     name,
+						OldValue: change["oldValue"],
+						NewValue: change["newValue"],
+						Scope:    scope,
+						Source:   source,
+					}))
+
+					if scope == "env" {
+						execCtx.MarkAsEnvVar(name)
+					}
+				}
+			}
+		}
+	}
 }
 
 // init 在默认注册表中注册标准库 HTTP 执行器。

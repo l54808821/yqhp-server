@@ -155,15 +155,41 @@ func (e *ProcessorExecutor) executeJsScript(ctx context.Context, pctx *processor
 		return
 	}
 
-	// 更新变量
+	// 收集变量变更信息
+	varChanges := make([]map[string]any, 0)
+
+	// 更新临时变量
 	for k, v := range execResult.Variables {
+		oldValue := e.variables[k]
 		e.variables[k] = v
+		varChanges = append(varChanges, map[string]any{
+			"name":     k,
+			"oldValue": oldValue,
+			"newValue": v,
+			"scope":    "temp",
+			"source":   "js_script",
+		})
+	}
+
+	// 更新环境变量
+	for k, v := range execResult.EnvVars {
+		oldValue := e.envVars[k]
+		e.envVars[k] = v
+		varChanges = append(varChanges, map[string]any{
+			"name":     k,
+			"oldValue": oldValue,
+			"newValue": v,
+			"scope":    "env",
+			"source":   "js_script",
+		})
 	}
 
 	pctx.message = "脚本执行成功"
 	pctx.output = map[string]any{
-		"result":    execResult.Value,
-		"variables": execResult.Variables,
+		"result":     execResult.Value,
+		"variables":  execResult.Variables,
+		"envVars":    execResult.EnvVars,
+		"varChanges": varChanges,
 	}
 }
 
@@ -171,19 +197,30 @@ func (e *ProcessorExecutor) executeJsScript(ctx context.Context, pctx *processor
 func (e *ProcessorExecutor) executeSetVariable(pctx *processorContext) {
 	varName := ""
 	varValue := ""
+	scope := "temp" // 默认临时变量
+
 	if name, ok := pctx.processor.Config["variableName"].(string); ok {
 		varName = name
 	}
 	if value, ok := pctx.processor.Config["value"].(string); ok {
 		varValue = e.replaceVariables(value)
 	}
+	// 读取 scope 配置，支持 "env" 或 "temp"
+	if s, ok := pctx.processor.Config["scope"].(string); ok && s != "" {
+		scope = s
+	}
 
 	if varName != "" {
+		// 获取旧值用于追踪
+		oldValue := e.variables[varName]
 		e.variables[varName] = varValue
 		pctx.message = fmt.Sprintf("%s = %s", varName, varValue)
 		pctx.output = map[string]any{
 			"variableName": varName,
 			"value":        varValue,
+			"oldValue":     oldValue,
+			"scope":        scope,
+			"source":       "set_variable",
 		}
 	}
 }
@@ -323,6 +360,7 @@ func (e *ProcessorExecutor) executeExtractParam(pctx *processorContext) {
 	extractType := ""
 	expression := ""
 	varName := ""
+	scope := "temp" // 默认临时变量
 
 	if et, ok := pctx.processor.Config["extractType"].(string); ok {
 		extractType = et
@@ -333,6 +371,10 @@ func (e *ProcessorExecutor) executeExtractParam(pctx *processorContext) {
 	if name, ok := pctx.processor.Config["variableName"].(string); ok {
 		varName = name
 	}
+	// 读取 scope 配置，支持 "env" 或 "temp"
+	if s, ok := pctx.processor.Config["scope"].(string); ok && s != "" {
+		scope = s
+	}
 
 	value, err := e.extractValue(extractType, expression)
 	if err != nil {
@@ -342,11 +384,16 @@ func (e *ProcessorExecutor) executeExtractParam(pctx *processorContext) {
 	}
 
 	if varName != "" {
+		// 获取旧值用于追踪
+		oldValue := e.variables[varName]
 		e.variables[varName] = value
 		pctx.message = fmt.Sprintf("%s = %v", varName, value)
 		pctx.output = map[string]any{
 			"variableName": varName,
 			"value":        value,
+			"oldValue":     oldValue,
+			"scope":        scope,
+			"source":       "extract_param",
 		}
 	}
 }

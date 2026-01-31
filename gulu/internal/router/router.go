@@ -106,32 +106,17 @@ func Setup(app *fiber.App) {
 	envs.Put("/:id", handler.EnvUpdate)
 	envs.Delete("/:id", handler.EnvDelete)
 	envs.Post("/:id/copy", handler.EnvCopy)
-	// 域名配置接口（JSON 存储在 t_env.domains）
-	envs.Get("/:id/domains", handler.EnvGetDomains)
-	envs.Put("/:id/domains", handler.EnvUpdateDomains)
-	// 变量配置接口（JSON 存储在 t_env.vars）
-	envs.Get("/:id/vars", handler.EnvGetVars)
-	envs.Put("/:id/vars", handler.EnvUpdateVars)
-	envs.Get("/:id/vars/export", handler.EnvExportVars)
-	envs.Post("/:id/vars/import", handler.EnvImportVars)
+	// 环境配置值接口
+	envs.Get("/:envId/configs", handler.ConfigList)
+	envs.Put("/:envId/configs/:code", handler.ConfigUpdate)
+	envs.Put("/:envId/configs", handler.ConfigBatchUpdate)
 
-	// 数据库配置路由
-	dbConfigs := api.Group("/database-configs")
-	dbConfigs.Post("", handler.DatabaseConfigCreate)
-	dbConfigs.Get("", handler.DatabaseConfigList)
-	dbConfigs.Get("/env/:envId", handler.DatabaseConfigGetByEnvID)
-	dbConfigs.Get("/:id", handler.DatabaseConfigGetByID)
-	dbConfigs.Put("/:id", handler.DatabaseConfigUpdate)
-	dbConfigs.Delete("/:id", handler.DatabaseConfigDelete)
-
-	// MQ配置路由
-	mqConfigs := api.Group("/mq-configs")
-	mqConfigs.Post("", handler.MQConfigCreate)
-	mqConfigs.Get("", handler.MQConfigList)
-	mqConfigs.Get("/env/:envId", handler.MQConfigGetByEnvID)
-	mqConfigs.Get("/:id", handler.MQConfigGetByID)
-	mqConfigs.Put("/:id", handler.MQConfigUpdate)
-	mqConfigs.Delete("/:id", handler.MQConfigDelete)
+	// 配置定义管理路由（项目级别）
+	configDefs := api.Group("/projects/:projectId/config-definitions")
+	configDefs.Get("", handler.ConfigDefinitionList)
+	configDefs.Post("", handler.ConfigDefinitionCreate)
+	configDefs.Put("/:code", handler.ConfigDefinitionUpdate)
+	configDefs.Delete("/:code", handler.ConfigDefinitionDelete)
 
 	// 执行机管理路由
 	executors := api.Group("/executors")

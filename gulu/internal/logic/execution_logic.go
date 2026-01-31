@@ -112,25 +112,8 @@ func (l *ExecutionLogic) Execute(req *ExecuteWorkflowReq, userID int64) (*model.
 		return nil, errors.New("环境与工作流不属于同一项目")
 	}
 
-	// 获取数据库和 MQ 配置（仍然从独立表获取）
-	dbConfigLogic := NewDatabaseConfigLogic(l.ctx)
-	dbConfigs, err := dbConfigLogic.GetConfigsByEnvID(req.EnvID)
-	if err != nil {
-		return nil, err
-	}
-
-	mqConfigLogic := NewMQConfigLogic(l.ctx)
-	mqConfigs, err := mqConfigLogic.GetConfigsByEnvID(req.EnvID)
-	if err != nil {
-		return nil, err
-	}
-
-	// 合并环境配置到工作流（域名和变量从 t_env 的 JSON 字段读取）
-	merger := workflow.NewConfigMerger().
-		SetEnv(env).
-		SetDatabases(dbConfigs).
-		SetMQs(mqConfigs)
-
+	// 合并环境配置到工作流（从 t_config_definition 和 t_config 表读取）
+	merger := workflow.NewConfigMerger(l.ctx, req.EnvID)
 	_, err = merger.MergeToWorkflow(def)
 	if err != nil {
 		return nil, errors.New("配置合并失败: " + err.Error())

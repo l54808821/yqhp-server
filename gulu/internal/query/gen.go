@@ -18,11 +18,11 @@ import (
 var (
 	Q                  = new(Query)
 	TCategoryWorkflow  *tCategoryWorkflow
-	TDatabaseConfig    *tDatabaseConfig
+	TConfig            *tConfig
+	TConfigDefinition  *tConfigDefinition
 	TEnv               *tEnv
 	TExecution         *tExecution
 	TExecutor          *tExecutor
-	TMqConfig          *tMqConfig
 	TProject           *tProject
 	TProjectMember     *tProjectMember
 	TProjectPermission *tProjectPermission
@@ -34,11 +34,11 @@ var (
 func SetDefault(db *gorm.DB, opts ...gen.DOOption) {
 	*Q = *Use(db, opts...)
 	TCategoryWorkflow = &Q.TCategoryWorkflow
-	TDatabaseConfig = &Q.TDatabaseConfig
+	TConfig = &Q.TConfig
+	TConfigDefinition = &Q.TConfigDefinition
 	TEnv = &Q.TEnv
 	TExecution = &Q.TExecution
 	TExecutor = &Q.TExecutor
-	TMqConfig = &Q.TMqConfig
 	TProject = &Q.TProject
 	TProjectMember = &Q.TProjectMember
 	TProjectPermission = &Q.TProjectPermission
@@ -51,11 +51,11 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 	return &Query{
 		db:                 db,
 		TCategoryWorkflow:  newTCategoryWorkflow(db, opts...),
-		TDatabaseConfig:    newTDatabaseConfig(db, opts...),
+		TConfig:            newTConfig(db, opts...),
+		TConfigDefinition:  newTConfigDefinition(db, opts...),
 		TEnv:               newTEnv(db, opts...),
 		TExecution:         newTExecution(db, opts...),
 		TExecutor:          newTExecutor(db, opts...),
-		TMqConfig:          newTMqConfig(db, opts...),
 		TProject:           newTProject(db, opts...),
 		TProjectMember:     newTProjectMember(db, opts...),
 		TProjectPermission: newTProjectPermission(db, opts...),
@@ -69,11 +69,11 @@ type Query struct {
 	db *gorm.DB
 
 	TCategoryWorkflow  tCategoryWorkflow
-	TDatabaseConfig    tDatabaseConfig
+	TConfig            tConfig
+	TConfigDefinition  tConfigDefinition
 	TEnv               tEnv
 	TExecution         tExecution
 	TExecutor          tExecutor
-	TMqConfig          tMqConfig
 	TProject           tProject
 	TProjectMember     tProjectMember
 	TProjectPermission tProjectPermission
@@ -88,11 +88,11 @@ func (q *Query) clone(db *gorm.DB) *Query {
 	return &Query{
 		db:                 db,
 		TCategoryWorkflow:  q.TCategoryWorkflow.clone(db),
-		TDatabaseConfig:    q.TDatabaseConfig.clone(db),
+		TConfig:            q.TConfig.clone(db),
+		TConfigDefinition:  q.TConfigDefinition.clone(db),
 		TEnv:               q.TEnv.clone(db),
 		TExecution:         q.TExecution.clone(db),
 		TExecutor:          q.TExecutor.clone(db),
-		TMqConfig:          q.TMqConfig.clone(db),
 		TProject:           q.TProject.clone(db),
 		TProjectMember:     q.TProjectMember.clone(db),
 		TProjectPermission: q.TProjectPermission.clone(db),
@@ -114,11 +114,11 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 	return &Query{
 		db:                 db,
 		TCategoryWorkflow:  q.TCategoryWorkflow.replaceDB(db),
-		TDatabaseConfig:    q.TDatabaseConfig.replaceDB(db),
+		TConfig:            q.TConfig.replaceDB(db),
+		TConfigDefinition:  q.TConfigDefinition.replaceDB(db),
 		TEnv:               q.TEnv.replaceDB(db),
 		TExecution:         q.TExecution.replaceDB(db),
 		TExecutor:          q.TExecutor.replaceDB(db),
-		TMqConfig:          q.TMqConfig.replaceDB(db),
 		TProject:           q.TProject.replaceDB(db),
 		TProjectMember:     q.TProjectMember.replaceDB(db),
 		TProjectPermission: q.TProjectPermission.replaceDB(db),
@@ -130,11 +130,11 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 
 type queryCtx struct {
 	TCategoryWorkflow  ITCategoryWorkflowDo
-	TDatabaseConfig    ITDatabaseConfigDo
+	TConfig            ITConfigDo
+	TConfigDefinition  ITConfigDefinitionDo
 	TEnv               ITEnvDo
 	TExecution         ITExecutionDo
 	TExecutor          ITExecutorDo
-	TMqConfig          ITMqConfigDo
 	TProject           ITProjectDo
 	TProjectMember     ITProjectMemberDo
 	TProjectPermission ITProjectPermissionDo
@@ -146,11 +146,11 @@ type queryCtx struct {
 func (q *Query) WithContext(ctx context.Context) *queryCtx {
 	return &queryCtx{
 		TCategoryWorkflow:  q.TCategoryWorkflow.WithContext(ctx),
-		TDatabaseConfig:    q.TDatabaseConfig.WithContext(ctx),
+		TConfig:            q.TConfig.WithContext(ctx),
+		TConfigDefinition:  q.TConfigDefinition.WithContext(ctx),
 		TEnv:               q.TEnv.WithContext(ctx),
 		TExecution:         q.TExecution.WithContext(ctx),
 		TExecutor:          q.TExecutor.WithContext(ctx),
-		TMqConfig:          q.TMqConfig.WithContext(ctx),
 		TProject:           q.TProject.WithContext(ctx),
 		TProjectMember:     q.TProjectMember.WithContext(ctx),
 		TProjectPermission: q.TProjectPermission.WithContext(ctx),

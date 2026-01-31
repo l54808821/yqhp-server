@@ -37,10 +37,6 @@ func newTEnv(db *gorm.DB, opts ...gen.DOOption) tEnv {
 	_tEnv.ProjectID = field.NewInt64(tableName, "project_id")
 	_tEnv.Name = field.NewString(tableName, "name")
 	_tEnv.Description = field.NewString(tableName, "description")
-	_tEnv.Domains = field.NewString(tableName, "domains")
-	_tEnv.Vars = field.NewString(tableName, "vars")
-	_tEnv.DomainsVersion = field.NewInt32(tableName, "domains_version")
-	_tEnv.VarsVersion = field.NewInt32(tableName, "vars_version")
 	_tEnv.Sort = field.NewInt64(tableName, "sort")
 	_tEnv.Status = field.NewInt32(tableName, "status")
 
@@ -53,22 +49,18 @@ func newTEnv(db *gorm.DB, opts ...gen.DOOption) tEnv {
 type tEnv struct {
 	tEnvDo tEnvDo
 
-	ALL            field.Asterisk
-	ID             field.Int64
-	CreatedAt      field.Time
-	UpdatedAt      field.Time
-	IsDelete       field.Bool
-	CreatedBy      field.Int64  // 创建人ID
-	UpdatedBy      field.Int64  // 更新人ID
-	ProjectID      field.Int64  // 所属项目ID
-	Name           field.String // 环境名称
-	Description    field.String // 环境描述
-	Domains        field.String // 域名配置数组
-	Vars           field.String // 变量配置数组
-	DomainsVersion field.Int32  // 域名配置版本号(乐观锁)
-	VarsVersion    field.Int32  // 变量配置版本号(乐观锁)
-	Sort           field.Int64  // 排序
-	Status         field.Int32  // 状态: 1-启用 0-禁用
+	ALL         field.Asterisk
+	ID          field.Int64
+	CreatedAt   field.Time
+	UpdatedAt   field.Time
+	IsDelete    field.Bool
+	CreatedBy   field.Int64  // 创建人ID
+	UpdatedBy   field.Int64  // 更新人ID
+	ProjectID   field.Int64  // 所属项目ID
+	Name        field.String // 环境名称
+	Description field.String // 环境描述
+	Sort        field.Int64  // 排序
+	Status      field.Int32  // 状态: 1-启用 0-禁用
 
 	fieldMap map[string]field.Expr
 }
@@ -94,10 +86,6 @@ func (t *tEnv) updateTableName(table string) *tEnv {
 	t.ProjectID = field.NewInt64(table, "project_id")
 	t.Name = field.NewString(table, "name")
 	t.Description = field.NewString(table, "description")
-	t.Domains = field.NewString(table, "domains")
-	t.Vars = field.NewString(table, "vars")
-	t.DomainsVersion = field.NewInt32(table, "domains_version")
-	t.VarsVersion = field.NewInt32(table, "vars_version")
 	t.Sort = field.NewInt64(table, "sort")
 	t.Status = field.NewInt32(table, "status")
 
@@ -124,7 +112,7 @@ func (t *tEnv) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (t *tEnv) fillFieldMap() {
-	t.fieldMap = make(map[string]field.Expr, 15)
+	t.fieldMap = make(map[string]field.Expr, 11)
 	t.fieldMap["id"] = t.ID
 	t.fieldMap["created_at"] = t.CreatedAt
 	t.fieldMap["updated_at"] = t.UpdatedAt
@@ -134,10 +122,6 @@ func (t *tEnv) fillFieldMap() {
 	t.fieldMap["project_id"] = t.ProjectID
 	t.fieldMap["name"] = t.Name
 	t.fieldMap["description"] = t.Description
-	t.fieldMap["domains"] = t.Domains
-	t.fieldMap["vars"] = t.Vars
-	t.fieldMap["domains_version"] = t.DomainsVersion
-	t.fieldMap["vars_version"] = t.VarsVersion
 	t.fieldMap["sort"] = t.Sort
 	t.fieldMap["status"] = t.Status
 }

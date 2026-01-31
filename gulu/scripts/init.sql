@@ -25,7 +25,6 @@ CREATE TABLE IF NOT EXISTS `t_project` (
 
 -- ============================================
 -- 2. 环境表 (t_env)
--- 包含域名配置和变量配置的 JSON 字段
 -- ============================================
 CREATE TABLE IF NOT EXISTS `t_env` (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -39,68 +38,55 @@ CREATE TABLE IF NOT EXISTS `t_env` (
     `description` VARCHAR(500) DEFAULT NULL COMMENT '环境描述',
     `sort` BIGINT DEFAULT NULL COMMENT '排序',
     `status` TINYINT DEFAULT 1 COMMENT '状态: 1-启用 0-禁用',
-    `domains` JSON DEFAULT NULL COMMENT '域名配置数组 [{"code":"main","name":"主域名","base_url":"https://...","headers":[...],"status":1,"sort":0}]',
-    `vars` JSON DEFAULT NULL COMMENT '变量配置数组 [{"key":"API_KEY","name":"密钥","value":"...","type":"string","is_sensitive":false}]',
-    `domains_version` INT DEFAULT 0 COMMENT '域名配置版本号(乐观锁)',
-    `vars_version` INT DEFAULT 0 COMMENT '变量配置版本号(乐观锁)',
     PRIMARY KEY (`id`),
     INDEX `idx_t_env_project_id` (`project_id`),
     INDEX `idx_t_env_is_delete` (`is_delete`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='环境表';
 
 -- ============================================
--- 3. 数据库配置表 (t_database_config)
+-- 3. 配置定义表 (t_config_definition)
+-- 项目级别，定义有哪些配置项
 -- ============================================
-CREATE TABLE IF NOT EXISTS `t_database_config` (
+CREATE TABLE IF NOT EXISTS `t_config_definition` (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `created_at` DATETIME DEFAULT NULL,
     `updated_at` DATETIME DEFAULT NULL,
     `is_delete` TINYINT(1) DEFAULT 0,
-    `project_id` BIGINT UNSIGNED NOT NULL COMMENT '所属项目ID',
-    `env_id` BIGINT UNSIGNED NOT NULL COMMENT '所属环境ID',
-    `name` VARCHAR(100) NOT NULL COMMENT '配置名称',
-    `code` VARCHAR(50) NOT NULL COMMENT '配置代码',
-    `type` VARCHAR(20) NOT NULL COMMENT '数据库类型: mysql, redis, mongodb',
-    `host` VARCHAR(255) NOT NULL COMMENT '主机地址',
-    `port` INT NOT NULL COMMENT '端口',
-    `database` VARCHAR(100) DEFAULT NULL COMMENT '数据库名',
-    `username` VARCHAR(100) DEFAULT NULL COMMENT '用户名',
-    `password` VARCHAR(500) DEFAULT NULL COMMENT '密码(加密存储)',
-    `options` TEXT DEFAULT NULL COMMENT '额外配置(JSON格式)',
-    `description` VARCHAR(500) DEFAULT NULL COMMENT '描述',
+    `project_id` BIGINT UNSIGNED NOT NULL COMMENT '项目ID',
+    `type` VARCHAR(32) NOT NULL COMMENT '配置类型: domain/variable/database/mq',
+    `code` VARCHAR(64) NOT NULL COMMENT '系统生成的唯一ID',
+    `key` VARCHAR(128) NOT NULL COMMENT '用户定义的标识(如变量名API_KEY、域名标识main)',
+    `name` VARCHAR(128) NOT NULL COMMENT '显示名称',
+    `description` VARCHAR(500) DEFAULT '' COMMENT '描述',
+    `extra` JSON DEFAULT NULL COMMENT '类型特有属性',
+    `sort` INT DEFAULT 0 COMMENT '排序',
     `status` TINYINT DEFAULT 1 COMMENT '状态: 1-启用 0-禁用',
     PRIMARY KEY (`id`),
-    INDEX `idx_t_database_config_project_id` (`project_id`),
-    INDEX `idx_t_database_config_env_id` (`env_id`),
-    INDEX `idx_t_database_config_is_delete` (`is_delete`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='数据库配置表';
+    UNIQUE KEY `uk_code` (`code`),
+    UNIQUE KEY `uk_project_type_key` (`project_id`, `type`, `key`),
+    INDEX `idx_project_type` (`project_id`, `type`),
+    INDEX `idx_is_delete` (`is_delete`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='配置定义表';
 
 -- ============================================
--- 6. MQ配置表 (t_mq_config)
+-- 4. 配置表 (t_config)
+-- 环境级别，存储每个环境下的配置值
 -- ============================================
-CREATE TABLE IF NOT EXISTS `t_mq_config` (
+CREATE TABLE IF NOT EXISTS `t_config` (
     `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
     `created_at` DATETIME DEFAULT NULL,
     `updated_at` DATETIME DEFAULT NULL,
-    `is_delete` TINYINT(1) DEFAULT 0,
-    `project_id` BIGINT UNSIGNED NOT NULL COMMENT '所属项目ID',
-    `env_id` BIGINT UNSIGNED NOT NULL COMMENT '所属环境ID',
-    `name` VARCHAR(100) NOT NULL COMMENT '配置名称',
-    `code` VARCHAR(50) NOT NULL COMMENT '配置代码',
-    `type` VARCHAR(20) NOT NULL COMMENT 'MQ类型: rabbitmq, kafka, rocketmq',
-    `host` VARCHAR(255) NOT NULL COMMENT '主机地址',
-    `port` INT NOT NULL COMMENT '端口',
-    `username` VARCHAR(100) DEFAULT NULL COMMENT '用户名',
-    `password` VARCHAR(500) DEFAULT NULL COMMENT '密码(加密存储)',
-    `vhost` VARCHAR(100) DEFAULT NULL COMMENT 'RabbitMQ vhost',
-    `options` TEXT DEFAULT NULL COMMENT '额外配置(JSON格式)',
-    `description` VARCHAR(500) DEFAULT NULL COMMENT '描述',
-    `status` TINYINT DEFAULT 1 COMMENT '状态: 1-启用 0-禁用',
+    `project_id` BIGINT UNSIGNED NOT NULL COMMENT '项目ID(冗余)',
+    `env_id` BIGINT UNSIGNED NOT NULL COMMENT '环境ID',
+    `type` VARCHAR(32) NOT NULL COMMENT '配置类型(冗余，方便查询)',
+    `code` VARCHAR(64) NOT NULL COMMENT '关联配置定义的code',
+    `value` JSON NOT NULL COMMENT '配置值',
     PRIMARY KEY (`id`),
-    INDEX `idx_t_mq_config_project_id` (`project_id`),
-    INDEX `idx_t_mq_config_env_id` (`env_id`),
-    INDEX `idx_t_mq_config_is_delete` (`is_delete`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='MQ配置表';
+    UNIQUE KEY `uk_env_code` (`env_id`, `code`),
+    INDEX `idx_env_type` (`env_id`, `type`),
+    INDEX `idx_code` (`code`),
+    INDEX `idx_project_id` (`project_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='配置表';
 
 -- ============================================
 -- 7. 执行机表 (t_executor)

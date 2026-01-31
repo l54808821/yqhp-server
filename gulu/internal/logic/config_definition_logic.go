@@ -49,19 +49,25 @@ type ConfigDefinitionWithValue struct {
 func CreateConfigDefinition(ctx context.Context, req *CreateConfigDefinitionReq) (*model.TConfigDefinition, error) {
 	q := query.Q
 
+	// 生成唯一 code
+	code := uuid.New().String()
+
+	// 如果没有提供 key，使用 code 作为 key
+	key := req.Key
+	if key == "" {
+		key = code
+	}
+
 	// 检查 key 是否已存在
 	existing, _ := q.TConfigDefinition.WithContext(ctx).
 		Where(q.TConfigDefinition.ProjectID.Eq(req.ProjectID)).
 		Where(q.TConfigDefinition.Type.Eq(req.Type)).
-		Where(q.TConfigDefinition.Key.Eq(req.Key)).
+		Where(q.TConfigDefinition.Key.Eq(key)).
 		Where(q.TConfigDefinition.IsDelete.Is(false)).
 		First()
 	if existing != nil {
 		return nil, ErrConfigDefinitionDuplicate
 	}
-
-	// 生成唯一 code
-	code := uuid.New().String()
 
 	// 序列化 extra
 	var extraStr *string
@@ -79,7 +85,7 @@ func CreateConfigDefinition(ctx context.Context, req *CreateConfigDefinitionReq)
 		ProjectID:   req.ProjectID,
 		Type:        req.Type,
 		Code:        code,
-		Key:         req.Key,
+		Key:         key,
 		Name:        req.Name,
 		Description: &req.Description,
 		Extra:       extraStr,

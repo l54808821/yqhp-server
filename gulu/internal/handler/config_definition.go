@@ -44,12 +44,10 @@ func ConfigDefinitionCreate(c *fiber.Ctx) error {
 	if req.Type == "" {
 		return response.Error(c, "配置类型不能为空")
 	}
-	if req.Key == "" {
-		return response.Error(c, "配置标识不能为空")
-	}
 	if req.Name == "" {
 		return response.Error(c, "配置名称不能为空")
 	}
+	// key 可以为空，后端会自动生成
 
 	// 默认状态为启用
 	if req.Status == 0 {

@@ -409,18 +409,58 @@ func (e *FastHTTPExecutor) parseConfig(config map[string]any) (*HTTPConfig, erro
 		httpConfig.Domain = domain
 	}
 
-	if headers, ok := config["headers"].(map[string]any); ok {
-		for k, v := range headers {
-			if s, ok := v.(string); ok {
-				httpConfig.Headers[k] = s
+	// 解析 headers（支持 map 格式和数组格式）
+	if headersRaw, exists := config["headers"]; exists {
+		switch headers := headersRaw.(type) {
+		case map[string]any:
+			// map 格式: {"key": "value"}
+			for k, v := range headers {
+				if s, ok := v.(string); ok {
+					httpConfig.Headers[k] = s
+				}
+			}
+		case []any:
+			// 数组格式: [{key: "key", value: "value", enabled: true}]
+			for _, item := range headers {
+				if m, ok := item.(map[string]any); ok {
+					// 检查是否启用
+					if enabled, ok := m["enabled"].(bool); ok && !enabled {
+						continue
+					}
+					key, _ := m["key"].(string)
+					value, _ := m["value"].(string)
+					if key != "" {
+						httpConfig.Headers[key] = value
+					}
+				}
 			}
 		}
 	}
 
-	if params, ok := config["params"].(map[string]any); ok {
-		for k, v := range params {
-			if s, ok := v.(string); ok {
-				httpConfig.Params[k] = s
+	// 解析 params（支持 map 格式和数组格式）
+	if paramsRaw, exists := config["params"]; exists {
+		switch params := paramsRaw.(type) {
+		case map[string]any:
+			// map 格式: {"key": "value"}
+			for k, v := range params {
+				if s, ok := v.(string); ok {
+					httpConfig.Params[k] = s
+				}
+			}
+		case []any:
+			// 数组格式: [{key: "key", value: "value", enabled: true}]
+			for _, item := range params {
+				if m, ok := item.(map[string]any); ok {
+					// 检查是否启用
+					if enabled, ok := m["enabled"].(bool); ok && !enabled {
+						continue
+					}
+					key, _ := m["key"].(string)
+					value, _ := m["value"].(string)
+					if key != "" {
+						httpConfig.Params[key] = value
+					}
+				}
 			}
 		}
 	}

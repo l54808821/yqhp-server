@@ -13,6 +13,7 @@ import (
 	"yqhp/gulu/internal/model"
 	"yqhp/gulu/internal/scheduler"
 	"yqhp/gulu/internal/sse"
+	"yqhp/gulu/internal/workflow"
 	"yqhp/workflow-engine/pkg/logger"
 	"yqhp/workflow-engine/pkg/types"
 
@@ -186,6 +187,30 @@ func (h *StreamExecutionHandler) prepareExecutionFromDefinition(c *fiber.Ctx, de
 			return nil, &executionError{code: "PARSE_ERROR", message: "工作流定义序列化失败: " + err.Error()}
 		}
 		definitionStr = string(defBytes)
+	}
+
+	// 如果有环境ID，加载环境配置（包含环境变量、域名、数据库、MQ等）
+	if envID > 0 {
+		merger := workflow.NewConfigMerger(c.UserContext(), envID)
+		mergedConfig, err := merger.Merge()
+		if err != nil {
+			logger.Warn("加载环境配置失败", "envId", envID, "error", err)
+			// 不阻断执行，只记录警告
+		} else {
+			// 将环境变量合并到请求变量中（请求变量优先级高于环境变量）
+			if variables == nil {
+				variables = make(map[string]interface{})
+			}
+			for k, v := range mergedConfig.Variables {
+				if _, exists := variables[k]; !exists {
+					variables[k] = v
+				}
+			}
+			// 添加域名、数据库、MQ 配置到特殊变量
+			variables["__domains__"] = mergedConfig.Domains
+			variables["__databases__"] = mergedConfig.Databases
+			variables["__mqs__"] = mergedConfig.MQs
+		}
 	}
 
 	// 转换工作流

@@ -203,26 +203,29 @@ func (m *ConfigMerger) processVariable(config *MergedConfig, def *model.TConfigD
 		}
 	}
 
+	// 使用 Name 作为变量名（Key 是唯一 ID，Name 是用户定义的变量名）
+	varName := def.Name
+
 	// 根据类型转换值
 	switch varType {
 	case "number":
 		var num float64
 		if err := json.Unmarshal([]byte(value), &num); err == nil {
-			config.Variables[def.Key] = num
+			config.Variables[varName] = num
 		} else {
-			config.Variables[def.Key] = value
+			config.Variables[varName] = value
 		}
 	case "boolean":
-		config.Variables[def.Key] = strings.ToLower(value) == "true"
+		config.Variables[varName] = strings.ToLower(value) == "true"
 	case "json":
 		var jsonVal interface{}
 		if err := json.Unmarshal([]byte(value), &jsonVal); err == nil {
-			config.Variables[def.Key] = jsonVal
+			config.Variables[varName] = jsonVal
 		} else {
-			config.Variables[def.Key] = value
+			config.Variables[varName] = value
 		}
 	default:
-		config.Variables[def.Key] = value
+		config.Variables[varName] = value
 	}
 }
 

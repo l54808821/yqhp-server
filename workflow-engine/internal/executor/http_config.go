@@ -282,3 +282,33 @@ func contains(s string, c byte) bool {
 	}
 	return false
 }
+
+// ParseKeyValueConfig 解析 key-value 配置（支持 map 和 array 格式）
+// map 格式: {"key": "value"}
+// array 格式: [{key: "key", value: "value", enabled: true}]
+func ParseKeyValueConfig(raw any) map[string]string {
+	result := make(map[string]string)
+	switch data := raw.(type) {
+	case map[string]any:
+		for k, v := range data {
+			if s, ok := v.(string); ok {
+				result[k] = s
+			}
+		}
+	case []any:
+		for _, item := range data {
+			if m, ok := item.(map[string]any); ok {
+				// 检查是否启用
+				if enabled, ok := m["enabled"].(bool); ok && !enabled {
+					continue
+				}
+				key, _ := m["key"].(string)
+				value, _ := m["value"].(string)
+				if key != "" {
+					result[key] = value
+				}
+			}
+		}
+	}
+	return result
+}

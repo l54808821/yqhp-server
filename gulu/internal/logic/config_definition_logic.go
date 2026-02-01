@@ -12,15 +12,13 @@ import (
 )
 
 var (
-	ErrConfigDefinitionNotFound  = errors.New("配置定义不存在")
-	ErrConfigDefinitionDuplicate = errors.New("配置定义的key已存在")
+	ErrConfigDefinitionNotFound = errors.New("配置定义不存在")
 )
 
 // CreateConfigDefinitionReq 创建配置定义请求
 type CreateConfigDefinitionReq struct {
 	ProjectID   int64  `json:"project_id"`
 	Type        string `json:"type"`        // domain/variable/database/mq
-	Key         string `json:"key"`         // 用户定义的标识
 	Name        string `json:"name"`        // 显示名称
 	Description string `json:"description"` // 描述
 	Extra       any    `json:"extra"`       // 类型特有属性
@@ -30,7 +28,6 @@ type CreateConfigDefinitionReq struct {
 
 // UpdateConfigDefinitionReq 更新配置定义请求
 type UpdateConfigDefinitionReq struct {
-	Key         *string `json:"key"`
 	Name        *string `json:"name"`
 	Description *string `json:"description"`
 	Extra       any     `json:"extra"`
@@ -52,23 +49,6 @@ func CreateConfigDefinition(ctx context.Context, req *CreateConfigDefinitionReq)
 	// 生成唯一 code
 	code := uuid.New().String()
 
-	// 如果没有提供 key，使用 code 作为 key
-	key := req.Key
-	if key == "" {
-		key = code
-	}
-
-	// 检查 key 是否已存在
-	existing, _ := q.TConfigDefinition.WithContext(ctx).
-		Where(q.TConfigDefinition.ProjectID.Eq(req.ProjectID)).
-		Where(q.TConfigDefinition.Type.Eq(req.Type)).
-		Where(q.TConfigDefinition.Key.Eq(key)).
-		Where(q.TConfigDefinition.IsDelete.Is(false)).
-		First()
-	if existing != nil {
-		return nil, ErrConfigDefinitionDuplicate
-	}
-
 	// 序列化 extra
 	var extraStr *string
 	if req.Extra != nil {
@@ -85,7 +65,6 @@ func CreateConfigDefinition(ctx context.Context, req *CreateConfigDefinitionReq)
 		ProjectID:   req.ProjectID,
 		Type:        req.Type,
 		Code:        code,
-		Key:         key,
 		Name:        req.Name,
 		Description: &req.Description,
 		Extra:       extraStr,
@@ -189,30 +168,13 @@ func UpdateConfigDefinition(ctx context.Context, code string, req *UpdateConfigD
 	q := query.Q
 
 	// 获取现有定义
-	definition, err := GetConfigDefinitionByCode(ctx, code)
+	_, err := GetConfigDefinitionByCode(ctx, code)
 	if err != nil {
 		return nil, err
 	}
 
-	// 如果修改了 key，检查是否重复
-	if req.Key != nil && *req.Key != definition.Key {
-		existing, _ := q.TConfigDefinition.WithContext(ctx).
-			Where(q.TConfigDefinition.ProjectID.Eq(definition.ProjectID)).
-			Where(q.TConfigDefinition.Type.Eq(definition.Type)).
-			Where(q.TConfigDefinition.Key.Eq(*req.Key)).
-			Where(q.TConfigDefinition.Code.Neq(code)).
-			Where(q.TConfigDefinition.IsDelete.Is(false)).
-			First()
-		if existing != nil {
-			return nil, ErrConfigDefinitionDuplicate
-		}
-	}
-
 	// 构建更新字段
 	updates := make(map[string]interface{})
-	if req.Key != nil {
-		updates["key"] = *req.Key
-	}
 	if req.Name != nil {
 		updates["name"] = *req.Name
 	}

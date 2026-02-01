@@ -143,7 +143,7 @@ func (m *ConfigMerger) Merge() (*MergedConfig, error) {
 // processDomain 处理域名配置
 func (m *ConfigMerger) processDomain(config *MergedConfig, def *model.TConfigDefinition, cfg *model.TConfig) {
 	dc := &DomainConfig{
-		Code: def.Key,
+		Code: def.Code,
 	}
 
 	var value map[string]interface{}
@@ -165,7 +165,7 @@ func (m *ConfigMerger) processDomain(config *MergedConfig, def *model.TConfigDef
 		}
 	}
 
-	config.Domains[def.Key] = dc
+	config.Domains[def.Code] = dc
 }
 
 // processVariable 处理变量配置
@@ -232,7 +232,7 @@ func (m *ConfigMerger) processVariable(config *MergedConfig, def *model.TConfigD
 // processDatabase 处理数据库配置
 func (m *ConfigMerger) processDatabase(config *MergedConfig, def *model.TConfigDefinition, cfg *model.TConfig) {
 	dbc := &DatabaseConfig{
-		Code: def.Key,
+		Code: def.Code,
 	}
 
 	// 从 extra 获取数据库类型
@@ -274,13 +274,13 @@ func (m *ConfigMerger) processDatabase(config *MergedConfig, def *model.TConfigD
 		}
 	}
 
-	config.Databases[def.Key] = dbc
+	config.Databases[def.Code] = dbc
 }
 
 // processMQ 处理 MQ 配置
 func (m *ConfigMerger) processMQ(config *MergedConfig, def *model.TConfigDefinition, cfg *model.TConfig) {
 	mqc := &MQConfig{
-		Code: def.Key,
+		Code: def.Code,
 	}
 
 	// 从 extra 获取 MQ 类型
@@ -322,7 +322,7 @@ func (m *ConfigMerger) processMQ(config *MergedConfig, def *model.TConfigDefinit
 		}
 	}
 
-	config.MQs[def.Key] = mqc
+	config.MQs[def.Code] = mqc
 }
 
 // MergeToWorkflow 将配置合并到工作流定义

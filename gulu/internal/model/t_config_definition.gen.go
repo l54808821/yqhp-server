@@ -16,15 +16,14 @@ type TConfigDefinition struct {
 	CreatedAt   *time.Time `gorm:"column:created_at;type:datetime" json:"created_at"`
 	UpdatedAt   *time.Time `gorm:"column:updated_at;type:datetime" json:"updated_at"`
 	IsDelete    *bool      `gorm:"column:is_delete;type:tinyint(1);index:idx_is_delete,priority:1" json:"is_delete"`
-	ProjectID   int64      `gorm:"column:project_id;type:bigint unsigned;not null;uniqueIndex:uk_project_type_key,priority:1;index:idx_project_type,priority:1;comment:项目ID" json:"project_id"`              // 项目ID
-	Type        string     `gorm:"column:type;type:varchar(32);not null;uniqueIndex:uk_project_type_key,priority:2;index:idx_project_type,priority:2;comment:配置类型: domain/variable/database/mq" json:"type"` // 配置类型: domain/variable/database/mq
-	Code        string     `gorm:"column:code;type:varchar(64);not null;uniqueIndex:uk_code,priority:1;comment:系统生成的唯一ID" json:"code"`                                                                       // 系统生成的唯一ID
-	Key         string     `gorm:"column:key;type:varchar(128);not null;uniqueIndex:uk_project_type_key,priority:3;comment:用户定义的标识(如变量名API_KEY、域名标识main)" json:"key"`                                        // 用户定义的标识(如变量名API_KEY、域名标识main)
-	Name        string     `gorm:"column:name;type:varchar(128);not null;comment:显示名称" json:"name"`                                                                                                          // 显示名称
-	Description *string    `gorm:"column:description;type:varchar(500);comment:描述" json:"description"`                                                                                                       // 描述
-	Extra       *string    `gorm:"column:extra;type:json;comment:类型特有属性" json:"extra"`                                                                                                                       // 类型特有属性
-	Sort        *int32     `gorm:"column:sort;type:int;comment:排序" json:"sort"`                                                                                                                              // 排序
-	Status      *int32     `gorm:"column:status;type:tinyint;default:1;comment:状态: 1-启用 0-禁用" json:"status"`                                                                                                 // 状态: 1-启用 0-禁用
+	ProjectID   int64      `gorm:"column:project_id;type:bigint unsigned;not null;index:idx_project_type,priority:1;comment:项目ID" json:"project_id"`              // 项目ID
+	Type        string     `gorm:"column:type;type:varchar(32);not null;index:idx_project_type,priority:2;comment:配置类型: domain/variable/database/mq" json:"type"` // 配置类型: domain/variable/database/mq
+	Code        string     `gorm:"column:code;type:varchar(64);not null;uniqueIndex:uk_code,priority:1;comment:系统生成的唯一ID" json:"code"`                            // 系统生成的唯一ID
+	Name        string     `gorm:"column:name;type:varchar(128);not null;comment:显示名称" json:"name"`                                                               // 显示名称
+	Description *string    `gorm:"column:description;type:varchar(500);comment:描述" json:"description"`                                                            // 描述
+	Extra       *string    `gorm:"column:extra;type:json;comment:类型特有属性" json:"extra"`                                                                            // 类型特有属性
+	Sort        *int32     `gorm:"column:sort;type:int;comment:排序" json:"sort"`                                                                                   // 排序
+	Status      *int32     `gorm:"column:status;type:tinyint;default:1;comment:状态: 1-启用 0-禁用" json:"status"`                                                      // 状态: 1-启用 0-禁用
 }
 
 // TableName TConfigDefinition's table name

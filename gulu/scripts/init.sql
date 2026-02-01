@@ -55,7 +55,6 @@ CREATE TABLE IF NOT EXISTS `t_config_definition` (
     `project_id` BIGINT UNSIGNED NOT NULL COMMENT '项目ID',
     `type` VARCHAR(32) NOT NULL COMMENT '配置类型: domain/variable/database/mq',
     `code` VARCHAR(64) NOT NULL COMMENT '系统生成的唯一ID',
-    `key` VARCHAR(128) NOT NULL COMMENT '用户定义的标识(如变量名API_KEY、域名标识main)',
     `name` VARCHAR(128) NOT NULL COMMENT '显示名称',
     `description` VARCHAR(500) DEFAULT '' COMMENT '描述',
     `extra` JSON DEFAULT NULL COMMENT '类型特有属性',
@@ -63,7 +62,6 @@ CREATE TABLE IF NOT EXISTS `t_config_definition` (
     `status` TINYINT DEFAULT 1 COMMENT '状态: 1-启用 0-禁用',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_code` (`code`),
-    UNIQUE KEY `uk_project_type_key` (`project_id`, `type`, `key`),
     INDEX `idx_project_type` (`project_id`, `type`),
     INDEX `idx_is_delete` (`is_delete`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='配置定义表';

@@ -56,9 +56,6 @@ func ConfigDefinitionCreate(c *fiber.Ctx) error {
 
 	definition, err := logic.CreateConfigDefinition(c.Context(), &req)
 	if err != nil {
-		if err == logic.ErrConfigDefinitionDuplicate {
-			return response.Error(c, err.Error())
-		}
 		return response.Error(c, err.Error())
 	}
 
@@ -81,9 +78,6 @@ func ConfigDefinitionUpdate(c *fiber.Ctx) error {
 	if err != nil {
 		if err == logic.ErrConfigDefinitionNotFound {
 			return response.NotFound(c, err.Error())
-		}
-		if err == logic.ErrConfigDefinitionDuplicate {
-			return response.Error(c, err.Error())
 		}
 		return response.Error(c, err.Error())
 	}

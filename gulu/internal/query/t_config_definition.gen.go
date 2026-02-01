@@ -35,7 +35,6 @@ func newTConfigDefinition(db *gorm.DB, opts ...gen.DOOption) tConfigDefinition {
 	_tConfigDefinition.ProjectID = field.NewInt64(tableName, "project_id")
 	_tConfigDefinition.Type = field.NewString(tableName, "type")
 	_tConfigDefinition.Code = field.NewString(tableName, "code")
-	_tConfigDefinition.Key = field.NewString(tableName, "key")
 	_tConfigDefinition.Name = field.NewString(tableName, "name")
 	_tConfigDefinition.Description = field.NewString(tableName, "description")
 	_tConfigDefinition.Extra = field.NewString(tableName, "extra")
@@ -59,7 +58,6 @@ type tConfigDefinition struct {
 	ProjectID   field.Int64  // 项目ID
 	Type        field.String // 配置类型: domain/variable/database/mq
 	Code        field.String // 系统生成的唯一ID
-	Key         field.String // 用户定义的标识(如变量名API_KEY、域名标识main)
 	Name        field.String // 显示名称
 	Description field.String // 描述
 	Extra       field.String // 类型特有属性
@@ -88,7 +86,6 @@ func (t *tConfigDefinition) updateTableName(table string) *tConfigDefinition {
 	t.ProjectID = field.NewInt64(table, "project_id")
 	t.Type = field.NewString(table, "type")
 	t.Code = field.NewString(table, "code")
-	t.Key = field.NewString(table, "key")
 	t.Name = field.NewString(table, "name")
 	t.Description = field.NewString(table, "description")
 	t.Extra = field.NewString(table, "extra")
@@ -122,7 +119,7 @@ func (t *tConfigDefinition) GetFieldByName(fieldName string) (field.OrderExpr, b
 }
 
 func (t *tConfigDefinition) fillFieldMap() {
-	t.fieldMap = make(map[string]field.Expr, 13)
+	t.fieldMap = make(map[string]field.Expr, 12)
 	t.fieldMap["id"] = t.ID
 	t.fieldMap["created_at"] = t.CreatedAt
 	t.fieldMap["updated_at"] = t.UpdatedAt
@@ -130,7 +127,6 @@ func (t *tConfigDefinition) fillFieldMap() {
 	t.fieldMap["project_id"] = t.ProjectID
 	t.fieldMap["type"] = t.Type
 	t.fieldMap["code"] = t.Code
-	t.fieldMap["key"] = t.Key
 	t.fieldMap["name"] = t.Name
 	t.fieldMap["description"] = t.Description
 	t.fieldMap["extra"] = t.Extra

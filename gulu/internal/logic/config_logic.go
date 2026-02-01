@@ -18,7 +18,6 @@ var (
 type ConfigItem struct {
 	// 来自配置定义
 	Code        string `json:"code"`
-	Key         string `json:"key"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Type        string `json:"type"`
@@ -85,7 +84,6 @@ func GetConfigsByEnv(ctx context.Context, envID int64, configType string) ([]*Co
 	for _, def := range definitions {
 		item := &ConfigItem{
 			Code:        def.Code,
-			Key:         def.Key,
 			Name:        def.Name,
 			Description: "",
 			Type:        def.Type,
@@ -351,7 +349,6 @@ func getConfigsForExecutionByType(ctx context.Context, envID int64, configType s
 	for _, def := range definitions {
 		item := &ConfigItem{
 			Code: def.Code,
-			Key:  def.Key,
 			Name: def.Name,
 			Type: def.Type,
 		}

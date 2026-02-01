@@ -190,6 +190,10 @@ func (e *MQExecutor) Execute(ctx context.Context, step *types.Step, execCtx *Exe
 		op.Queue = resolver.ResolveString(op.Queue, evalCtx)
 		op.Key = resolver.ResolveString(op.Key, evalCtx)
 		stepConfig.Broker = resolver.ResolveString(stepConfig.Broker, evalCtx)
+		// 解析 Headers 中的变量
+		for k, v := range op.Headers {
+			op.Headers[k] = resolver.ResolveString(v, evalCtx)
+		}
 	}
 
 	// 获取适配器

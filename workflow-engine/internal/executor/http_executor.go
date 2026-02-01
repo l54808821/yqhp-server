@@ -1,7 +1,6 @@
 package executor
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -378,15 +377,16 @@ func (e *HTTPExecutor) Cleanup(ctx context.Context) error {
 
 // HTTPConfig 表示 HTTP 步骤的配置。
 type HTTPConfig struct {
-	Method   string            `json:"method"`
-	URL      string            `json:"url"`
-	Domain   string            `json:"domain,omitempty"` // 域名标识，用于多域名配置
-	Headers  map[string]string `json:"headers"`
-	Body     any               `json:"body"`
-	Params   map[string]string `json:"params"`
-	SSL      *SSLConfig        `json:"ssl,omitempty"`      // 步骤级 SSL 配置
-	Redirect *RedirectConfig   `json:"redirect,omitempty"` // 步骤级重定向配置
-	Timeout  *TimeoutConfig    `json:"timeout,omitempty"`  // 步骤级超时配置
+	Method     string            `json:"method"`
+	URL        string            `json:"url"`
+	Domain     string            `json:"domain,omitempty"` // 域名标识，用于多域名配置
+	Headers    map[string]string `json:"headers"`
+	Body       any               `json:"body"`        // 保留原始 body（兼容旧格式）
+	BodyConfig *BodyConfig       `json:"-"`           // 解析后的 body 配置
+	Params     map[string]string `json:"params"`
+	SSL        *SSLConfig        `json:"ssl,omitempty"`      // 步骤级 SSL 配置
+	Redirect   *RedirectConfig   `json:"redirect,omitempty"` // 步骤级重定向配置
+	Timeout    *TimeoutConfig    `json:"timeout,omitempty"`  // 步骤级超时配置
 }
 
 // parseConfig 将步骤配置解析为 HTTPConfig。
@@ -426,7 +426,10 @@ func (e *HTTPExecutor) parseConfig(config map[string]any) (*HTTPConfig, error) {
 		httpConfig.Params = ParseKeyValueConfig(paramsRaw)
 	}
 
-	httpConfig.Body = config["body"]
+	// 解析 body 配置
+	if bodyRaw, exists := config["body"]; exists {
+		httpConfig.BodyConfig = ParseBodyConfig(bodyRaw)
+	}
 
 	// 解析步骤级 SSL 配置
 	if ssl, ok := config["ssl"].(map[string]any); ok {
@@ -507,9 +510,20 @@ func (e *HTTPExecutor) resolveVariables(config *HTTPConfig, execCtx *ExecutionCo
 		config.Params[k] = resolver.ResolveString(v, evalCtx)
 	}
 
-	// 如果 body 是字符串则解析
-	if bodyStr, ok := config.Body.(string); ok {
-		config.Body = resolver.ResolveString(bodyStr, evalCtx)
+	// 解析 body 中的变量
+	if config.BodyConfig != nil {
+		// 解析 raw 内容
+		if config.BodyConfig.Raw != "" {
+			config.BodyConfig.Raw = resolver.ResolveString(config.BodyConfig.Raw, evalCtx)
+		}
+		// 解析 formData
+		for k, v := range config.BodyConfig.FormData {
+			config.BodyConfig.FormData[k] = resolver.ResolveString(v, evalCtx)
+		}
+		// 解析 urlencoded
+		for k, v := range config.BodyConfig.URLEncoded {
+			config.BodyConfig.URLEncoded[k] = resolver.ResolveString(v, evalCtx)
+		}
 	}
 
 	return config
@@ -531,21 +545,54 @@ func (e *HTTPExecutor) createRequest(ctx context.Context, config *HTTPConfig, me
 		}
 	}
 
-	// 准备请求体
+	// 准备请求体和 Content-Type
 	var bodyReader io.Reader
-	if config.Body != nil {
-		switch body := config.Body.(type) {
-		case string:
-			bodyReader = strings.NewReader(body)
-		case []byte:
-			bodyReader = bytes.NewReader(body)
-		default:
-			// 序列化为 JSON
-			jsonBody, err := json.Marshal(body)
-			if err != nil {
-				return nil, NewConfigError("序列化请求体失败", err)
+	var contentType string
+	if config.BodyConfig != nil {
+		switch config.BodyConfig.Type {
+		case "form-data":
+			if len(config.BodyConfig.FormData) > 0 {
+				var parts []string
+				for k, v := range config.BodyConfig.FormData {
+					parts = append(parts, fmt.Sprintf("%s=%s", k, v))
+				}
+				bodyReader = strings.NewReader(strings.Join(parts, "&"))
+				contentType = "multipart/form-data"
 			}
-			bodyReader = bytes.NewReader(jsonBody)
+		case "x-www-form-urlencoded":
+			if len(config.BodyConfig.URLEncoded) > 0 {
+				var parts []string
+				for k, v := range config.BodyConfig.URLEncoded {
+					parts = append(parts, fmt.Sprintf("%s=%s", k, v))
+				}
+				bodyReader = strings.NewReader(strings.Join(parts, "&"))
+				contentType = "application/x-www-form-urlencoded"
+			}
+		case "json":
+			if config.BodyConfig.Raw != "" {
+				bodyReader = strings.NewReader(config.BodyConfig.Raw)
+				contentType = "application/json"
+			}
+		case "xml":
+			if config.BodyConfig.Raw != "" {
+				bodyReader = strings.NewReader(config.BodyConfig.Raw)
+				contentType = "application/xml"
+			}
+		case "text":
+			if config.BodyConfig.Raw != "" {
+				bodyReader = strings.NewReader(config.BodyConfig.Raw)
+				contentType = "text/plain"
+			}
+		case "graphql":
+			if config.BodyConfig.Raw != "" {
+				bodyReader = strings.NewReader(config.BodyConfig.Raw)
+				contentType = "application/json"
+			}
+		default:
+			if config.BodyConfig.Raw != "" {
+				bodyReader = strings.NewReader(config.BodyConfig.Raw)
+				contentType = "application/json"
+			}
 		}
 	}
 
@@ -565,9 +612,9 @@ func (e *HTTPExecutor) createRequest(ctx context.Context, config *HTTPConfig, me
 		req.Header.Set(k, v)
 	}
 
-	// 如果未指定 Content-Type 且有 JSON body，则设置默认值
-	if config.Body != nil && req.Header.Get("Content-Type") == "" {
-		req.Header.Set("Content-Type", "application/json")
+	// 如果未指定 Content-Type 且有 body，则设置默认值
+	if contentType != "" && req.Header.Get("Content-Type") == "" {
+		req.Header.Set("Content-Type", contentType)
 	}
 
 	return req, nil

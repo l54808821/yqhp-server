@@ -3,7 +3,6 @@ package executor
 import (
 	"context"
 	"crypto/tls"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -419,7 +418,10 @@ func (e *FastHTTPExecutor) parseConfig(config map[string]any) (*HTTPConfig, erro
 		httpConfig.Params = ParseKeyValueConfig(paramsRaw)
 	}
 
-	httpConfig.Body = config["body"]
+	// 解析 body 配置
+	if bodyRaw, exists := config["body"]; exists {
+		httpConfig.BodyConfig = ParseBodyConfig(bodyRaw)
+	}
 
 	// 解析步骤级 SSL 配置
 	if ssl, ok := config["ssl"].(map[string]any); ok {
@@ -500,9 +502,20 @@ func (e *FastHTTPExecutor) resolveVariables(config *HTTPConfig, execCtx *Executi
 		config.Params[k] = resolver.ResolveString(v, evalCtx)
 	}
 
-	// 如果 body 是字符串则解析
-	if bodyStr, ok := config.Body.(string); ok {
-		config.Body = resolver.ResolveString(bodyStr, evalCtx)
+	// 解析 body 中的变量
+	if config.BodyConfig != nil {
+		// 解析 raw 内容
+		if config.BodyConfig.Raw != "" {
+			config.BodyConfig.Raw = resolver.ResolveString(config.BodyConfig.Raw, evalCtx)
+		}
+		// 解析 formData
+		for k, v := range config.BodyConfig.FormData {
+			config.BodyConfig.FormData[k] = resolver.ResolveString(v, evalCtx)
+		}
+		// 解析 urlencoded
+		for k, v := range config.BodyConfig.URLEncoded {
+			config.BodyConfig.URLEncoded[k] = resolver.ResolveString(v, evalCtx)
+		}
 	}
 
 	return config
@@ -539,24 +552,73 @@ func (e *FastHTTPExecutor) buildRequest(req *fasthttp.Request, config *HTTPConfi
 	}
 
 	// 设置请求体
-	if config.Body != nil {
-		switch body := config.Body.(type) {
-		case string:
-			req.SetBodyString(body)
-		case []byte:
-			req.SetBody(body)
-		default:
-			// 序列化为 JSON
-			jsonBody, err := json.Marshal(body)
-			if err != nil {
-				return NewConfigError("序列化请求体失败", err)
+	if config.BodyConfig != nil {
+		switch config.BodyConfig.Type {
+		case "form-data":
+			// multipart/form-data
+			if len(config.BodyConfig.FormData) > 0 {
+				// 简单实现：使用 url 编码（完整实现需要 multipart writer）
+				var parts []string
+				for k, v := range config.BodyConfig.FormData {
+					parts = append(parts, fmt.Sprintf("%s=%s", k, v))
+				}
+				req.SetBodyString(strings.Join(parts, "&"))
+				if len(req.Header.ContentType()) == 0 {
+					req.Header.SetContentType("multipart/form-data")
+				}
 			}
-			req.SetBody(jsonBody)
-		}
-
-		// 如果未指定 Content-Type 且有 body，则设置默认值
-		if len(req.Header.ContentType()) == 0 {
-			req.Header.SetContentType("application/json")
+		case "x-www-form-urlencoded":
+			// application/x-www-form-urlencoded
+			if len(config.BodyConfig.URLEncoded) > 0 {
+				var parts []string
+				for k, v := range config.BodyConfig.URLEncoded {
+					parts = append(parts, fmt.Sprintf("%s=%s", k, v))
+				}
+				req.SetBodyString(strings.Join(parts, "&"))
+				if len(req.Header.ContentType()) == 0 {
+					req.Header.SetContentType("application/x-www-form-urlencoded")
+				}
+			}
+		case "json":
+			// application/json
+			if config.BodyConfig.Raw != "" {
+				req.SetBodyString(config.BodyConfig.Raw)
+				if len(req.Header.ContentType()) == 0 {
+					req.Header.SetContentType("application/json")
+				}
+			}
+		case "xml":
+			// application/xml
+			if config.BodyConfig.Raw != "" {
+				req.SetBodyString(config.BodyConfig.Raw)
+				if len(req.Header.ContentType()) == 0 {
+					req.Header.SetContentType("application/xml")
+				}
+			}
+		case "text":
+			// text/plain
+			if config.BodyConfig.Raw != "" {
+				req.SetBodyString(config.BodyConfig.Raw)
+				if len(req.Header.ContentType()) == 0 {
+					req.Header.SetContentType("text/plain")
+				}
+			}
+		case "graphql":
+			// GraphQL 请求
+			if config.BodyConfig.Raw != "" {
+				req.SetBodyString(config.BodyConfig.Raw)
+				if len(req.Header.ContentType()) == 0 {
+					req.Header.SetContentType("application/json")
+				}
+			}
+		default:
+			// 其他类型（raw 等）
+			if config.BodyConfig.Raw != "" {
+				req.SetBodyString(config.BodyConfig.Raw)
+				if len(req.Header.ContentType()) == 0 {
+					req.Header.SetContentType("application/json")
+				}
+			}
 		}
 	}
 

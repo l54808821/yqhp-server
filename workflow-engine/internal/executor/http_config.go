@@ -312,3 +312,70 @@ func ParseKeyValueConfig(raw any) map[string]string {
 	}
 	return result
 }
+
+// BodyConfig 请求体配置结构
+type BodyConfig struct {
+	Type       string            // none, form-data, x-www-form-urlencoded, json, xml, text, binary, graphql
+	Raw        string            // 原始内容（json, xml, text, graphql）
+	FormData   map[string]string // form-data 数据
+	URLEncoded map[string]string // x-www-form-urlencoded 数据
+}
+
+// ParseBodyConfig 解析请求体配置
+// 支持两种格式：
+// 1. 字符串格式（直接作为 raw body）
+// 2. 对象格式：{type: "json", raw: "...", formData: [...], urlencoded: [...]}
+func ParseBodyConfig(raw any) *BodyConfig {
+	if raw == nil {
+		return nil
+	}
+
+	// 字符串格式
+	if s, ok := raw.(string); ok {
+		if s == "" {
+			return nil
+		}
+		return &BodyConfig{
+			Type: "raw",
+			Raw:  s,
+		}
+	}
+
+	// 对象格式
+	bodyMap, ok := raw.(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	config := &BodyConfig{
+		FormData:   make(map[string]string),
+		URLEncoded: make(map[string]string),
+	}
+
+	// 获取类型
+	if t, ok := bodyMap["type"].(string); ok {
+		config.Type = t
+	}
+
+	// 如果是 none 类型，返回 nil
+	if config.Type == "none" || config.Type == "" {
+		return nil
+	}
+
+	// 解析 raw 内容
+	if rawContent, ok := bodyMap["raw"].(string); ok {
+		config.Raw = rawContent
+	}
+
+	// 解析 formData
+	if formData, exists := bodyMap["formData"]; exists {
+		config.FormData = ParseKeyValueConfig(formData)
+	}
+
+	// 解析 urlencoded
+	if urlencoded, exists := bodyMap["urlencoded"]; exists {
+		config.URLEncoded = ParseKeyValueConfig(urlencoded)
+	}
+
+	return config
+}

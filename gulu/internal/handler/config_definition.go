@@ -101,3 +101,38 @@ func ConfigDefinitionDelete(c *fiber.Ctx) error {
 
 	return response.Success(c, nil)
 }
+
+// ConfigDefinitionSort 更新配置定义排序
+func ConfigDefinitionSort(c *fiber.Ctx) error {
+	projectID, err := strconv.ParseInt(c.Params("projectId"), 10, 64)
+	if err != nil {
+		return response.Error(c, "项目ID无效")
+	}
+
+	var req logic.UpdateConfigDefinitionSortReq
+	if err := c.BodyParser(&req); err != nil {
+		return response.Error(c, "请求参数无效")
+	}
+
+	// 参数验证
+	if req.Code == "" {
+		return response.Error(c, "被移动项的code不能为空")
+	}
+	if req.TargetCode == "" {
+		return response.Error(c, "目标位置的code不能为空")
+	}
+	if req.Position != "before" && req.Position != "after" {
+		return response.Error(c, "position必须是before或after")
+	}
+
+	configType := c.Query("type")
+	if configType == "" {
+		return response.Error(c, "配置类型不能为空")
+	}
+
+	if err := logic.UpdateConfigDefinitionSort(c.Context(), projectID, configType, &req); err != nil {
+		return response.Error(c, err.Error())
+	}
+
+	return response.Success(c, nil)
+}

@@ -115,6 +115,7 @@ func Setup(app *fiber.App) {
 	configDefs := api.Group("/projects/:projectId/config-definitions")
 	configDefs.Get("", handler.ConfigDefinitionList)
 	configDefs.Post("", handler.ConfigDefinitionCreate)
+	configDefs.Put("/sort", handler.ConfigDefinitionSort)
 	configDefs.Put("/:code", handler.ConfigDefinitionUpdate)
 	configDefs.Delete("/:code", handler.ConfigDefinitionDelete)
 

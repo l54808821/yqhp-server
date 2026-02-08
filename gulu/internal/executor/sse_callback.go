@@ -162,6 +162,10 @@ func (c *SSECallback) OnExecutionComplete(ctx context.Context, summary *types.Ex
 		status = "stopped"
 	}
 
+	// 获取最终变量并过滤内部变量
+	finalVars := filterInternalVariables(c.session.GetVariables())
+	envVars := c.session.GetEnvVariables()
+
 	c.writer.WriteEvent(&sse.Event{
 		Type: sse.EventWorkflowCompleted,
 		Data: &sse.WorkflowCompletedData{
@@ -171,6 +175,8 @@ func (c *SSECallback) OnExecutionComplete(ctx context.Context, summary *types.Ex
 			FailedSteps:   failed,
 			TotalDuration: time.Since(c.session.StartTime).Milliseconds(),
 			Status:        status,
+			Variables:     finalVars,
+			EnvVariables:  envVars,
 		},
 	})
 }

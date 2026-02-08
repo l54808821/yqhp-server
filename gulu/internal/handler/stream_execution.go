@@ -189,6 +189,9 @@ func (h *StreamExecutionHandler) prepareExecutionFromDefinition(c *fiber.Ctx, de
 		definitionStr = string(defBytes)
 	}
 
+	// 环境变量快照（用于调试上下文中区分环境变量和临时变量）
+	var envVarsSnapshot map[string]interface{}
+
 	// 如果有环境ID，加载环境配置（包含环境变量、域名、数据库、MQ等）
 	if envID > 0 {
 		merger := workflow.NewConfigMerger(c.UserContext(), envID)
@@ -197,6 +200,12 @@ func (h *StreamExecutionHandler) prepareExecutionFromDefinition(c *fiber.Ctx, de
 			logger.Warn("加载环境配置失败", "envId", envID, "error", err)
 			// 不阻断执行，只记录警告
 		} else {
+			// 保存环境变量快照
+			envVarsSnapshot = make(map[string]interface{}, len(mergedConfig.Variables))
+			for k, v := range mergedConfig.Variables {
+				envVarsSnapshot[k] = v
+			}
+
 			// 将环境变量合并到请求变量中（请求变量优先级高于环境变量）
 			if variables == nil {
 				variables = make(map[string]interface{})
@@ -226,6 +235,11 @@ func (h *StreamExecutionHandler) prepareExecutionFromDefinition(c *fiber.Ctx, de
 	}
 
 	logger.Debug("工作流转换完成", "id", engineWf.ID, "name", engineWf.Name, "steps", len(engineWf.Steps))
+
+	// 保存环境变量快照到工作流（用于调试上下文区分环境变量和临时变量）
+	if envVarsSnapshot != nil {
+		engineWf.EnvVariables = envVarsSnapshot
+	}
 
 	// 创建执行记录（仅当 persist=true 时）
 	var execLogic *logic.ExecutionLogic

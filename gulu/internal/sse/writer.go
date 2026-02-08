@@ -232,12 +232,14 @@ type ProgressData struct {
 
 // WorkflowCompletedData 工作流完成数据
 type WorkflowCompletedData struct {
-	SessionID     string `json:"sessionId"`
-	TotalSteps    int    `json:"totalSteps"`
-	SuccessSteps  int    `json:"successSteps"`
-	FailedSteps   int    `json:"failedSteps"`
-	TotalDuration int64  `json:"totalDurationMs"`
-	Status        string `json:"status"`
+	SessionID     string                 `json:"sessionId"`
+	TotalSteps    int                    `json:"totalSteps"`
+	SuccessSteps  int                    `json:"successSteps"`
+	FailedSteps   int                    `json:"failedSteps"`
+	TotalDuration int64                  `json:"totalDurationMs"`
+	Status        string                 `json:"status"`
+	Variables     map[string]interface{} `json:"variables,omitempty"`    // 执行完成后的最终变量（调试上下文缓存用）
+	EnvVariables  map[string]interface{} `json:"envVariables,omitempty"` // 环境变量（从环境配置加载）
 }
 
 // AIChunkData AI 块数据

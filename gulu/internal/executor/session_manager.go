@@ -47,6 +47,9 @@ type Session struct {
 	// 变量上下文（用于单步调试时获取会话变量）
 	Variables map[string]interface{}
 
+	// 环境变量（从环境配置加载的初始变量）
+	envVariables map[string]interface{}
+
 	mu sync.Mutex
 }
 
@@ -258,6 +261,7 @@ func (s *Session) IncrementTotal() {
 func (s *Session) IncrementSuccess() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.TotalSteps++
 	s.SuccessSteps++
 }
 
@@ -384,4 +388,28 @@ func (s *Session) SetVariables(vars map[string]interface{}) {
 	for k, v := range vars {
 		s.Variables[k] = v
 	}
+}
+
+// SetEnvVariables 设置环境变量
+func (s *Session) SetEnvVariables(vars map[string]interface{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.envVariables = make(map[string]interface{}, len(vars))
+	for k, v := range vars {
+		s.envVariables[k] = v
+	}
+}
+
+// GetEnvVariables 获取环境变量
+func (s *Session) GetEnvVariables() map[string]interface{} {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.envVariables == nil {
+		return make(map[string]interface{})
+	}
+	result := make(map[string]interface{}, len(s.envVariables))
+	for k, v := range s.envVariables {
+		result[k] = v
+	}
+	return result
 }

@@ -33,15 +33,17 @@ type ExecuteRequest struct {
 
 // ExecutionSummary 执行汇总
 type ExecutionSummary struct {
-	SessionID     string                `json:"sessionId"`
-	TotalSteps    int                   `json:"totalSteps"`
-	SuccessSteps  int                   `json:"successSteps"`
-	FailedSteps   int                   `json:"failedSteps"`
-	TotalDuration int64                 `json:"totalDurationMs"`
-	Status        string                `json:"status"`
-	StartTime     time.Time             `json:"startTime"`
-	EndTime       time.Time             `json:"endTime"`
-	Steps         []StepExecutionResult `json:"steps,omitempty"` // 步骤执行详情
+	SessionID     string                 `json:"sessionId"`
+	TotalSteps    int                    `json:"totalSteps"`
+	SuccessSteps  int                    `json:"successSteps"`
+	FailedSteps   int                    `json:"failedSteps"`
+	TotalDuration int64                  `json:"totalDurationMs"`
+	Status        string                 `json:"status"`
+	StartTime     time.Time              `json:"startTime"`
+	EndTime       time.Time              `json:"endTime"`
+	Steps         []StepExecutionResult  `json:"steps,omitempty"`        // 步骤执行详情
+	Variables     map[string]interface{} `json:"variables,omitempty"`    // 执行完成后的最终变量（调试上下文缓存用）
+	EnvVariables  map[string]interface{} `json:"envVariables,omitempty"` // 环境变量（从环境配置加载）
 }
 
 // StepExecutionResult 步骤执行结果
@@ -145,6 +147,15 @@ func (e *StreamExecutor) ExecuteStream(ctx context.Context, req *ExecuteRequest,
 		session.SetStatus(SessionStatusCompleted)
 	}
 
+	// 保存工作流最终变量到会话（用于调试上下文缓存）
+	if wf.FinalVariables != nil {
+		session.SetVariables(wf.FinalVariables)
+	}
+	// 保存环境变量到会话
+	if wf.EnvVariables != nil {
+		session.SetEnvVariables(wf.EnvVariables)
+	}
+
 	callback.OnExecutionComplete(ctx, nil)
 
 	return execErr
@@ -214,6 +225,12 @@ func (e *StreamExecutor) ExecuteBlocking(ctx context.Context, req *ExecuteReques
 		status = "failed"
 	}
 
+	// 获取工作流最终变量
+	var finalVars map[string]interface{}
+	if wf.FinalVariables != nil {
+		finalVars = filterInternalVariables(wf.FinalVariables)
+	}
+
 	return &ExecutionSummary{
 		SessionID:     session.ID,
 		TotalSteps:    total,
@@ -224,6 +241,8 @@ func (e *StreamExecutor) ExecuteBlocking(ctx context.Context, req *ExecuteReques
 		StartTime:     session.StartTime,
 		EndTime:       time.Now(),
 		Steps:         session.GetStepResults(),
+		Variables:     finalVars,
+		EnvVariables:  wf.EnvVariables,
 	}, execErr
 }
 
@@ -521,4 +540,20 @@ type discardWriter struct{}
 
 func (d *discardWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
+}
+
+// filterInternalVariables 过滤掉内部变量（如 __domains__、__databases__、__mqs__ 等）
+func filterInternalVariables(vars map[string]interface{}) map[string]interface{} {
+	if vars == nil {
+		return nil
+	}
+	result := make(map[string]interface{}, len(vars))
+	for k, v := range vars {
+		// 跳过以 __ 开头和结尾的内部变量
+		if len(k) > 4 && k[:2] == "__" && k[len(k)-2:] == "__" {
+			continue
+		}
+		result[k] = v
+	}
+	return result
 }

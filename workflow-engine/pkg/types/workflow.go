@@ -14,6 +14,11 @@ type Workflow struct {
 	Steps       []Step            `yaml:"steps"`
 	Options     ExecutionOptions  `yaml:"options,omitempty"`
 	Callback    ExecutionCallback `yaml:"-"` // 执行回调，用于实时通知执行进度（不序列化）
+
+	// FinalVariables 执行完成后的最终变量快照（调试上下文缓存用）
+	FinalVariables map[string]any `yaml:"-" json:"-"`
+	// EnvVariables 环境变量快照（在执行前从环境配置加载的变量）
+	EnvVariables map[string]any `yaml:"-" json:"-"`
 }
 
 // Step represents a single execution unit in a workflow.

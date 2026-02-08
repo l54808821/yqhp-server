@@ -576,6 +576,15 @@ func (e *TaskEngine) executeWorkflowIteration(ctx context.Context, task *types.T
 
 	logger.Debug("executeWorkflowIteration] VU %d 工作流迭代完成, error=%v\n", vu.ID, result.Error)
 
+	// 保存最终变量快照到工作流（用于调试上下文缓存）
+	if execCtx.Variables != nil {
+		finalVars := make(map[string]any, len(execCtx.Variables))
+		for k, v := range execCtx.Variables {
+			finalVars[k] = v
+		}
+		workflow.FinalVariables = finalVars
+	}
+
 	// 记录指标
 	e.recordWorkflowMetrics(result)
 

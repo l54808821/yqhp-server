@@ -244,7 +244,13 @@ func (l *AiModelLogic) List(req *AiModelListReq) ([]*AiModelInfo, int64, error) 
 		queryBuilder = queryBuilder.Where(m.Name.Like("%" + req.Name + "%"))
 	}
 	if req.Provider != "" {
-		queryBuilder = queryBuilder.Where(m.Provider.Eq(req.Provider))
+		// 支持逗号分隔的多厂商筛选
+		providers := strings.Split(req.Provider, ",")
+		if len(providers) == 1 {
+			queryBuilder = queryBuilder.Where(m.Provider.Eq(providers[0]))
+		} else {
+			queryBuilder = queryBuilder.Where(m.Provider.In(providers...))
+		}
 	}
 	if req.Status != nil {
 		queryBuilder = queryBuilder.Where(m.Status.Eq(*req.Status))

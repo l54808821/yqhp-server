@@ -73,6 +73,8 @@ func main() {
 		g.GenerateModel("t_workflow"),
 		// 执行记录
 		g.GenerateModel("t_execution"),
+		// AI模型管理
+		g.GenerateModel("t_ai_model"),
 	)
 
 	// 执行生成

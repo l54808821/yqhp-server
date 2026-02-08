@@ -17,6 +17,7 @@ import (
 
 var (
 	Q                  = new(Query)
+	TAiModel           *tAiModel
 	TCategoryWorkflow  *tCategoryWorkflow
 	TConfig            *tConfig
 	TConfigDefinition  *tConfigDefinition
@@ -33,6 +34,7 @@ var (
 
 func SetDefault(db *gorm.DB, opts ...gen.DOOption) {
 	*Q = *Use(db, opts...)
+	TAiModel = &Q.TAiModel
 	TCategoryWorkflow = &Q.TCategoryWorkflow
 	TConfig = &Q.TConfig
 	TConfigDefinition = &Q.TConfigDefinition
@@ -50,6 +52,7 @@ func SetDefault(db *gorm.DB, opts ...gen.DOOption) {
 func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 	return &Query{
 		db:                 db,
+		TAiModel:           newTAiModel(db, opts...),
 		TCategoryWorkflow:  newTCategoryWorkflow(db, opts...),
 		TConfig:            newTConfig(db, opts...),
 		TConfigDefinition:  newTConfigDefinition(db, opts...),
@@ -68,6 +71,7 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 type Query struct {
 	db *gorm.DB
 
+	TAiModel           tAiModel
 	TCategoryWorkflow  tCategoryWorkflow
 	TConfig            tConfig
 	TConfigDefinition  tConfigDefinition
@@ -87,6 +91,7 @@ func (q *Query) Available() bool { return q.db != nil }
 func (q *Query) clone(db *gorm.DB) *Query {
 	return &Query{
 		db:                 db,
+		TAiModel:           q.TAiModel.clone(db),
 		TCategoryWorkflow:  q.TCategoryWorkflow.clone(db),
 		TConfig:            q.TConfig.clone(db),
 		TConfigDefinition:  q.TConfigDefinition.clone(db),
@@ -113,6 +118,7 @@ func (q *Query) WriteDB() *Query {
 func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 	return &Query{
 		db:                 db,
+		TAiModel:           q.TAiModel.replaceDB(db),
 		TCategoryWorkflow:  q.TCategoryWorkflow.replaceDB(db),
 		TConfig:            q.TConfig.replaceDB(db),
 		TConfigDefinition:  q.TConfigDefinition.replaceDB(db),
@@ -129,6 +135,7 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 }
 
 type queryCtx struct {
+	TAiModel           ITAiModelDo
 	TCategoryWorkflow  ITCategoryWorkflowDo
 	TConfig            ITConfigDo
 	TConfigDefinition  ITConfigDefinitionDo
@@ -145,6 +152,7 @@ type queryCtx struct {
 
 func (q *Query) WithContext(ctx context.Context) *queryCtx {
 	return &queryCtx{
+		TAiModel:           q.TAiModel.WithContext(ctx),
 		TCategoryWorkflow:  q.TCategoryWorkflow.WithContext(ctx),
 		TConfig:            q.TConfig.WithContext(ctx),
 		TConfigDefinition:  q.TConfigDefinition.WithContext(ctx),

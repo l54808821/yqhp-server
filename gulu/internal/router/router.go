@@ -130,6 +130,17 @@ func Setup(app *fiber.App) {
 	executors.Delete("/:id", handler.ExecutorDelete)
 	executors.Put("/:id/status", handler.ExecutorUpdateStatus)
 
+	// AI 模型管理路由
+	aiModels := api.Group("/ai-models")
+	aiModels.Post("", handler.AiModelCreate)
+	aiModels.Get("", handler.AiModelList)
+	aiModels.Get("/providers", handler.AiModelGetProviders)
+	aiModels.Get("/:id", handler.AiModelGetByID)
+	aiModels.Put("/:id", handler.AiModelUpdate)
+	aiModels.Delete("/:id", handler.AiModelDelete)
+	aiModels.Put("/:id/status", handler.AiModelUpdateStatus)
+	aiModels.Post("/:id/chat", handler.AiChatStream)
+
 	// 工作流管理路由
 	workflows := api.Group("/workflows")
 	workflows.Post("", handler.WorkflowCreate)

@@ -244,6 +244,34 @@ CREATE TABLE IF NOT EXISTS `t_category_workflow` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='工作流分类表';
 
 -- ============================================
+-- 15. AI模型表 (t_ai_model)
+-- ============================================
+CREATE TABLE IF NOT EXISTS `t_ai_model` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `created_at` DATETIME DEFAULT NULL,
+    `updated_at` DATETIME DEFAULT NULL,
+    `is_delete` TINYINT(1) DEFAULT 0,
+    `created_by` BIGINT UNSIGNED DEFAULT NULL COMMENT '创建人ID',
+    `name` VARCHAR(100) NOT NULL COMMENT '模型名称，如 DeepSeek-V3',
+    `provider` VARCHAR(100) NOT NULL COMMENT '厂商，如 DeepSeek、Kimi、智谱',
+    `model_id` VARCHAR(200) NOT NULL COMMENT '模型标识符，调用API时使用的model参数',
+    `version` VARCHAR(50) DEFAULT NULL COMMENT '版本号',
+    `description` VARCHAR(1000) DEFAULT NULL COMMENT '模型描述',
+    `api_base_url` VARCHAR(500) NOT NULL COMMENT 'API Base URL',
+    `api_key` VARCHAR(500) NOT NULL COMMENT 'API Key',
+    `context_length` INT DEFAULT NULL COMMENT '上下文长度，如 8192、131072',
+    `param_size` VARCHAR(50) DEFAULT NULL COMMENT '参数量，如 7B、13B、671B',
+    `capability_tags` JSON DEFAULT NULL COMMENT '能力标签 ["对话","FIM","Tools","视觉","MoE"]',
+    `custom_tags` JSON DEFAULT NULL COMMENT '自定义标签 ["推荐","内部测试"]',
+    `sort` INT DEFAULT 0 COMMENT '排序',
+    `status` TINYINT DEFAULT 1 COMMENT '状态: 1-启用 0-禁用',
+    PRIMARY KEY (`id`),
+    INDEX `idx_t_ai_model_provider` (`provider`),
+    INDEX `idx_t_ai_model_is_delete` (`is_delete`),
+    INDEX `idx_t_ai_model_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI模型表';
+
+-- ============================================
 -- 完成提示
 -- ============================================
 SELECT 'Gulu 数据库初始化完成!' AS message;

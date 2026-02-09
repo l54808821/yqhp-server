@@ -19,7 +19,7 @@ const (
 	AIExecutorType = "ai"
 
 	// AI 调用默认超时时间
-	defaultAITimeout = 120 * time.Second
+	defaultAITimeout = 5 * time.Minute
 )
 
 // AIExecutor AI 节点执行器
@@ -54,6 +54,7 @@ type AIConfig struct {
 	InteractionOptions []string              `json:"interaction_options,omitempty"`
 	InteractionTimeout int                   `json:"interaction_timeout,omitempty"`
 	InteractionDefault string                `json:"interaction_default,omitempty"`
+	Timeout            int                   `json:"timeout,omitempty"` // AI 调用超时（秒），0 使用默认值
 }
 
 // AIOutput AI 节点输出
@@ -64,6 +65,8 @@ type AIOutput struct {
 	TotalTokens      int    `json:"total_tokens"`
 	Model            string `json:"model"`
 	FinishReason     string `json:"finish_reason"`
+	SystemPrompt     string `json:"system_prompt,omitempty"`
+	Prompt           string `json:"prompt"`
 }
 
 // Init 初始化 AI 执行器
@@ -90,6 +93,9 @@ func (e *AIExecutor) Execute(ctx context.Context, step *types.Step, execCtx *Exe
 	messages := e.buildMessages(config)
 
 	timeout := step.Timeout
+	if timeout <= 0 && config.Timeout > 0 {
+		timeout = time.Duration(config.Timeout) * time.Second
+	}
 	if timeout <= 0 {
 		timeout = defaultAITimeout
 	}
@@ -120,6 +126,10 @@ func (e *AIExecutor) Execute(ctx context.Context, step *types.Step, execCtx *Exe
 		}
 		return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "AI 调用失败", err)), nil
 	}
+
+	// 将解析后的 prompt 写入输出，方便调试时查看实际输入
+	output.SystemPrompt = config.SystemPrompt
+	output.Prompt = config.Prompt
 
 	if config.Interactive && aiCallback != nil {
 		interactionResult, err := e.handleInteraction(ctx, step.ID, config, output.Content, aiCallback)
@@ -367,6 +377,9 @@ func (e *AIExecutor) parseConfig(config map[string]any) (*AIConfig, error) {
 	}
 	if interactionDefault, ok := config["interaction_default"].(string); ok {
 		aiConfig.InteractionDefault = interactionDefault
+	}
+	if timeout, ok := config["timeout"].(float64); ok {
+		aiConfig.Timeout = int(timeout)
 	}
 
 	return aiConfig, nil

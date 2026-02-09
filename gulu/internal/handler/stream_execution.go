@@ -3,6 +3,7 @@ package handler
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
@@ -102,6 +103,13 @@ func (h *StreamExecutionHandler) Execute(c *fiber.Ctx) error {
 	// 处理 Step 快捷方式：将单个步骤包装为工作流
 	var workflowDef interface{}
 	if req.Step != nil {
+		// 如果是 AI 节点且含 ai_model_id，预解析托管模型配置
+		if req.Step.Type == "ai" {
+			if err := h.resolveAIModelConfig(c, req.Step.Config); err != nil {
+				return response.Error(c, "解析 AI 模型失败: "+err.Error())
+			}
+		}
+
 		// 构建单步工作流
 		workflowDef = map[string]interface{}{
 			"steps": []interface{}{
@@ -116,7 +124,9 @@ func (h *StreamExecutionHandler) Execute(c *fiber.Ctx) error {
 			},
 		}
 	} else if req.Workflow != nil {
+		// 对完整工作流定义中的 AI 节点进行模型解析
 		workflowDef = req.Workflow
+		h.resolveAIModelConfigsInWorkflow(c, workflowDef)
 	} else {
 		return response.Error(c, "工作流定义不能为空（需要提供 workflow 或 step）")
 	}
@@ -515,6 +525,111 @@ func (fw *fasthttpFlushWriter) Write(p []byte) (n int, err error) {
 }
 
 func (fw *fasthttpFlushWriter) Flush() {}
+
+// resolveAIModelConfig 解析 AI 节点中的托管模型配置
+// 如果 config 中包含 ai_model_id，则从数据库获取模型的完整配置（api_key、base_url、model、provider）并注入到 config 中
+func (h *StreamExecutionHandler) resolveAIModelConfig(c *fiber.Ctx, config map[string]interface{}) error {
+	aiModelIDRaw, ok := config["ai_model_id"]
+	if !ok || aiModelIDRaw == nil {
+		return nil
+	}
+
+	// 提取 ai_model_id（可能是 float64 或 int）
+	var aiModelID int64
+	switch v := aiModelIDRaw.(type) {
+	case float64:
+		aiModelID = int64(v)
+	case int:
+		aiModelID = int64(v)
+	case int64:
+		aiModelID = v
+	default:
+		return nil
+	}
+
+	if aiModelID <= 0 {
+		return nil
+	}
+
+	// 从数据库获取完整模型信息（含 API Key）
+	aiModelLogic := logic.NewAiModelLogic(c.Context())
+	aiModel, err := aiModelLogic.GetByIDWithKey(aiModelID)
+	if err != nil {
+		return fmt.Errorf("AI 模型不存在或已删除 (ID=%d): %v", aiModelID, err)
+	}
+
+	// 检查模型状态
+	if aiModel.Status != nil && *aiModel.Status != 1 {
+		return fmt.Errorf("AI 模型已禁用 (ID=%d, Name=%s)", aiModelID, aiModel.Name)
+	}
+
+	// 注入模型配置到 step config
+	config["provider"] = aiModel.Provider
+	config["model"] = aiModel.ModelID
+	config["api_key"] = aiModel.APIKey
+	config["base_url"] = aiModel.APIBaseURL
+
+	return nil
+}
+
+// resolveAIModelConfigsInWorkflow 递归解析工作流定义中所有 AI 节点的托管模型配置
+func (h *StreamExecutionHandler) resolveAIModelConfigsInWorkflow(c *fiber.Ctx, workflowDef interface{}) {
+	wfMap, ok := workflowDef.(map[string]interface{})
+	if !ok {
+		return
+	}
+
+	stepsRaw, ok := wfMap["steps"]
+	if !ok {
+		return
+	}
+
+	steps, ok := stepsRaw.([]interface{})
+	if !ok {
+		return
+	}
+
+	for _, stepRaw := range steps {
+		stepMap, ok := stepRaw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		// 如果是 AI 类型的步骤，解析模型配置
+		if stepType, _ := stepMap["type"].(string); stepType == "ai" {
+			if configRaw, ok := stepMap["config"]; ok {
+				if config, ok := configRaw.(map[string]interface{}); ok {
+					if err := h.resolveAIModelConfig(c, config); err != nil {
+						logger.Warn("解析 AI 模型配置失败", "error", err)
+					}
+				}
+			}
+		}
+
+		// 递归处理子步骤（循环、条件等）
+		if children, ok := stepMap["children"].([]interface{}); ok {
+			for _, child := range children {
+				if childMap, ok := child.(map[string]interface{}); ok {
+					h.resolveAIModelConfigsInWorkflow(c, childMap)
+				}
+			}
+		}
+		if loopRaw, ok := stepMap["loop"].(map[string]interface{}); ok {
+			if loopSteps, ok := loopRaw["steps"].([]interface{}); ok {
+				h.resolveAIModelConfigsInWorkflow(c, map[string]interface{}{"steps": loopSteps})
+			}
+		}
+		if branches, ok := stepMap["branches"].([]interface{}); ok {
+			for _, branch := range branches {
+				if branchMap, ok := branch.(map[string]interface{}); ok {
+					if branchSteps, ok := branchMap["steps"].([]interface{}); ok {
+						h.resolveAIModelConfigsInWorkflow(c, map[string]interface{}{"steps": branchSteps})
+					}
+				}
+			}
+		}
+	}
+}
 
 // filterSteps 过滤选中的步骤
 func filterSteps(steps []types.Step, selectedIDs []string) []types.Step {

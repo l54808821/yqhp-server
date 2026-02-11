@@ -1,9 +1,0 @@
-# 2026/01/08 23:44:07.267796 [TestProperty12_WorkflowDefinitionValidation] [rapid] draw generateValid: false
-# 2026/01/08 23:44:07.267801 [TestProperty12_WorkflowDefinitionValidation] [rapid] draw invalidCase: 1
-# 2026/01/08 23:44:07.267802 [TestProperty12_WorkflowDefinitionValidation] Property 12 violated: invalid workflow should fail validation
-# 
-v0.4.8#3510111942525884414
-0x0
-0x0
-0x0
-0x1

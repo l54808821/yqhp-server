@@ -272,6 +272,31 @@ CREATE TABLE IF NOT EXISTS `t_ai_model` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI模型表';
 
 -- ============================================
+-- 16. MCP服务器配置表 (t_mcp_server)
+-- ============================================
+CREATE TABLE IF NOT EXISTS `t_mcp_server` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `created_at` DATETIME DEFAULT NULL,
+    `updated_at` DATETIME DEFAULT NULL,
+    `is_delete` TINYINT(1) DEFAULT NULL,
+    `created_by` BIGINT UNSIGNED DEFAULT NULL COMMENT '创建人ID',
+    `name` VARCHAR(100) NOT NULL COMMENT '服务器名称',
+    `description` VARCHAR(500) DEFAULT NULL COMMENT '描述',
+    `transport` VARCHAR(20) NOT NULL COMMENT '传输方式: stdio/sse',
+    `command` VARCHAR(500) DEFAULT NULL COMMENT 'stdio模式命令',
+    `args` JSON DEFAULT NULL COMMENT 'stdio模式参数',
+    `url` VARCHAR(500) DEFAULT NULL COMMENT 'sse模式URL',
+    `env` JSON DEFAULT NULL COMMENT '环境变量',
+    `timeout` INT DEFAULT 30 COMMENT '超时秒数',
+    `sort` INT DEFAULT NULL COMMENT '排序',
+    `status` TINYINT DEFAULT 1 COMMENT '状态: 1-启用 0-禁用',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_name` (`name`),
+    INDEX `idx_t_mcp_server_is_delete` (`is_delete`),
+    INDEX `idx_t_mcp_server_status` (`status`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='MCP服务器配置表';
+
+-- ============================================
 -- 完成提示
 -- ============================================
 SELECT 'Gulu 数据库初始化完成!' AS message;

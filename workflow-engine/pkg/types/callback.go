@@ -135,3 +135,14 @@ func (n *NoopCallback) OnExecutionComplete(ctx context.Context, summary *Executi
 
 // 确保 NoopCallback 实现了 ExecutionCallback 接口
 var _ ExecutionCallback = (*NoopCallback)(nil)
+
+// AIToolCallback AI 工具调用回调接口（可选实现）
+type AIToolCallback interface {
+	AICallback // 继承现有接口
+
+	// OnAIToolCallStart 工具调用开始
+	OnAIToolCallStart(ctx context.Context, stepID string, toolCall *ToolCall)
+
+	// OnAIToolCallComplete 工具调用完成
+	OnAIToolCallComplete(ctx context.Context, stepID string, toolCall *ToolCall, result *ToolResult)
+}

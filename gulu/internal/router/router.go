@@ -6,6 +6,7 @@ import (
 	"yqhp/gulu/internal/client"
 	"yqhp/gulu/internal/executor"
 	"yqhp/gulu/internal/handler"
+	"yqhp/gulu/internal/mcpproxy"
 	"yqhp/gulu/internal/middleware"
 	"yqhp/gulu/internal/scheduler"
 
@@ -140,6 +141,25 @@ func Setup(app *fiber.App) {
 	aiModels.Delete("/:id", handler.AiModelDelete)
 	aiModels.Put("/:id/status", handler.AiModelUpdateStatus)
 	aiModels.Post("/:id/chat", handler.AiChatStream)
+
+	// MCP 服务器管理路由
+	mcpServers := api.Group("/mcp-servers")
+	mcpServers.Post("", handler.McpServerCreate)
+	mcpServers.Get("", handler.McpServerList)
+	mcpServers.Get("/:id", handler.McpServerGetByID)
+	mcpServers.Put("/:id", handler.McpServerUpdate)
+	mcpServers.Delete("/:id", handler.McpServerDelete)
+	mcpServers.Put("/:id/status", handler.McpServerUpdateStatus)
+
+	// MCP 代理服务路由
+	mcpProxyService := mcpproxy.NewMCPProxyService()
+	mcpProxyHandler := handler.NewMCPProxyHandler(mcpProxyService)
+	mcpProxy := api.Group("/mcp-proxy")
+	mcpProxy.Post("/tools", mcpProxyHandler.GetTools)
+	mcpProxy.Post("/call-tool", mcpProxyHandler.CallTool)
+	mcpProxy.Get("/status/:serverId", mcpProxyHandler.GetStatus)
+	mcpProxy.Post("/connect", mcpProxyHandler.Connect)
+	mcpProxy.Post("/disconnect", mcpProxyHandler.Disconnect)
 
 	// 工作流管理路由
 	workflows := api.Group("/workflows")

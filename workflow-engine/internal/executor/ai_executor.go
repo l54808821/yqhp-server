@@ -2,9 +2,13 @@ package executor
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"log"
+	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cloudwego/eino-ext/components/model/openai"
@@ -20,6 +24,12 @@ const (
 
 	// AI 调用默认超时时间
 	defaultAITimeout = 5 * time.Minute
+
+	// defaultMaxToolRounds 默认最大工具调用轮次
+	defaultMaxToolRounds = 10
+
+	// defaultMCPProxyBaseURL 默认 MCP 代理服务地址
+	defaultMCPProxyBaseURL = "http://localhost:8080"
 )
 
 // AIExecutor AI 节点执行器
@@ -54,19 +64,34 @@ type AIConfig struct {
 	InteractionOptions []string              `json:"interaction_options,omitempty"`
 	InteractionTimeout int                   `json:"interaction_timeout,omitempty"`
 	InteractionDefault string                `json:"interaction_default,omitempty"`
-	Timeout            int                   `json:"timeout,omitempty"` // AI 调用超时（秒），0 使用默认值
+	Timeout            int                   `json:"timeout,omitempty"`            // AI 调用超时（秒），0 使用默认值
+	Tools              []string              `json:"tools,omitempty"`              // 启用的内置工具名称列表
+	MCPServerIDs       []int64               `json:"mcp_server_ids,omitempty"`     // 引用的 MCP 服务器 ID 列表
+	MaxToolRounds      int                   `json:"max_tool_rounds,omitempty"`    // 最大工具调用轮次，默认 10
+	MCPProxyBaseURL    string                `json:"mcp_proxy_base_url,omitempty"` // MCP 代理服务地址
 }
 
 // AIOutput AI 节点输出
 type AIOutput struct {
-	Content          string `json:"content"`
-	PromptTokens     int    `json:"prompt_tokens"`
-	CompletionTokens int    `json:"completion_tokens"`
-	TotalTokens      int    `json:"total_tokens"`
-	Model            string `json:"model"`
-	FinishReason     string `json:"finish_reason"`
-	SystemPrompt     string `json:"system_prompt,omitempty"`
-	Prompt           string `json:"prompt"`
+	Content          string           `json:"content"`
+	PromptTokens     int              `json:"prompt_tokens"`
+	CompletionTokens int              `json:"completion_tokens"`
+	TotalTokens      int              `json:"total_tokens"`
+	Model            string           `json:"model"`
+	FinishReason     string           `json:"finish_reason"`
+	SystemPrompt     string           `json:"system_prompt,omitempty"`
+	Prompt           string           `json:"prompt"`
+	ToolCalls        []ToolCallRecord `json:"tool_calls,omitempty"` // 所有工具调用记录
+}
+
+// ToolCallRecord 工具调用记录
+type ToolCallRecord struct {
+	Round     int    `json:"round"`       // 第几轮
+	ToolName  string `json:"tool_name"`   // 工具名称
+	Arguments string `json:"arguments"`   // 调用参数
+	Result    string `json:"result"`      // 执行结果
+	IsError   bool   `json:"is_error"`    // 是否出错
+	Duration  int64  `json:"duration_ms"` // 耗时（毫秒）
 }
 
 // Init 初始化 AI 执行器
@@ -111,10 +136,17 @@ func (e *AIExecutor) Execute(ctx context.Context, step *types.Step, execCtx *Exe
 		}
 	}
 
-	if config.Streaming && aiCallback != nil {
-		output, err = e.executeStream(ctx, chatModel, messages, step.ID, config, aiCallback)
+	// Task 9.4: 无工具模式向后兼容 - 当 tools 和 mcp_server_ids 均为空时，保持原有行为
+	if e.hasTools(config) {
+		// Task 9.3 & 9.6: 有工具配置时，进入 Tool Call Loop
+		output, err = e.executeWithTools(ctx, chatModel, messages, config, step.ID, execCtx, aiCallback)
 	} else {
-		output, err = e.executeNonStream(ctx, chatModel, messages, config)
+		// 无工具模式：保持原有行为
+		if config.Streaming && aiCallback != nil {
+			output, err = e.executeStream(ctx, chatModel, messages, step.ID, config, aiCallback)
+		} else {
+			output, err = e.executeNonStream(ctx, chatModel, messages, config)
+		}
 	}
 
 	if err != nil {
@@ -382,6 +414,28 @@ func (e *AIExecutor) parseConfig(config map[string]any) (*AIConfig, error) {
 		aiConfig.Timeout = int(timeout)
 	}
 
+	// 解析工具相关配置 (Task 9.1)
+	if tools, ok := config["tools"].([]any); ok {
+		for _, t := range tools {
+			if s, ok := t.(string); ok {
+				aiConfig.Tools = append(aiConfig.Tools, s)
+			}
+		}
+	}
+	if mcpServerIDs, ok := config["mcp_server_ids"].([]any); ok {
+		for _, id := range mcpServerIDs {
+			if f, ok := id.(float64); ok {
+				aiConfig.MCPServerIDs = append(aiConfig.MCPServerIDs, int64(f))
+			}
+		}
+	}
+	if maxToolRounds, ok := config["max_tool_rounds"].(float64); ok {
+		aiConfig.MaxToolRounds = int(maxToolRounds)
+	}
+	if mcpProxyBaseURL, ok := config["mcp_proxy_base_url"].(string); ok {
+		aiConfig.MCPProxyBaseURL = mcpProxyBaseURL
+	}
+
 	return aiConfig, nil
 }
 
@@ -398,8 +452,430 @@ func (e *AIExecutor) resolveVariables(config *AIConfig, execCtx *ExecutionContex
 	config.InteractionPrompt = resolver.ResolveString(config.InteractionPrompt, evalCtx)
 	config.InteractionDefault = resolver.ResolveString(config.InteractionDefault, evalCtx)
 	config.BaseURL = resolver.ResolveString(config.BaseURL, evalCtx)
+	config.MCPProxyBaseURL = resolver.ResolveString(config.MCPProxyBaseURL, evalCtx)
 
 	return config
+}
+
+// hasTools 检查配置中是否启用了工具 (Task 9.4)
+func (e *AIExecutor) hasTools(config *AIConfig) bool {
+	return len(config.Tools) > 0 || len(config.MCPServerIDs) > 0
+}
+
+// getMCPProxyBaseURL 获取 MCP 代理服务地址
+func (e *AIExecutor) getMCPProxyBaseURL(config *AIConfig) string {
+	if config.MCPProxyBaseURL != "" {
+		return config.MCPProxyBaseURL
+	}
+	if envURL := os.Getenv("MCP_PROXY_BASE_URL"); envURL != "" {
+		return envURL
+	}
+	return defaultMCPProxyBaseURL
+}
+
+// collectToolDefinitions 收集所有工具定义（内置工具 + MCP 工具）(Task 9.5, 9.6)
+func (e *AIExecutor) collectToolDefinitions(ctx context.Context, config *AIConfig, mcpClient *MCPRemoteClient) ([]*types.ToolDefinition, error) {
+	var allDefs []*types.ToolDefinition
+
+	// 收集内置工具定义，跳过未知工具名称并记录警告 (Task 9.5)
+	for _, toolName := range config.Tools {
+		if DefaultToolRegistry.Has(toolName) {
+			tool, _ := DefaultToolRegistry.Get(toolName)
+			allDefs = append(allDefs, tool.Definition())
+		} else {
+			log.Printf("[WARN] 未知的内置工具名称，已跳过: %s", toolName)
+		}
+	}
+
+	// 收集 MCP 工具定义 (Task 9.6)
+	if mcpClient != nil {
+		for _, serverID := range config.MCPServerIDs {
+			tools, err := mcpClient.GetTools(ctx, serverID)
+			if err != nil {
+				log.Printf("[WARN] 获取 MCP 服务器 %d 工具列表失败，已跳过: %v", serverID, err)
+				continue
+			}
+			allDefs = append(allDefs, tools...)
+		}
+	}
+
+	return allDefs, nil
+}
+
+// toSchemaTools 将 ToolDefinition 列表转换为 eino schema 格式
+func (e *AIExecutor) toSchemaTools(defs []*types.ToolDefinition) []*schema.ToolInfo {
+	tools := make([]*schema.ToolInfo, 0, len(defs))
+	for _, td := range defs {
+		var params map[string]*schema.ParameterInfo
+		// 尝试将 JSON Schema 解析为 map，然后用 NewParamsOneOfByJSONSchema
+		// 但 ToolInfo 使用 ParamsOneOf，最简单的方式是用 jsonschema
+		toolInfo := &schema.ToolInfo{
+			Name: td.Name,
+			Desc: td.Description,
+		}
+		if len(td.Parameters) > 0 {
+			var jsonSchemaMap map[string]any
+			if err := json.Unmarshal(td.Parameters, &jsonSchemaMap); err == nil {
+				// 将 JSON Schema map 转换为 ParameterInfo
+				params = jsonSchemaMapToParams(jsonSchemaMap)
+				if params != nil {
+					toolInfo.ParamsOneOf = schema.NewParamsOneOfByParams(params)
+				}
+			}
+		}
+		tools = append(tools, toolInfo)
+	}
+	return tools
+}
+
+// jsonSchemaMapToParams 将 JSON Schema map 转换为 schema.ParameterInfo map
+func jsonSchemaMapToParams(schemaMap map[string]any) map[string]*schema.ParameterInfo {
+	props, ok := schemaMap["properties"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	// 获取 required 字段列表
+	requiredSet := make(map[string]bool)
+	if required, ok := schemaMap["required"].([]any); ok {
+		for _, r := range required {
+			if s, ok := r.(string); ok {
+				requiredSet[s] = true
+			}
+		}
+	}
+
+	params := make(map[string]*schema.ParameterInfo, len(props))
+	for name, propRaw := range props {
+		prop, ok := propRaw.(map[string]any)
+		if !ok {
+			continue
+		}
+		paramInfo := &schema.ParameterInfo{
+			Required: requiredSet[name],
+		}
+		if t, ok := prop["type"].(string); ok {
+			paramInfo.Type = schema.DataType(t)
+		}
+		if desc, ok := prop["description"].(string); ok {
+			paramInfo.Desc = desc
+		}
+		if enumVals, ok := prop["enum"].([]any); ok {
+			for _, ev := range enumVals {
+				if s, ok := ev.(string); ok {
+					paramInfo.Enum = append(paramInfo.Enum, s)
+				}
+			}
+		}
+		// 处理嵌套 object
+		if paramInfo.Type == schema.Object {
+			if subProps := jsonSchemaMapToParams(prop); subProps != nil {
+				paramInfo.SubParams = subProps
+			}
+		}
+		// 处理 array 的 items
+		if paramInfo.Type == schema.Array {
+			if items, ok := prop["items"].(map[string]any); ok {
+				elemInfo := &schema.ParameterInfo{}
+				if t, ok := items["type"].(string); ok {
+					elemInfo.Type = schema.DataType(t)
+				}
+				if desc, ok := items["description"].(string); ok {
+					elemInfo.Desc = desc
+				}
+				paramInfo.ElemInfo = elemInfo
+			}
+		}
+		params[name] = paramInfo
+	}
+	return params
+}
+
+// executeWithTools 带工具的 AI 执行（Tool Call Loop）(Task 9.3, 9.6)
+func (e *AIExecutor) executeWithTools(ctx context.Context, chatModel model.ChatModel, messages []*schema.Message, config *AIConfig, stepID string, execCtx *ExecutionContext, aiCallback types.AICallback) (*AIOutput, error) {
+	// 创建 MCP 远程客户端（如果有 MCP 服务器配置）
+	var mcpClient *MCPRemoteClient
+	if len(config.MCPServerIDs) > 0 {
+		mcpClient = NewMCPRemoteClient(e.getMCPProxyBaseURL(config))
+	}
+
+	// 收集所有工具定义
+	allToolDefs, err := e.collectToolDefinitions(ctx, config, mcpClient)
+	if err != nil {
+		return nil, fmt.Errorf("收集工具定义失败: %w", err)
+	}
+
+	// 如果没有有效的工具定义，回退到无工具模式
+	if len(allToolDefs) == 0 {
+		if config.Streaming && aiCallback != nil {
+			return e.executeStream(ctx, chatModel, messages, stepID, config, aiCallback)
+		}
+		return e.executeNonStream(ctx, chatModel, messages, config)
+	}
+
+	// 转换为 eino schema 格式
+	schemaTools := e.toSchemaTools(allToolDefs)
+
+	// 确定最大轮次
+	maxRounds := config.MaxToolRounds
+	if maxRounds <= 0 {
+		maxRounds = defaultMaxToolRounds
+	}
+
+	// 获取 AIToolCallback（如果实现了）
+	var toolCallback types.AIToolCallback
+	if aiCallback != nil {
+		if tc, ok := aiCallback.(types.AIToolCallback); ok {
+			toolCallback = tc
+		}
+	}
+
+	return e.executeToolCallLoop(ctx, chatModel, messages, schemaTools, allToolDefs, config, stepID, execCtx, aiCallback, toolCallback, mcpClient, maxRounds)
+}
+
+// executeToolCallLoop 执行工具调用循环 (Task 9.3)
+func (e *AIExecutor) executeToolCallLoop(
+	ctx context.Context,
+	chatModel model.ChatModel,
+	messages []*schema.Message,
+	schemaTools []*schema.ToolInfo,
+	allToolDefs []*types.ToolDefinition,
+	config *AIConfig,
+	stepID string,
+	execCtx *ExecutionContext,
+	aiCallback types.AICallback,
+	toolCallback types.AIToolCallback,
+	mcpClient *MCPRemoteClient,
+	maxRounds int,
+) (*AIOutput, error) {
+	output := &AIOutput{
+		Model: config.Model,
+	}
+
+	for round := 1; round <= maxRounds; round++ {
+		// 调用 LLM（带工具定义）
+		var resp *schema.Message
+		var err error
+
+		if config.Streaming && aiCallback != nil {
+			resp, err = e.executeStreamWithTools(ctx, chatModel, messages, schemaTools, stepID, config, aiCallback)
+		} else {
+			resp, err = chatModel.Generate(ctx, messages, model.WithTools(schemaTools))
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		// 更新 token 使用信息
+		if resp.ResponseMeta != nil {
+			if resp.ResponseMeta.Usage != nil {
+				output.PromptTokens += resp.ResponseMeta.Usage.PromptTokens
+				output.CompletionTokens += resp.ResponseMeta.Usage.CompletionTokens
+				output.TotalTokens += resp.ResponseMeta.Usage.TotalTokens
+			}
+			if resp.ResponseMeta.FinishReason != "" {
+				output.FinishReason = resp.ResponseMeta.FinishReason
+			}
+		}
+
+		// 如果没有工具调用，返回最终结果
+		if len(resp.ToolCalls) == 0 {
+			output.Content = resp.Content
+			return output, nil
+		}
+
+		// 将 assistant 消息（含 ToolCalls）追加到消息列表
+		messages = append(messages, resp)
+
+		// 并行执行所有工具调用
+		type toolCallResult struct {
+			index  int
+			tc     schema.ToolCall
+			result *types.ToolResult
+			record ToolCallRecord
+		}
+
+		results := make([]toolCallResult, len(resp.ToolCalls))
+		var wg sync.WaitGroup
+
+		for i, tc := range resp.ToolCalls {
+			wg.Add(1)
+			go func(idx int, toolCall schema.ToolCall) {
+				defer wg.Done()
+
+				// 通知工具调用开始
+				typesToolCall := &types.ToolCall{
+					ID:        toolCall.ID,
+					Name:      toolCall.Function.Name,
+					Arguments: toolCall.Function.Arguments,
+				}
+				if toolCallback != nil {
+					toolCallback.OnAIToolCallStart(ctx, stepID, typesToolCall)
+				}
+
+				callStart := time.Now()
+				toolResult := e.executeSingleToolCall(ctx, toolCall, execCtx, mcpClient, config.MCPServerIDs, allToolDefs)
+				callDuration := time.Since(callStart)
+
+				// 通知工具调用完成
+				if toolCallback != nil {
+					toolCallback.OnAIToolCallComplete(ctx, stepID, typesToolCall, toolResult)
+				}
+
+				results[idx] = toolCallResult{
+					index:  idx,
+					tc:     toolCall,
+					result: toolResult,
+					record: ToolCallRecord{
+						Round:     round,
+						ToolName:  toolCall.Function.Name,
+						Arguments: toolCall.Function.Arguments,
+						Result:    toolResult.Content,
+						IsError:   toolResult.IsError,
+						Duration:  callDuration.Milliseconds(),
+					},
+				}
+			}(i, tc)
+		}
+		wg.Wait()
+
+		// 按顺序追加工具结果消息并记录
+		for _, r := range results {
+			toolMsg := schema.ToolMessage(r.result.Content, r.tc.ID)
+			messages = append(messages, toolMsg)
+			output.ToolCalls = append(output.ToolCalls, r.record)
+		}
+	}
+
+	// 达到最大轮次限制，进行最后一次调用（不带工具）获取最终回答
+	log.Printf("[WARN] 工具调用轮次达到最大值 %d，停止循环", maxRounds)
+	resp, err := chatModel.Generate(ctx, messages)
+	if err != nil {
+		// 如果最后一次调用失败，返回已有内容
+		return output, nil
+	}
+	output.Content = resp.Content
+	if resp.ResponseMeta != nil {
+		if resp.ResponseMeta.Usage != nil {
+			output.PromptTokens += resp.ResponseMeta.Usage.PromptTokens
+			output.CompletionTokens += resp.ResponseMeta.Usage.CompletionTokens
+			output.TotalTokens += resp.ResponseMeta.Usage.TotalTokens
+		}
+		if resp.ResponseMeta.FinishReason != "" {
+			output.FinishReason = resp.ResponseMeta.FinishReason
+		}
+	}
+	return output, nil
+}
+
+// executeStreamWithTools 流式模式下带工具的 LLM 调用
+func (e *AIExecutor) executeStreamWithTools(ctx context.Context, chatModel model.ChatModel, messages []*schema.Message, tools []*schema.ToolInfo, stepID string, config *AIConfig, callback types.AICallback) (*schema.Message, error) {
+	stream, err := chatModel.Stream(ctx, messages, model.WithTools(tools))
+	if err != nil {
+		return nil, err
+	}
+	defer stream.Close()
+
+	var chunks []*schema.Message
+	var chunkIndex int
+
+	for {
+		chunk, err := stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+
+		// 流式输出文本内容
+		if chunk.Content != "" && callback != nil {
+			callback.OnAIChunk(ctx, stepID, chunk.Content, chunkIndex)
+			chunkIndex++
+		}
+
+		chunks = append(chunks, chunk)
+	}
+
+	// 合并所有 chunks 为完整消息
+	if len(chunks) == 0 {
+		return &schema.Message{Role: schema.Assistant}, nil
+	}
+
+	merged, err := schema.ConcatMessages(chunks)
+	if err != nil {
+		return nil, fmt.Errorf("合并流式消息失败: %w", err)
+	}
+
+	return merged, nil
+}
+
+// executeSingleToolCall 执行单个工具调用 (Task 9.3)
+func (e *AIExecutor) executeSingleToolCall(
+	ctx context.Context,
+	tc schema.ToolCall,
+	execCtx *ExecutionContext,
+	mcpClient *MCPRemoteClient,
+	mcpServerIDs []int64,
+	allToolDefs []*types.ToolDefinition,
+) *types.ToolResult {
+	toolName := tc.Function.Name
+
+	// 检查是否为内置工具
+	if DefaultToolRegistry.Has(toolName) {
+		tool, _ := DefaultToolRegistry.Get(toolName)
+		result, err := tool.Execute(ctx, tc.Function.Arguments, execCtx)
+		if err != nil {
+			return &types.ToolResult{
+				ToolCallID: tc.ID,
+				Content:    fmt.Sprintf("内置工具执行错误: %v", err),
+				IsError:    true,
+			}
+		}
+		result.ToolCallID = tc.ID
+		return result
+	}
+
+	// 检查是否为 MCP 工具
+	if mcpClient != nil && len(mcpServerIDs) > 0 {
+		// 查找该工具属于哪个 MCP 服务器
+		serverID := e.findMCPServerForTool(ctx, toolName, mcpServerIDs, mcpClient)
+		if serverID > 0 {
+			result, err := mcpClient.CallTool(ctx, serverID, toolName, tc.Function.Arguments)
+			if err != nil {
+				return &types.ToolResult{
+					ToolCallID: tc.ID,
+					Content:    fmt.Sprintf("MCP 工具调用失败: %v", err),
+					IsError:    true,
+				}
+			}
+			result.ToolCallID = tc.ID
+			return result
+		}
+	}
+
+	// 未知工具
+	return &types.ToolResult{
+		ToolCallID: tc.ID,
+		Content:    fmt.Sprintf("未知工具: %s", toolName),
+		IsError:    true,
+	}
+}
+
+// findMCPServerForTool 查找工具所属的 MCP 服务器 ID
+func (e *AIExecutor) findMCPServerForTool(ctx context.Context, toolName string, mcpServerIDs []int64, mcpClient *MCPRemoteClient) int64 {
+	for _, serverID := range mcpServerIDs {
+		tools, err := mcpClient.GetTools(ctx, serverID)
+		if err != nil {
+			continue
+		}
+		for _, t := range tools {
+			if t.Name == toolName {
+				return serverID
+			}
+		}
+	}
+	return 0
 }
 
 func init() {

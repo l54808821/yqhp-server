@@ -392,6 +392,55 @@ func validateAIStep(step *Step, prefix string) []ValidationError {
 		})
 	}
 
+	// 验证内置工具名称
+	if tools, ok := step.Config["tools"].([]any); ok {
+		knownTools := map[string]bool{
+			"http_request": true,
+			"var_read":     true,
+			"var_write":    true,
+			"json_parse":   true,
+		}
+		for i, t := range tools {
+			if name, ok := t.(string); ok {
+				if !knownTools[name] {
+					errs = append(errs, ValidationError{
+						Field:   fmt.Sprintf("%s.config.tools[%d]", prefix, i),
+						Message: fmt.Sprintf("未知的内置工具名称: %s", name),
+					})
+				}
+			}
+		}
+	}
+
+	// 验证 MCP 服务器 ID
+	if mcpServerIDs, ok := step.Config["mcp_server_ids"].([]any); ok {
+		for i, id := range mcpServerIDs {
+			if f, ok := id.(float64); ok {
+				if f <= 0 || f != float64(int64(f)) {
+					errs = append(errs, ValidationError{
+						Field:   fmt.Sprintf("%s.config.mcp_server_ids[%d]", prefix, i),
+						Message: "MCP 服务器 ID 必须为有效的正整数",
+					})
+				}
+			} else {
+				errs = append(errs, ValidationError{
+					Field:   fmt.Sprintf("%s.config.mcp_server_ids[%d]", prefix, i),
+					Message: "MCP 服务器 ID 必须为数字",
+				})
+			}
+		}
+	}
+
+	// 验证最大工具调用轮次
+	if maxRounds, ok := step.Config["max_tool_rounds"].(float64); ok {
+		if maxRounds < 1 || maxRounds > 50 {
+			errs = append(errs, ValidationError{
+				Field:   prefix + ".config.max_tool_rounds",
+				Message: "max_tool_rounds 必须在 1 到 50 之间",
+			})
+		}
+	}
+
 	return errs
 }
 

@@ -30,6 +30,7 @@ var (
 	TTeam              *tTeam
 	TTeamMember        *tTeamMember
 	TWorkflow          *tWorkflow
+	TMcpServer         *tMcpServer
 )
 
 func SetDefault(db *gorm.DB, opts ...gen.DOOption) {
@@ -47,6 +48,7 @@ func SetDefault(db *gorm.DB, opts ...gen.DOOption) {
 	TTeam = &Q.TTeam
 	TTeamMember = &Q.TTeamMember
 	TWorkflow = &Q.TWorkflow
+	TMcpServer = &Q.TMcpServer
 }
 
 func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
@@ -65,6 +67,7 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		TTeam:              newTTeam(db, opts...),
 		TTeamMember:        newTTeamMember(db, opts...),
 		TWorkflow:          newTWorkflow(db, opts...),
+		TMcpServer:         newTMcpServer(db, opts...),
 	}
 }
 
@@ -84,6 +87,7 @@ type Query struct {
 	TTeam              tTeam
 	TTeamMember        tTeamMember
 	TWorkflow          tWorkflow
+	TMcpServer         tMcpServer
 }
 
 func (q *Query) Available() bool { return q.db != nil }
@@ -104,6 +108,7 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		TTeam:              q.TTeam.clone(db),
 		TTeamMember:        q.TTeamMember.clone(db),
 		TWorkflow:          q.TWorkflow.clone(db),
+		TMcpServer:         q.TMcpServer.clone(db),
 	}
 }
 
@@ -131,6 +136,7 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		TTeam:              q.TTeam.replaceDB(db),
 		TTeamMember:        q.TTeamMember.replaceDB(db),
 		TWorkflow:          q.TWorkflow.replaceDB(db),
+		TMcpServer:         q.TMcpServer.replaceDB(db),
 	}
 }
 
@@ -148,6 +154,7 @@ type queryCtx struct {
 	TTeam              ITTeamDo
 	TTeamMember        ITTeamMemberDo
 	TWorkflow          ITWorkflowDo
+	TMcpServer         ITMcpServerDo
 }
 
 func (q *Query) WithContext(ctx context.Context) *queryCtx {
@@ -165,6 +172,7 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		TTeam:              q.TTeam.WithContext(ctx),
 		TTeamMember:        q.TTeamMember.WithContext(ctx),
 		TWorkflow:          q.TWorkflow.WithContext(ctx),
+		TMcpServer:         q.TMcpServer.WithContext(ctx),
 	}
 }
 

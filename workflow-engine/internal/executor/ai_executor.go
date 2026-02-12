@@ -140,6 +140,15 @@ func (e *AIExecutor) Execute(ctx context.Context, step *types.Step, execCtx *Exe
 	if e.hasTools(config) {
 		// Task 9.3 & 9.6: 有工具配置时，进入 Tool Call Loop
 		output, err = e.executeWithTools(ctx, chatModel, messages, config, step.ID, execCtx, aiCallback)
+		// 工具调用路径完成后，发送 ai_complete 事件通知前端流式结束
+		if err == nil && output != nil && aiCallback != nil && config.Streaming {
+			aiCallback.OnAIComplete(ctx, step.ID, &types.AIResult{
+				Content:          output.Content,
+				PromptTokens:     output.PromptTokens,
+				CompletionTokens: output.CompletionTokens,
+				TotalTokens:      output.TotalTokens,
+			})
+		}
 	} else {
 		// 无工具模式：保持原有行为
 		if config.Streaming && aiCallback != nil {

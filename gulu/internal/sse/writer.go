@@ -15,18 +15,20 @@ import (
 type EventType string
 
 const (
-	EventStepStarted       EventType = "step_started"
-	EventStepCompleted     EventType = "step_completed"
-	EventStepFailed        EventType = "step_failed"
-	EventStepSkipped       EventType = "step_skipped"
-	EventProgress          EventType = "progress"
-	EventWorkflowCompleted EventType = "workflow_completed"
-	EventAIChunk           EventType = "ai_chunk"
-	EventAIComplete        EventType = "ai_complete"
-	EventAIError           EventType = "ai_error"
-	EventAIInteraction     EventType = "ai_interaction_required"
-	EventHeartbeat         EventType = "heartbeat"
-	EventError             EventType = "error"
+	EventStepStarted        EventType = "step_started"
+	EventStepCompleted      EventType = "step_completed"
+	EventStepFailed         EventType = "step_failed"
+	EventStepSkipped        EventType = "step_skipped"
+	EventProgress           EventType = "progress"
+	EventWorkflowCompleted  EventType = "workflow_completed"
+	EventAIChunk            EventType = "ai_chunk"
+	EventAIComplete         EventType = "ai_complete"
+	EventAIError            EventType = "ai_error"
+	EventAIInteraction      EventType = "ai_interaction_required"
+	EventAIToolCallStart    EventType = "ai_tool_call_start"
+	EventAIToolCallComplete EventType = "ai_tool_call_complete"
+	EventHeartbeat          EventType = "heartbeat"
+	EventError              EventType = "error"
 )
 
 // Timestamp 自定义时间戳类型，格式化为 "2006-01-02 15:04:05.000"
@@ -263,6 +265,23 @@ type AIErrorData struct {
 	StepID  string `json:"stepId"`
 	Error   string `json:"error"`
 	Details string `json:"details,omitempty"`
+}
+
+// AIToolCallStartData AI 工具调用开始数据
+type AIToolCallStartData struct {
+	StepID    string `json:"stepId"`
+	ToolName  string `json:"toolName"`
+	Arguments string `json:"arguments"`
+}
+
+// AIToolCallCompleteData AI 工具调用完成数据
+type AIToolCallCompleteData struct {
+	StepID     string `json:"stepId"`
+	ToolName   string `json:"toolName"`
+	Arguments  string `json:"arguments"`
+	Result     string `json:"result"`
+	IsError    bool   `json:"isError"`
+	DurationMs int64  `json:"durationMs"`
 }
 
 // InteractionType 交互类型

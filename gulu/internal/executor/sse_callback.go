@@ -281,3 +281,34 @@ var _ types.ExecutionCallback = (*SSECallback)(nil)
 
 // 确保 SSECallback 实现了 AICallback 接口
 var _ types.AICallback = (*SSECallback)(nil)
+
+// 确保 SSECallback 实现了 AIToolCallback 接口
+var _ types.AIToolCallback = (*SSECallback)(nil)
+
+// ============ AI 工具调用回调 (实现 AIToolCallback 接口) ============
+
+// OnAIToolCallStart 工具调用开始
+func (c *SSECallback) OnAIToolCallStart(ctx context.Context, stepID string, toolCall *types.ToolCall) {
+	c.writer.WriteEvent(&sse.Event{
+		Type: sse.EventAIToolCallStart,
+		Data: &sse.AIToolCallStartData{
+			StepID:    stepID,
+			ToolName:  toolCall.Name,
+			Arguments: toolCall.Arguments,
+		},
+	})
+}
+
+// OnAIToolCallComplete 工具调用完成
+func (c *SSECallback) OnAIToolCallComplete(ctx context.Context, stepID string, toolCall *types.ToolCall, result *types.ToolResult) {
+	c.writer.WriteEvent(&sse.Event{
+		Type: sse.EventAIToolCallComplete,
+		Data: &sse.AIToolCallCompleteData{
+			StepID:    stepID,
+			ToolName:  toolCall.Name,
+			Arguments: toolCall.Arguments,
+			Result:    result.Content,
+			IsError:   result.IsError,
+		},
+	})
+}

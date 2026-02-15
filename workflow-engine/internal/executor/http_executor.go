@@ -152,6 +152,30 @@ func (e *HTTPExecutor) parseGlobalConfig(config map[string]any) {
 	}
 }
 
+// resolveURLWithBase 使用指定的 base URL 解析相对路径。
+// 如果 url 已经是完整 URL（以 http:// 或 https:// 开头），直接返回。
+// 否则拼接 baseURL + url。
+func resolveURLWithBase(url string, baseURL string) string {
+	// 如果 URL 已经是完整的，直接返回
+	if len(url) > 0 && (url[0] == 'h' || url[0] == 'H') {
+		if len(url) > 7 && (url[:7] == "http://" || url[:8] == "https://") {
+			return url
+		}
+	}
+
+	if baseURL == "" {
+		return url
+	}
+
+	// 确保 baseURL 不以 / 结尾，url 以 / 开头
+	baseURL = trimRight(baseURL, "/")
+	if len(url) == 0 || url[0] != '/' {
+		url = "/" + url
+	}
+
+	return baseURL + url
+}
+
 // buildClient 构建 HTTP 客户端
 func (e *HTTPExecutor) buildClient() error {
 	transport, err := e.globalConfig.BuildTransport()
@@ -217,8 +241,21 @@ func (e *HTTPExecutor) Execute(ctx context.Context, step *types.Step, execCtx *E
 	// 解析配置中的变量
 	config = e.resolveVariables(config, execCtx)
 
-	// 解析 URL（支持多域名）
-	config.URL = e.globalConfig.ResolveURL(config.URL, config.Domain)
+	// 解析 URL：优先使用内联域名配置（由 gulu handler 注入），fallback 到全局配置
+	if config.DomainBaseURL != "" {
+		config.URL = resolveURLWithBase(config.URL, config.DomainBaseURL)
+	} else {
+		config.URL = e.globalConfig.ResolveURL(config.URL, config.Domain)
+	}
+
+	// 合并域名级请求头
+	if len(config.DomainHeaders) > 0 {
+		for k, v := range config.DomainHeaders {
+			if _, exists := config.Headers[k]; !exists {
+				config.Headers[k] = v
+			}
+		}
+	}
 
 	// 保存请求体字符串（用于调试输出）
 	var reqBodyStr string
@@ -377,16 +414,18 @@ func (e *HTTPExecutor) Cleanup(ctx context.Context) error {
 
 // HTTPConfig 表示 HTTP 步骤的配置。
 type HTTPConfig struct {
-	Method     string            `json:"method"`
-	URL        string            `json:"url"`
-	Domain     string            `json:"domain,omitempty"` // 域名标识，用于多域名配置
-	Headers    map[string]string `json:"headers"`
-	Body       any               `json:"body"`        // 保留原始 body（兼容旧格式）
-	BodyConfig *BodyConfig       `json:"-"`           // 解析后的 body 配置
-	Params     map[string]string `json:"params"`
-	SSL        *SSLConfig        `json:"ssl,omitempty"`      // 步骤级 SSL 配置
-	Redirect   *RedirectConfig   `json:"redirect,omitempty"` // 步骤级重定向配置
-	Timeout    *TimeoutConfig    `json:"timeout,omitempty"`  // 步骤级超时配置
+	Method         string            `json:"method"`
+	URL            string            `json:"url"`
+	Domain         string            `json:"domain,omitempty"`          // 域名标识，用于多域名配置
+	DomainBaseURL  string            `json:"domain_base_url,omitempty"` // 域名 base URL（由 gulu handler 注入）
+	DomainHeaders  map[string]string `json:"domain_headers,omitempty"`  // 域名级请求头（由 gulu handler 注入）
+	Headers        map[string]string `json:"headers"`
+	Body           any               `json:"body"`        // 保留原始 body（兼容旧格式）
+	BodyConfig     *BodyConfig       `json:"-"`           // 解析后的 body 配置
+	Params         map[string]string `json:"params"`
+	SSL            *SSLConfig        `json:"ssl,omitempty"`      // 步骤级 SSL 配置
+	Redirect       *RedirectConfig   `json:"redirect,omitempty"` // 步骤级重定向配置
+	Timeout        *TimeoutConfig    `json:"timeout,omitempty"`  // 步骤级超时配置
 }
 
 // parseConfig 将步骤配置解析为 HTTPConfig。
@@ -401,19 +440,34 @@ func (e *HTTPExecutor) parseConfig(config map[string]any) (*HTTPConfig, error) {
 		httpConfig.Method = strings.ToUpper(method)
 	}
 
-	if url, ok := config["url"].(string); ok {
-		url = strings.TrimSpace(url)
-		if url == "" {
-			return nil, NewConfigError("HTTP 请求地址不能为空", nil)
-		}
-		httpConfig.URL = url
-	} else {
-		return nil, NewConfigError("HTTP 步骤需要 'url' 配置", nil)
-	}
-
 	// 解析域名标识
 	if domain, ok := config["domain"].(string); ok {
 		httpConfig.Domain = domain
+	}
+
+	// 解析内联域名配置（由 gulu handler 从环境配置注入）
+	if domainBaseURL, ok := config["domain_base_url"].(string); ok {
+		httpConfig.DomainBaseURL = domainBaseURL
+	}
+	if domainHeaders, ok := config["domain_headers"].(map[string]interface{}); ok {
+		httpConfig.DomainHeaders = make(map[string]string, len(domainHeaders))
+		for k, v := range domainHeaders {
+			if s, ok := v.(string); ok {
+				httpConfig.DomainHeaders[k] = s
+			}
+		}
+	} else if domainHeaders, ok := config["domain_headers"].(map[string]string); ok {
+		httpConfig.DomainHeaders = domainHeaders
+	}
+
+	if url, ok := config["url"].(string); ok {
+		url = strings.TrimSpace(url)
+		if url == "" && httpConfig.Domain == "" {
+			return nil, NewConfigError("HTTP 请求地址不能为空", nil)
+		}
+		httpConfig.URL = url
+	} else if httpConfig.Domain == "" {
+		return nil, NewConfigError("HTTP 步骤需要 'url' 配置", nil)
 	}
 
 	// 解析 headers（支持 map 格式和数组格式）

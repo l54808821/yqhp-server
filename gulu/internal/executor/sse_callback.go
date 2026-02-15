@@ -162,8 +162,8 @@ func (c *SSECallback) OnExecutionComplete(ctx context.Context, summary *types.Ex
 		status = "stopped"
 	}
 
-	// 获取最终变量并过滤内部变量
-	finalVars := filterInternalVariables(c.session.GetVariables())
+	// 获取最终变量
+	finalVars := c.session.GetVariables()
 	envVars := c.session.GetEnvVariables()
 
 	c.writer.WriteEvent(&sse.Event{

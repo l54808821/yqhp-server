@@ -201,15 +201,18 @@ func (h *StreamExecutionHandler) prepareExecutionFromDefinition(c *fiber.Ctx, de
 
 	// 环境变量快照（用于调试上下文中区分环境变量和临时变量）
 	var envVarsSnapshot map[string]interface{}
+	var mergedConfig *workflow.MergedConfig
 
 	// 如果有环境ID，加载环境配置（包含环境变量、域名、数据库、MQ等）
 	if envID > 0 {
 		merger := workflow.NewConfigMerger(c.UserContext(), envID)
-		mergedConfig, err := merger.Merge()
+		mc, err := merger.Merge()
 		if err != nil {
 			logger.Warn("加载环境配置失败", "envId", envID, "error", err)
 			// 不阻断执行，只记录警告
 		} else {
+			mergedConfig = mc
+
 			// 保存环境变量快照
 			envVarsSnapshot = make(map[string]interface{}, len(mergedConfig.Variables))
 			for k, v := range mergedConfig.Variables {
@@ -225,10 +228,6 @@ func (h *StreamExecutionHandler) prepareExecutionFromDefinition(c *fiber.Ctx, de
 					variables[k] = v
 				}
 			}
-			// 添加域名、数据库、MQ 配置到特殊变量
-			variables["__domains__"] = mergedConfig.Domains
-			variables["__databases__"] = mergedConfig.Databases
-			variables["__mqs__"] = mergedConfig.MQs
 		}
 	}
 
@@ -245,6 +244,12 @@ func (h *StreamExecutionHandler) prepareExecutionFromDefinition(c *fiber.Ctx, de
 	}
 
 	logger.Debug("工作流转换完成", "id", engineWf.ID, "name", engineWf.Name, "steps", len(engineWf.Steps))
+
+	// 解析步骤中的环境配置引用（域名、数据库、MQ）
+	// 将 domainCode/database_config/mq_config 等引用解析为执行器能直接消费的实际配置
+	if mergedConfig != nil {
+		resolveEnvConfigReferences(engineWf.Steps, mergedConfig)
+	}
 
 	// 保存环境变量快照到工作流（用于调试上下文区分环境变量和临时变量）
 	if envVarsSnapshot != nil {
@@ -679,4 +684,173 @@ func filterSteps(steps []types.Step, selectedIDs []string) []types.Step {
 	}
 
 	return filtered
+}
+
+// resolveEnvConfigReferences 解析步骤中的环境配置引用。
+// 将前端传入的配置引用（domainCode、database_config、mq_config）解析为
+// 执行器能直接消费的实际配置值，注入到步骤 config 中。
+func resolveEnvConfigReferences(steps []types.Step, config *workflow.MergedConfig) {
+	for i := range steps {
+		step := &steps[i]
+
+		switch step.Type {
+		case "http":
+			resolveHTTPDomainConfig(step.Config, config)
+		case "database":
+			resolveDatabaseConfig(step.Config, config)
+		case "mq":
+			resolveMQConfig(step.Config, config)
+		}
+
+		// 递归处理嵌套步骤（条件分支、循环等）
+		if step.Loop != nil && len(step.Loop.Steps) > 0 {
+			resolveEnvConfigReferences(step.Loop.Steps, config)
+		}
+		if len(step.Children) > 0 {
+			resolveEnvConfigReferences(step.Children, config)
+		}
+		for bi := range step.Branches {
+			if len(step.Branches[bi].Steps) > 0 {
+				resolveEnvConfigReferences(step.Branches[bi].Steps, config)
+			}
+		}
+	}
+}
+
+// resolveHTTPDomainConfig 解析 HTTP 步骤的域名配置引用。
+// 将 domainCode 解析为 domain_base_url 和 domain_headers，
+// 执行器可直接用于 URL 拼接和请求头注入。
+func resolveHTTPDomainConfig(stepConfig map[string]interface{}, config *workflow.MergedConfig) {
+	if stepConfig == nil || config.Domains == nil {
+		return
+	}
+
+	// 获取域名引用（前端字段名为 domainCode）
+	domainCode, _ := stepConfig["domainCode"].(string)
+	if domainCode == "" {
+		domainCode, _ = stepConfig["domain"].(string)
+	}
+	if domainCode == "" {
+		return
+	}
+
+	dc, ok := config.Domains[domainCode]
+	if !ok || dc == nil {
+		return
+	}
+
+	// 注入解析后的域名配置
+	stepConfig["domain"] = domainCode
+	stepConfig["domain_base_url"] = dc.BaseURL
+	if len(dc.Headers) > 0 {
+		stepConfig["domain_headers"] = dc.Headers
+	}
+	// 清理前端字段
+	delete(stepConfig, "domainCode")
+}
+
+// resolveDatabaseConfig 解析数据库步骤的配置引用。
+// 将 database_config（引用 code）展开为 driver、dsn 等执行器可消费的字段。
+func resolveDatabaseConfig(stepConfig map[string]interface{}, config *workflow.MergedConfig) {
+	if stepConfig == nil || config.Databases == nil {
+		return
+	}
+
+	dbCode, _ := stepConfig["database_config"].(string)
+	if dbCode == "" {
+		return
+	}
+
+	dc, ok := config.Databases[dbCode]
+	if !ok || dc == nil {
+		return
+	}
+
+	// 注入数据库驱动
+	stepConfig["driver"] = dc.Type
+
+	// 构建 DSN
+	dsn := buildDSN(dc)
+	if dsn != "" {
+		stepConfig["dsn"] = dsn
+	}
+}
+
+// resolveMQConfig 解析 MQ 步骤的配置引用。
+// 将 mq_config（引用 code）展开为 type、broker、auth 等执行器可消费的字段。
+func resolveMQConfig(stepConfig map[string]interface{}, config *workflow.MergedConfig) {
+	if stepConfig == nil || config.MQs == nil {
+		return
+	}
+
+	mqCode, _ := stepConfig["mq_config"].(string)
+	if mqCode == "" {
+		return
+	}
+
+	mc, ok := config.MQs[mqCode]
+	if !ok || mc == nil {
+		return
+	}
+
+	// 注入 MQ 配置
+	stepConfig["type"] = mc.Type
+	stepConfig["broker"] = fmt.Sprintf("%s:%d", mc.Host, mc.Port)
+
+	if mc.Username != "" || mc.Password != "" {
+		stepConfig["auth"] = map[string]interface{}{
+			"username": mc.Username,
+			"password": mc.Password,
+		}
+	}
+	if mc.VHost != "" {
+		if opts, ok := stepConfig["options"].(map[string]interface{}); ok {
+			opts["vhost"] = mc.VHost
+		} else {
+			stepConfig["options"] = map[string]interface{}{"vhost": mc.VHost}
+		}
+	}
+}
+
+// buildDSN 根据数据库配置构建 DSN 连接字符串。
+func buildDSN(dc *workflow.DatabaseConfig) string {
+	switch strings.ToLower(dc.Type) {
+	case "mysql":
+		// user:password@tcp(host:port)/database?options
+		dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s",
+			dc.Username, dc.Password, dc.Host, dc.Port, dc.Database)
+		if dc.Options != "" {
+			dsn += "?" + dc.Options
+		} else {
+			dsn += "?charset=utf8mb4&parseTime=True&loc=Local"
+		}
+		return dsn
+	case "postgres", "postgresql":
+		// host=X port=X user=X password=X dbname=X sslmode=disable
+		dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s",
+			dc.Host, dc.Port, dc.Username, dc.Password, dc.Database)
+		if dc.Options != "" {
+			dsn += " " + dc.Options
+		} else {
+			dsn += " sslmode=disable"
+		}
+		return dsn
+	case "redis":
+		// addr:port
+		if dc.Password != "" {
+			return fmt.Sprintf("redis://%s:%s@%s:%d", dc.Username, dc.Password, dc.Host, dc.Port)
+		}
+		return fmt.Sprintf("%s:%d", dc.Host, dc.Port)
+	case "mongodb":
+		// mongodb://user:password@host:port/database
+		if dc.Username != "" {
+			return fmt.Sprintf("mongodb://%s:%s@%s:%d/%s",
+				dc.Username, dc.Password, dc.Host, dc.Port, dc.Database)
+		}
+		return fmt.Sprintf("mongodb://%s:%d/%s", dc.Host, dc.Port, dc.Database)
+	default:
+		// 通用格式
+		return fmt.Sprintf("%s:%s@%s:%d/%s",
+			dc.Username, dc.Password, dc.Host, dc.Port, dc.Database)
+	}
 }

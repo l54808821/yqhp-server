@@ -226,10 +226,7 @@ func (e *StreamExecutor) ExecuteBlocking(ctx context.Context, req *ExecuteReques
 	}
 
 	// 获取工作流最终变量
-	var finalVars map[string]interface{}
-	if wf.FinalVariables != nil {
-		finalVars = filterInternalVariables(wf.FinalVariables)
-	}
+	finalVars := wf.FinalVariables
 
 	return &ExecutionSummary{
 		SessionID:     session.ID,
@@ -542,18 +539,3 @@ func (d *discardWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-// filterInternalVariables 过滤掉内部变量（如 __domains__、__databases__、__mqs__ 等）
-func filterInternalVariables(vars map[string]interface{}) map[string]interface{} {
-	if vars == nil {
-		return nil
-	}
-	result := make(map[string]interface{}, len(vars))
-	for k, v := range vars {
-		// 跳过以 __ 开头和结尾的内部变量
-		if len(k) > 4 && k[:2] == "__" && k[len(k)-2:] == "__" {
-			continue
-		}
-		result[k] = v
-	}
-	return result
-}

@@ -227,8 +227,21 @@ func (e *FastHTTPExecutor) Execute(ctx context.Context, step *types.Step, execCt
 	// 解析配置中的变量
 	config = e.resolveVariables(config, execCtx)
 
-	// 解析 URL（支持多域名）
-	config.URL = e.globalConfig.ResolveURL(config.URL, config.Domain)
+	// 解析 URL：优先使用内联域名配置（由 gulu handler 注入），fallback 到全局配置
+	if config.DomainBaseURL != "" {
+		config.URL = resolveURLWithBase(config.URL, config.DomainBaseURL)
+	} else {
+		config.URL = e.globalConfig.ResolveURL(config.URL, config.Domain)
+	}
+
+	// 合并域名级请求头
+	if len(config.DomainHeaders) > 0 {
+		for k, v := range config.DomainHeaders {
+			if _, exists := config.Headers[k]; !exists {
+				config.Headers[k] = v
+			}
+		}
+	}
 
 	// 如果指定了步骤超时则应用
 	timeout := step.Timeout
@@ -393,19 +406,34 @@ func (e *FastHTTPExecutor) parseConfig(config map[string]any) (*HTTPConfig, erro
 		httpConfig.Method = strings.ToUpper(method)
 	}
 
-	if url, ok := config["url"].(string); ok {
-		url = strings.TrimSpace(url)
-		if url == "" {
-			return nil, NewConfigError("HTTP 请求地址不能为空", nil)
-		}
-		httpConfig.URL = url
-	} else {
-		return nil, NewConfigError("HTTP 步骤需要 'url' 配置", nil)
-	}
-
 	// 解析域名标识
 	if domain, ok := config["domain"].(string); ok {
 		httpConfig.Domain = domain
+	}
+
+	// 解析内联域名配置（由 gulu handler 从环境配置注入）
+	if domainBaseURL, ok := config["domain_base_url"].(string); ok {
+		httpConfig.DomainBaseURL = domainBaseURL
+	}
+	if domainHeaders, ok := config["domain_headers"].(map[string]interface{}); ok {
+		httpConfig.DomainHeaders = make(map[string]string, len(domainHeaders))
+		for k, v := range domainHeaders {
+			if s, ok := v.(string); ok {
+				httpConfig.DomainHeaders[k] = s
+			}
+		}
+	} else if domainHeaders, ok := config["domain_headers"].(map[string]string); ok {
+		httpConfig.DomainHeaders = domainHeaders
+	}
+
+	if url, ok := config["url"].(string); ok {
+		url = strings.TrimSpace(url)
+		if url == "" && httpConfig.Domain == "" {
+			return nil, NewConfigError("HTTP 请求地址不能为空", nil)
+		}
+		httpConfig.URL = url
+	} else if httpConfig.Domain == "" {
+		return nil, NewConfigError("HTTP 步骤需要 'url' 配置", nil)
 	}
 
 	// 解析 headers（支持 map 格式和数组格式）

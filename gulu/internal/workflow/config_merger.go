@@ -353,11 +353,6 @@ func (m *ConfigMerger) MergeToWorkflow(def *WorkflowDefinition) (*WorkflowDefini
 		newDef.Variables[k] = v
 	}
 
-	// 添加域名、数据库、MQ 配置到变量
-	newDef.Variables["__domains__"] = config.Domains
-	newDef.Variables["__databases__"] = config.Databases
-	newDef.Variables["__mqs__"] = config.MQs
-
 	return newDef, nil
 }
 

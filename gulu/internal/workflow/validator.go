@@ -163,10 +163,11 @@ func validateHTTPStep(step *Step, prefix string) []ValidationError {
 		})
 	}
 
-	// 验证 url 或 domain
+	// 验证 url 或 domain（兼容前端 domainCode 字段）
 	_, hasURL := step.Config["url"]
 	_, hasDomain := step.Config["domain"]
-	if !hasURL && !hasDomain {
+	_, hasDomainCode := step.Config["domainCode"]
+	if !hasURL && !hasDomain && !hasDomainCode {
 		errs = append(errs, ValidationError{
 			Field:   prefix + ".config.url",
 			Message: "HTTP 步骤必须指定 URL 或 domain",

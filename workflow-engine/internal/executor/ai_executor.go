@@ -262,11 +262,16 @@ func (e *AIExecutor) createChatModel(ctx context.Context, config *AIConfig) (mod
 const interactiveSystemInstruction = `
 
 [人机交互规则]
-你可以使用 human_interaction 工具与用户进行实时交互。当你需要用户确认、输入信息或做出选择时，必须调用 human_interaction 工具，而不是在回复文本中提问。
-- 需要用户确认时：调用 human_interaction，type 设为 "confirm"
-- 需要用户输入时：调用 human_interaction，type 设为 "input"
-- 需要用户选择时：调用 human_interaction，type 设为 "select"，并提供 options
-禁止在文本中向用户提问或等待回复，所有需要用户参与的环节都必须通过 human_interaction 工具完成。`
+你可以使用 human_interaction 工具与用户进行实时交互。遵守以下规则：
+
+1. 交互方式：当你需要用户确认、输入信息或做出选择时，必须调用 human_interaction 工具，禁止在回复文本中提问或等待用户回复。
+   - 需要用户确认时：type 设为 "confirm"
+   - 需要用户输入时：type 设为 "input"
+   - 需要用户选择时：type 设为 "select"，并提供 options
+
+2. 信息充分性：如果任务需要多项用户输入，请逐一通过工具询问，确保收集到所有必要信息后再开始生成最终内容。不要跳过问题，也不要替用户假设未提供的信息。
+
+3. 最终输出：当所有必要信息收集完毕后，直接输出完整的最终内容。不要输出概要、大纲或摘要，除非用户明确要求。`
 
 func (e *AIExecutor) buildMessages(config *AIConfig) []*schema.Message {
 	var messages []*schema.Message

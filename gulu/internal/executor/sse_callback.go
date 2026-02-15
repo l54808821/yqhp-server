@@ -3,7 +3,6 @@ package executor
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"time"
 
 	"yqhp/gulu/internal/sse"
@@ -26,7 +25,6 @@ func NewSSECallback(writer *sse.Writer, session *Session) *SSECallback {
 
 // OnStepStart 步骤开始
 func (c *SSECallback) OnStepStart(ctx context.Context, step *types.Step, parentID string, iteration int) {
-	fmt.Printf("[DEBUG] SSECallback.OnStepStart: stepID=%s, stepName=%s, stepType=%s\n", step.ID, step.Name, step.Type)
 	c.writer.WriteEvent(&sse.Event{
 		Type: sse.EventStepStarted,
 		Data: &sse.StepStartedData{
@@ -39,11 +37,20 @@ func (c *SSECallback) OnStepStart(ctx context.Context, step *types.Step, parentI
 	})
 }
 
-// OnStepComplete 步骤完成
+// OnStepComplete 步骤完成（成功和失败都会调用此方法）
+// task_engine 中所有完成的步骤都统一通过 OnStepComplete 传递完整的 StepResult，
+// 失败只是执行结果的一种状态，通过 result.Status 区分。
 func (c *SSECallback) OnStepComplete(ctx context.Context, step *types.Step, result *types.StepResult, parentID string, iteration int) {
-	c.session.IncrementSuccess()
+	isSuccess := result.Status == types.ResultStatusSuccess
 
-	// 转换 output 为 map
+	// 更新统计计数
+	if isSuccess {
+		c.session.IncrementSuccess()
+	} else {
+		c.session.IncrementFailed()
+	}
+
+	// 转换 output 为 map（用于 SSE 事件）
 	var outputMap map[string]interface{}
 	if result.Output != nil {
 		if m, ok := result.Output.(map[string]interface{}); ok {
@@ -57,64 +64,63 @@ func (c *SSECallback) OnStepComplete(ctx context.Context, step *types.Step, resu
 	}
 
 	// 收集步骤执行结果（用于阻塞模式返回）
-	c.session.AddStepResult(StepExecutionResult{
+	stepResult := StepExecutionResult{
 		StepID:     step.ID,
 		StepName:   step.Name,
 		StepType:   step.Type,
-		Success:    true,
+		Success:    isSuccess,
 		DurationMs: result.Duration.Milliseconds(),
 		Result:     result.Output,
-	})
+	}
+	if result.Error != nil {
+		stepResult.Error = result.Error.Error()
+	}
+	c.session.AddStepResult(stepResult)
 
-	c.writer.WriteEvent(&sse.Event{
-		Type: sse.EventStepCompleted,
-		Data: &sse.StepCompletedData{
-			StepID:    step.ID,
-			StepName:  step.Name,
-			StepType:  step.Type,
-			ParentID:  parentID,
-			Iteration: iteration,
-			Status:    "success",
-			Success:   true,
-			Duration:  result.Duration.Milliseconds(),
-			Output:    outputMap,
-			Result:    result.Output,
-		},
-	})
+	// 发送 SSE 事件
+	if isSuccess {
+		c.writer.WriteEvent(&sse.Event{
+			Type: sse.EventStepCompleted,
+			Data: &sse.StepCompletedData{
+				StepID:    step.ID,
+				StepName:  step.Name,
+				StepType:  step.Type,
+				ParentID:  parentID,
+				Iteration: iteration,
+				Status:    "success",
+				Success:   true,
+				Duration:  result.Duration.Milliseconds(),
+				Output:    outputMap,
+				Result:    result.Output,
+			},
+		})
+	} else {
+		errMsg := ""
+		if result.Error != nil {
+			errMsg = result.Error.Error()
+		}
+		c.writer.WriteEvent(&sse.Event{
+			Type: sse.EventStepFailed,
+			Data: &sse.StepFailedData{
+				StepID:    step.ID,
+				StepName:  step.Name,
+				StepType:  step.Type,
+				ParentID:  parentID,
+				Iteration: iteration,
+				Status:    "failed",
+				Error:     errMsg,
+				Duration:  result.Duration.Milliseconds(),
+				Result:    result.Output,
+			},
+		})
+	}
 }
 
-// OnStepFailed 步骤失败
+// OnStepFailed 步骤失败通知
+// 结果已在 OnStepComplete 中完整处理（含 Output、Error、统计计数），
+// 此方法仅作为额外的失败通知钩子，当前无需额外操作。
 func (c *SSECallback) OnStepFailed(ctx context.Context, step *types.Step, err error, duration time.Duration, parentID string, iteration int) {
-	c.session.IncrementFailed()
-
-	errMsg := ""
-	if err != nil {
-		errMsg = err.Error()
-	}
-
-	// 收集步骤执行结果（用于阻塞模式返回）
-	c.session.AddStepResult(StepExecutionResult{
-		StepID:     step.ID,
-		StepName:   step.Name,
-		StepType:   step.Type,
-		Success:    false,
-		DurationMs: duration.Milliseconds(),
-		Error:      errMsg,
-	})
-
-	c.writer.WriteEvent(&sse.Event{
-		Type: sse.EventStepFailed,
-		Data: &sse.StepFailedData{
-			StepID:    step.ID,
-			StepName:  step.Name,
-			StepType:  step.Type,
-			ParentID:  parentID,
-			Iteration: iteration,
-			Status:    "failed",
-			Error:     errMsg,
-			Duration:  duration.Milliseconds(),
-		},
-	})
+	// 结果已在 OnStepComplete 中处理，不需要重复
 }
 
 // OnStepSkipped 步骤被跳过

@@ -203,15 +203,16 @@ type StepCompletedData struct {
 
 // StepFailedData 步骤失败数据
 type StepFailedData struct {
-	StepID    string `json:"stepId"`
-	StepName  string `json:"stepName"`
-	StepType  string `json:"stepType,omitempty"`
-	ParentID  string `json:"parentId,omitempty"`
-	Iteration int    `json:"iteration,omitempty"`
-	Status    string `json:"status"`
-	Error     string `json:"error"`
-	Details   string `json:"details,omitempty"`
-	Duration  int64  `json:"durationMs"`
+	StepID    string      `json:"stepId"`
+	StepName  string      `json:"stepName"`
+	StepType  string      `json:"stepType,omitempty"`
+	ParentID  string      `json:"parentId,omitempty"`
+	Iteration int         `json:"iteration,omitempty"`
+	Status    string      `json:"status"`
+	Error     string      `json:"error"`
+	Details   string      `json:"details,omitempty"`
+	Duration  int64       `json:"durationMs"`
+	Result    interface{} `json:"result,omitempty"` // 失败时也携带完整的执行结果（如 HTTPResponseData）
 }
 
 // StepSkippedData 步骤跳过数据

@@ -258,10 +258,26 @@ func (e *AIExecutor) createChatModel(ctx context.Context, config *AIConfig) (mod
 	return openai.NewChatModel(ctx, chatConfig)
 }
 
+// interactiveSystemInstruction 当启用人机交互时追加到系统提示词中的指令
+const interactiveSystemInstruction = `
+
+[人机交互规则]
+你可以使用 human_interaction 工具与用户进行实时交互。当你需要用户确认、输入信息或做出选择时，必须调用 human_interaction 工具，而不是在回复文本中提问。
+- 需要用户确认时：调用 human_interaction，type 设为 "confirm"
+- 需要用户输入时：调用 human_interaction，type 设为 "input"
+- 需要用户选择时：调用 human_interaction，type 设为 "select"，并提供 options
+禁止在文本中向用户提问或等待回复，所有需要用户参与的环节都必须通过 human_interaction 工具完成。`
+
 func (e *AIExecutor) buildMessages(config *AIConfig) []*schema.Message {
 	var messages []*schema.Message
-	if config.SystemPrompt != "" {
-		messages = append(messages, schema.SystemMessage(config.SystemPrompt))
+
+	systemPrompt := config.SystemPrompt
+	if config.Interactive {
+		systemPrompt += interactiveSystemInstruction
+	}
+
+	if systemPrompt != "" {
+		messages = append(messages, schema.SystemMessage(systemPrompt))
 	}
 	messages = append(messages, schema.UserMessage(config.Prompt))
 	return messages

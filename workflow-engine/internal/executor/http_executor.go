@@ -76,7 +76,21 @@ func (e *HTTPExecutor) Execute(ctx context.Context, step *types.Step, execCtx *E
 	result := types.NewStepResult(step.ID)
 	output := &types.HTTPResponseData{}
 	result.Output = output
-	defer result.Finish()
+	defer func() {
+		result.Finish()
+		// 自动填充 output 的收尾字段
+		output.Duration = result.Duration.Milliseconds()
+		if output.Error != "" {
+			// 失败时设置 StatusText 和 Body，让前端面板能展示错误信息
+			if output.StatusText == "" {
+				output.StatusText = "Error"
+			}
+			if output.Body == "" {
+				output.Body = output.Error
+			}
+			output.BodyType = "text"
+		}
+	}()
 
 	// 2. 确保客户端已初始化
 	if e.client == nil {

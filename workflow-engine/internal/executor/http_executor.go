@@ -199,7 +199,11 @@ func (e *HTTPExecutor) Execute(ctx context.Context, step *types.Step, execCtx *E
 	// 确保客户端已初始化
 	if e.client == nil {
 		if err := e.buildClient(); err != nil {
-			return CreateFailedResult(step.ID, startTime, err), nil
+			errOutput := &types.HTTPResponseData{
+				Error:    fmt.Sprintf("初始化 HTTP 客户端失败: %s", err.Error()),
+				Duration: time.Since(startTime).Milliseconds(),
+			}
+			return CreateFailedResultWithOutput(step.ID, startTime, err, errOutput), nil
 		}
 	}
 
@@ -232,7 +236,11 @@ func (e *HTTPExecutor) Execute(ctx context.Context, step *types.Step, execCtx *E
 	// 解析步骤配置
 	config, err := e.parseConfig(step.Config)
 	if err != nil {
-		return CreateFailedResult(step.ID, startTime, err), nil
+		errOutput := &types.HTTPResponseData{
+			Error:    fmt.Sprintf("解析步骤配置失败: %s", err.Error()),
+			Duration: time.Since(startTime).Milliseconds(),
+		}
+		return CreateFailedResultWithOutput(step.ID, startTime, err, errOutput), nil
 	}
 
 	// 合并步骤级配置
@@ -275,7 +283,11 @@ func (e *HTTPExecutor) Execute(ctx context.Context, step *types.Step, execCtx *E
 	// 创建 HTTP 请求
 	req, err := e.createRequest(ctx, config, stepConfig)
 	if err != nil {
-		return CreateFailedResult(step.ID, startTime, err), nil
+		errOutput := &types.HTTPResponseData{
+			Error:    fmt.Sprintf("创建请求失败: %s", err.Error()),
+			Duration: time.Since(startTime).Milliseconds(),
+		}
+		return CreateFailedResultWithOutput(step.ID, startTime, err, errOutput), nil
 	}
 
 	// 如果指定了步骤超时则应用
@@ -297,17 +309,47 @@ func (e *HTTPExecutor) Execute(ctx context.Context, step *types.Step, execCtx *E
 	})
 
 	if err != nil {
-		if err == context.DeadlineExceeded {
-			return CreateTimeoutResult(step.ID, startTime, timeout), nil
+		// 构建请求信息用于调试
+		reqHeaders := make(map[string]string)
+		for k, v := range req.Header {
+			if len(v) > 0 {
+				reqHeaders[k] = v[0]
+			}
 		}
-		return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "HTTP 请求失败", err)), nil
+		reqInfo := &types.ActualRequest{
+			Method:  req.Method,
+			URL:     req.URL.String(),
+			Headers: reqHeaders,
+			Body:    reqBodyStr,
+		}
+
+		if err == context.DeadlineExceeded {
+			errOutput := &types.HTTPResponseData{
+				Error:         fmt.Sprintf("请求超时（超时时间: %s）", timeout.String()),
+				Duration:      time.Since(startTime).Milliseconds(),
+				ActualRequest: reqInfo,
+			}
+			return CreateTimeoutResultWithOutput(step.ID, startTime, timeout, errOutput), nil
+		}
+		errOutput := &types.HTTPResponseData{
+			Error:         fmt.Sprintf("HTTP 请求失败: %s", err.Error()),
+			Duration:      time.Since(startTime).Milliseconds(),
+			ActualRequest: reqInfo,
+		}
+		return CreateFailedResultWithOutput(step.ID, startTime, NewExecutionError(step.ID, "HTTP 请求失败", err), errOutput), nil
 	}
 	defer resp.Body.Close()
 
 	// 读取响应体
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "读取响应体失败", err)), nil
+		errOutput := &types.HTTPResponseData{
+			StatusCode: resp.StatusCode,
+			StatusText: resp.Status,
+			Error:      fmt.Sprintf("读取响应体失败: %s", err.Error()),
+			Duration:   time.Since(startTime).Milliseconds(),
+		}
+		return CreateFailedResultWithOutput(step.ID, startTime, NewExecutionError(step.ID, "读取响应体失败", err), errOutput), nil
 	}
 
 	// 构建响应输出（包含请求信息，用于调试）

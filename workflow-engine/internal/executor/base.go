@@ -113,6 +113,7 @@ func CreateSuccessResult(stepID string, startTime time.Time, output any) *types.
 }
 
 // CreateFailedResult 创建失败的步骤结果。
+// 注意：失败结果也应该包含 Output，以便前端获取详细的错误信息和请求上下文。
 func CreateFailedResult(stepID string, startTime time.Time, err error) *types.StepResult {
 	endTime := time.Now()
 	return &types.StepResult{
@@ -122,6 +123,23 @@ func CreateFailedResult(stepID string, startTime time.Time, err error) *types.St
 		EndTime:   endTime,
 		Duration:  endTime.Sub(startTime),
 		Error:     err,
+		Metrics:   make(map[string]float64),
+	}
+}
+
+// CreateFailedResultWithOutput 创建带有 Output 的失败步骤结果。
+// 流程引擎中，节点执行的"错误"本质上是执行结果的一部分（如 DNS 解析失败、超时等），
+// 前端需要完整的 result 来展示错误信息和请求上下文。
+func CreateFailedResultWithOutput(stepID string, startTime time.Time, err error, output any) *types.StepResult {
+	endTime := time.Now()
+	return &types.StepResult{
+		StepID:    stepID,
+		Status:    types.ResultStatusFailed,
+		StartTime: startTime,
+		EndTime:   endTime,
+		Duration:  endTime.Sub(startTime),
+		Error:     err,
+		Output:    output,
 		Metrics:   make(map[string]float64),
 	}
 }
@@ -136,6 +154,21 @@ func CreateTimeoutResult(stepID string, startTime time.Time, timeout time.Durati
 		EndTime:   endTime,
 		Duration:  endTime.Sub(startTime),
 		Error:     NewTimeoutError(stepID, timeout),
+		Metrics:   make(map[string]float64),
+	}
+}
+
+// CreateTimeoutResultWithOutput 创建带有 Output 的超时步骤结果。
+func CreateTimeoutResultWithOutput(stepID string, startTime time.Time, timeout time.Duration, output any) *types.StepResult {
+	endTime := time.Now()
+	return &types.StepResult{
+		StepID:    stepID,
+		Status:    types.ResultStatusTimeout,
+		StartTime: startTime,
+		EndTime:   endTime,
+		Duration:  endTime.Sub(startTime),
+		Error:     NewTimeoutError(stepID, timeout),
+		Output:    output,
 		Metrics:   make(map[string]float64),
 	}
 }

@@ -578,11 +578,11 @@ func (n *NestedExecutorBase) ExecuteNestedSteps(ctx context.Context, steps []typ
 		execCtx.SetResult(step.ID, result)
 		results = append(results, result)
 
-		// 发送步骤完成/失败事件
+		// 发送步骤完成事件（不管成功还是失败，都先通过 OnStepComplete 传递完整的 StepResult）
 		if callback != nil {
-			if result.Status == types.ResultStatusSuccess {
-				callback.OnStepComplete(ctx, step, result, parentID, iteration)
-			} else {
+			callback.OnStepComplete(ctx, step, result, parentID, iteration)
+			// 如果失败，额外通知 OnStepFailed
+			if result.Status != types.ResultStatusSuccess {
 				callback.OnStepFailed(ctx, step, result.Error, result.Duration, parentID, iteration)
 			}
 		}

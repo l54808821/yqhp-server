@@ -399,11 +399,10 @@ func (e *LoopExecutor) executeLoopBody(ctx context.Context, parentStep *types.St
 		// 将结果存储到上下文
 		execCtx.SetResult(step.ID, result)
 
-		// 触发步骤完成/失败回调
+		// 触发步骤回调（不管成功还是失败，都通过 OnStepComplete 传递完整的 StepResult）
 		if callback != nil {
-			if result.Status == types.ResultStatusSuccess {
-				callback.OnStepComplete(ctx, step, result, parentStep.ID, iteration+1)
-			} else {
+			callback.OnStepComplete(ctx, step, result, parentStep.ID, iteration+1)
+			if result.Status != types.ResultStatusSuccess {
 				callback.OnStepFailed(ctx, step, result.Error, result.Duration, parentStep.ID, iteration+1)
 			}
 		}

@@ -185,7 +185,11 @@ func (e *FastHTTPExecutor) Execute(ctx context.Context, step *types.Step, execCt
 	// 确保客户端已初始化
 	if e.client == nil {
 		if err := e.buildClient(); err != nil {
-			return CreateFailedResult(step.ID, startTime, err), nil
+			errOutput := &types.HTTPResponseData{
+				Error:    fmt.Sprintf("初始化 HTTP 客户端失败: %s", err.Error()),
+				Duration: time.Since(startTime).Milliseconds(),
+			}
+			return CreateFailedResultWithOutput(step.ID, startTime, err, errOutput), nil
 		}
 	}
 
@@ -218,7 +222,11 @@ func (e *FastHTTPExecutor) Execute(ctx context.Context, step *types.Step, execCt
 	// 解析步骤配置
 	config, err := e.parseConfig(step.Config)
 	if err != nil {
-		return CreateFailedResult(step.ID, startTime, err), nil
+		errOutput := &types.HTTPResponseData{
+			Error:    fmt.Sprintf("解析步骤配置失败: %s", err.Error()),
+			Duration: time.Since(startTime).Milliseconds(),
+		}
+		return CreateFailedResultWithOutput(step.ID, startTime, err, errOutput), nil
 	}
 
 	// 合并步骤级配置
@@ -260,7 +268,11 @@ func (e *FastHTTPExecutor) Execute(ctx context.Context, step *types.Step, execCt
 
 	// 构建请求
 	if err := e.buildRequest(req, config, stepConfig); err != nil {
-		return CreateFailedResult(step.ID, startTime, err), nil
+		errOutput := &types.HTTPResponseData{
+			Error:    fmt.Sprintf("构建请求失败: %s", err.Error()),
+			Duration: time.Since(startTime).Milliseconds(),
+		}
+		return CreateFailedResultWithOutput(step.ID, startTime, err, errOutput), nil
 	}
 
 	// 捕获请求信息用于调试
@@ -288,10 +300,17 @@ func (e *FastHTTPExecutor) Execute(ctx context.Context, step *types.Step, execCt
 	}
 
 	if execErr != nil {
-		if execErr == fasthttp.ErrTimeout {
-			return CreateTimeoutResult(step.ID, startTime, timeout), nil
+		// 构建错误响应，携带请求信息便于前端调试
+		errOutput := &types.HTTPResponseData{
+			ActualRequest: reqInfo,
+			Duration:      time.Since(startTime).Milliseconds(),
 		}
-		return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "HTTP 请求失败", execErr)), nil
+		if execErr == fasthttp.ErrTimeout {
+			errOutput.Error = fmt.Sprintf("请求超时（超时时间: %s）", timeout.String())
+			return CreateTimeoutResultWithOutput(step.ID, startTime, timeout, errOutput), nil
+		}
+		errOutput.Error = fmt.Sprintf("HTTP 请求失败: %s", execErr.Error())
+		return CreateFailedResultWithOutput(step.ID, startTime, NewExecutionError(step.ID, "HTTP 请求失败", execErr), errOutput), nil
 	}
 
 	// 构建响应输出（包含请求信息）

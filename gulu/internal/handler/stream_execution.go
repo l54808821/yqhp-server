@@ -340,17 +340,20 @@ func (h *StreamExecutionHandler) executeSSE(c *fiber.Ctx, execCtx *ExecutionCont
 // executeBlocking 阻塞式执行
 func (h *StreamExecutionHandler) executeBlocking(c *fiber.Ctx, execCtx *ExecutionContext) error {
 	// 执行工作流（阻塞）
+	// ExecuteBlocking 保证：执行层面的失败（HTTP 错误、断言失败等）体现在 summary 中，不返回 error
+	// 仅基础设施层面的失败（会话创建失败等）才返回 error
 	summary, execErr := h.streamExecutor.ExecuteBlocking(c.UserContext(), execCtx.ExecReq, execCtx.EngineWf)
+	if execErr != nil {
+		// 基础设施错误，无法产生执行结果
+		if execCtx.Persist && execCtx.ExecLogic != nil {
+			execCtx.ExecLogic.UpdateStreamExecutionStatus(execCtx.SessionID, string(model.ExecutionStatusFailed), nil)
+		}
+		return response.Error(c, "执行失败: "+execErr.Error())
+	}
 
 	// 更新执行记录状态
 	if execCtx.Persist && execCtx.ExecLogic != nil {
-		if execErr != nil {
-			execCtx.ExecLogic.UpdateStreamExecutionStatus(execCtx.SessionID, string(model.ExecutionStatusFailed), nil)
-			return response.Error(c, "执行失败: "+execErr.Error())
-		}
 		execCtx.ExecLogic.UpdateStreamExecutionStatus(execCtx.SessionID, summary.Status, summary)
-	} else if execErr != nil {
-		return response.Error(c, "执行失败: "+execErr.Error())
 	}
 
 	return response.Success(c, summary)

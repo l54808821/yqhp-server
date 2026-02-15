@@ -647,8 +647,10 @@ func (e *TaskEngine) executeStepsWithContext(ctx context.Context, steps []types.
 		exec, err := e.registry.GetOrError(execType)
 		if err != nil {
 			logger.Debug("executeStepsWithContext] 获取执行器失败: type=%s, err=%v\n", execType, err)
-			// 触发步骤失败回调
+			// 获取执行器失败也构造一个 StepResult，确保回调层拿到完整信息
+			failedResult := executor.CreateFailedResult(step.ID, time.Now(), err)
 			if callback != nil {
+				callback.OnStepComplete(ctx, step, failedResult, parentID, iteration)
 				callback.OnStepFailed(ctx, step, err, 0, parentID, iteration)
 			}
 			return results, err
@@ -674,11 +676,14 @@ func (e *TaskEngine) executeStepsWithContext(ctx context.Context, steps []types.
 		if result.StepResult != nil {
 			execCtx.SetResult(step.ID, result.StepResult)
 
-			// 触发步骤完成/失败回调
+			// 触发回调：不管成功还是失败，都先调 OnStepComplete 以传递完整的 StepResult（含 Output）
+			// 对于流程引擎来说，节点"执行完毕"就是 Complete，失败只是执行结果的一种状态
 			if callback != nil {
-				if result.StepResult.Status == types.ResultStatusSuccess {
-					callback.OnStepComplete(ctx, step, result.StepResult, parentID, iteration)
-				} else {
+				// 统一走 OnStepComplete，让回调层拿到完整的 StepResult（含 Output、Error 等）
+				callback.OnStepComplete(ctx, step, result.StepResult, parentID, iteration)
+
+				// 如果步骤失败，额外通知 OnStepFailed（给需要它的消费者）
+				if result.StepResult.Status != types.ResultStatusSuccess {
 					var errMsg error
 					if result.Error != nil {
 						errMsg = result.Error

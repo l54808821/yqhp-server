@@ -162,6 +162,9 @@ func (e *StreamExecutor) ExecuteStream(ctx context.Context, req *ExecuteRequest,
 }
 
 // ExecuteBlocking 阻塞式执行
+// 返回值说明：
+//   - 执行层面的失败（HTTP 请求失败、断言失败、超时等）体现在 summary.Status 和步骤详情中，error 为 nil
+//   - 仅基础设施层面的失败（会话创建失败等无法产生执行结果的情况）才返回 error
 func (e *StreamExecutor) ExecuteBlocking(ctx context.Context, req *ExecuteRequest, wf *types.Workflow) (*ExecutionSummary, error) {
 	sessionID := fmt.Sprintf("blocking-%d-%d", req.WorkflowID, time.Now().UnixNano())
 	writer := sse.NewWriter(&discardWriter{}, sessionID)
@@ -201,15 +204,15 @@ func (e *StreamExecutor) ExecuteBlocking(ctx context.Context, req *ExecuteReques
 	case ExecutorTypeRemote:
 		summary, err := e.executeRemoteBlocking(ctx, req, wf)
 		if err != nil {
-			execErr = err
-		} else {
-			return summary, nil
+			// 远程执行的基础设施错误（Slave 不可用等），无法产生执行结果
+			return nil, err
 		}
+		return summary, nil
 	default:
 		execErr = e.executeLocal(ctx, wf, session, callback)
 	}
 
-	// 构建汇总
+	// 构建汇总 —— 无论执行成功或失败，始终返回完整的 summary
 	total, success, failed := session.GetStats()
 	status := "success"
 	if execErr != nil {
@@ -228,6 +231,7 @@ func (e *StreamExecutor) ExecuteBlocking(ctx context.Context, req *ExecuteReques
 	// 获取工作流最终变量
 	finalVars := wf.FinalVariables
 
+	// 执行层面的失败不再作为 error 返回，而是体现在 summary 中
 	return &ExecutionSummary{
 		SessionID:     session.ID,
 		TotalSteps:    total,
@@ -240,7 +244,7 @@ func (e *StreamExecutor) ExecuteBlocking(ctx context.Context, req *ExecuteReques
 		Steps:         session.GetStepResults(),
 		Variables:     finalVars,
 		EnvVariables:  wf.EnvVariables,
-	}, execErr
+	}, nil
 }
 
 // executeLocal 本地执行（通过 workflow-engine）

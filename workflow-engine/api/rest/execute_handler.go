@@ -715,13 +715,13 @@ func (w *sseWriter) WriteEvent(eventType string, data interface{}) error {
 	return w.w.Flush()
 }
 
-// streamCallback 流式回调
+// streamCallback 流式回调（实现 types.ExecutionCallback 接口）
 type streamCallback struct {
 	writer  *sseWriter
 	session *ExecuteSession
 }
 
-func (c *streamCallback) OnStepStart(ctx context.Context, step *types.Step, index int) {
+func (c *streamCallback) OnStepStart(ctx context.Context, step *types.Step, parentID string, iteration int) {
 	c.session.mu.Lock()
 	c.session.TotalSteps++
 	c.session.mu.Unlock()
@@ -730,13 +730,14 @@ func (c *streamCallback) OnStepStart(ctx context.Context, step *types.Step, inde
 		StepID:   step.ID,
 		StepName: step.Name,
 		StepType: step.Type,
-		Index:    index,
 	})
 }
 
-func (c *streamCallback) OnStepComplete(ctx context.Context, step *types.Step, result *types.StepResult) {
+func (c *streamCallback) OnStepComplete(ctx context.Context, step *types.Step, result *types.StepResult, parentID string, iteration int) {
+	isSuccess := result.Status == types.ResultStatusSuccess
+
 	c.session.mu.Lock()
-	if result.Success {
+	if isSuccess {
 		c.session.SuccessSteps++
 	} else {
 		c.session.FailedSteps++
@@ -746,43 +747,57 @@ func (c *streamCallback) OnStepComplete(ctx context.Context, step *types.Step, r
 	c.writer.WriteEvent(string(types.EventTypeStepCompleted), &types.StepCompletedEvent{
 		StepID:     step.ID,
 		StepName:   step.Name,
-		Success:    result.Success,
+		Success:    isSuccess,
 		DurationMs: result.Duration.Milliseconds(),
-		Result:     result.Output,
+		Result:     result.Output, // 失败时也有 Output（如 HTTPResponseData 含错误信息）
 	})
 }
 
-func (c *streamCallback) OnExecutionComplete(ctx context.Context, summary *types.ExecutionState) {
+func (c *streamCallback) OnStepFailed(ctx context.Context, step *types.Step, err error, duration time.Duration, parentID string, iteration int) {
+	// 结果已在 OnStepComplete 中处理，这里不需要重复
+}
+
+func (c *streamCallback) OnStepSkipped(ctx context.Context, step *types.Step, reason string, parentID string, iteration int) {
+	// 跳过的步骤不影响统计
+}
+
+func (c *streamCallback) OnProgress(ctx context.Context, current, total int, stepName string) {
+	// 流式模式已通过事件推送进度
+}
+
+func (c *streamCallback) OnExecutionComplete(ctx context.Context, summary *types.ExecutionSummary) {
 	// 由外部处理
 }
 
-// blockingCallback 阻塞式回调
+// blockingCallback 阻塞式回调（实现 types.ExecutionCallback 接口）
 type blockingCallback struct {
 	session *ExecuteSession
 }
 
-func (c *blockingCallback) OnStepStart(ctx context.Context, step *types.Step, index int) {
+func (c *blockingCallback) OnStepStart(ctx context.Context, step *types.Step, parentID string, iteration int) {
 	c.session.mu.Lock()
 	c.session.TotalSteps++
 	c.session.mu.Unlock()
 }
 
-func (c *blockingCallback) OnStepComplete(ctx context.Context, step *types.Step, result *types.StepResult) {
+func (c *blockingCallback) OnStepComplete(ctx context.Context, step *types.Step, result *types.StepResult, parentID string, iteration int) {
 	c.session.mu.Lock()
-	if result.Success {
+
+	isSuccess := result.Status == types.ResultStatusSuccess
+	if isSuccess {
 		c.session.SuccessSteps++
 	} else {
 		c.session.FailedSteps++
 	}
 
-	// 收集步骤执行结果
+	// 收集步骤执行结果（不管成功还是失败都收集，含 Output 和 Error）
 	stepResult := types.StepExecutionResult{
 		StepID:     step.ID,
 		StepName:   step.Name,
 		StepType:   step.Type,
-		Success:    result.Success,
+		Success:    isSuccess,
 		DurationMs: result.Duration.Milliseconds(),
-		Result:     result.Output,
+		Result:     result.Output, // 失败时也有 Output（如 HTTPResponseData 含错误信息和请求上下文）
 	}
 	if result.Error != nil {
 		stepResult.Error = result.Error.Error()
@@ -792,7 +807,20 @@ func (c *blockingCallback) OnStepComplete(ctx context.Context, step *types.Step,
 	c.session.mu.Unlock()
 }
 
-func (c *blockingCallback) OnExecutionComplete(ctx context.Context, summary *types.ExecutionState) {
+func (c *blockingCallback) OnStepFailed(ctx context.Context, step *types.Step, err error, duration time.Duration, parentID string, iteration int) {
+	// 结果已在 OnStepComplete 中收集，这里不需要重复处理
+	// OnStepFailed 仅作为额外的失败通知，可用于日志或报警等场景
+}
+
+func (c *blockingCallback) OnStepSkipped(ctx context.Context, step *types.Step, reason string, parentID string, iteration int) {
+	// 跳过的步骤不影响统计
+}
+
+func (c *blockingCallback) OnProgress(ctx context.Context, current, total int, stepName string) {
+	// 阻塞模式不需要进度
+}
+
+func (c *blockingCallback) OnExecutionComplete(ctx context.Context, summary *types.ExecutionSummary) {
 	c.session.mu.Lock()
 	c.session.Status = "completed"
 	c.session.mu.Unlock()

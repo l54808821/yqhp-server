@@ -265,9 +265,9 @@ const interactiveSystemInstruction = `
 你可以使用 human_interaction 工具与用户进行实时交互。遵守以下规则：
 
 1. 交互方式：当你需要用户确认、输入信息或做出选择时，必须调用 human_interaction 工具，禁止在回复文本中提问或等待用户回复。
-   - 需要用户确认时：type 设为 "confirm"
-   - 需要用户输入时：type 设为 "input"
-   - 需要用户选择时：type 设为 "select"，并提供 options
+   - 需要用户确认（是/否）：type 设为 "confirm"
+   - 需要用户自由输入文本：type 设为 "input"
+   - 需要用户从固定选项中选择：type 设为 "select"，并提供 options（用户界面会自动附带一个"其他"选项供用户自由输入，你不需要在 options 中手动添加"其他"）
 
 2. 信息充分性：如果任务需要多项用户输入，请逐一通过工具询问，确保收集到所有必要信息后再开始生成最终内容。不要跳过问题，也不要替用户假设未提供的信息。
 

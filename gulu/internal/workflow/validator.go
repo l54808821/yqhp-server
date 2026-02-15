@@ -395,10 +395,11 @@ func validateAIStep(step *Step, prefix string) []ValidationError {
 	// 验证内置工具名称
 	if tools, ok := step.Config["tools"].([]any); ok {
 		knownTools := map[string]bool{
-			"http_request": true,
-			"var_read":     true,
-			"var_write":    true,
-			"json_parse":   true,
+			"http_request":      true,
+			"var_read":          true,
+			"var_write":         true,
+			"json_parse":        true,
+			"human_interaction": true,
 		}
 		for i, t := range tools {
 			if name, ok := t.(string); ok {

@@ -46,29 +46,60 @@ func NewAIExecutor() *AIExecutor {
 
 // AIConfig AI 节点配置
 type AIConfig struct {
-	Provider           string                `json:"provider"`
-	Model              string                `json:"model"`
-	APIKey             string                `json:"api_key"`
-	BaseURL            string                `json:"base_url,omitempty"`
-	APIVersion         string                `json:"api_version,omitempty"`
-	Temperature        *float32              `json:"temperature,omitempty"`
-	MaxTokens          *int                  `json:"max_tokens,omitempty"`
-	TopP               *float32              `json:"top_p,omitempty"`
-	PresencePenalty    *float32              `json:"presence_penalty,omitempty"`
-	SystemPrompt       string                `json:"system_prompt,omitempty"`
-	Prompt             string                `json:"prompt"`
-	Streaming          bool                  `json:"streaming"`
-	Interactive        bool                  `json:"interactive"`
-	InteractionType    types.InteractionType `json:"interaction_type,omitempty"`
-	InteractionPrompt  string                `json:"interaction_prompt,omitempty"`
-	InteractionOptions []string              `json:"interaction_options,omitempty"`
-	InteractionTimeout int                   `json:"interaction_timeout,omitempty"`
-	InteractionDefault string                `json:"interaction_default,omitempty"`
-	Timeout            int                   `json:"timeout,omitempty"`            // AI 调用超时（秒），0 使用默认值
-	Tools              []string              `json:"tools,omitempty"`              // 启用的内置工具名称列表
-	MCPServerIDs       []int64               `json:"mcp_server_ids,omitempty"`     // 引用的 MCP 服务器 ID 列表
-	MaxToolRounds      int                   `json:"max_tool_rounds,omitempty"`    // 最大工具调用轮次，默认 10
-	MCPProxyBaseURL    string                `json:"mcp_proxy_base_url,omitempty"` // MCP 代理服务地址
+	Provider        string   `json:"provider"`
+	Model           string   `json:"model"`
+	APIKey          string   `json:"api_key"`
+	BaseURL         string   `json:"base_url,omitempty"`
+	APIVersion      string   `json:"api_version,omitempty"`
+	Temperature     *float32 `json:"temperature,omitempty"`
+	MaxTokens       *int     `json:"max_tokens,omitempty"`
+	TopP            *float32 `json:"top_p,omitempty"`
+	PresencePenalty *float32 `json:"presence_penalty,omitempty"`
+	SystemPrompt    string   `json:"system_prompt,omitempty"`
+	Prompt          string   `json:"prompt"`
+	Streaming       bool     `json:"streaming"`
+	Interactive     bool     `json:"interactive"`                  // 启用后，AI 可通过 human_interaction 工具主动请求用户交互
+	InteractionTimeout int  `json:"interaction_timeout,omitempty"` // 交互超时时间（秒），0 使用默认 300s
+	Timeout         int      `json:"timeout,omitempty"`            // AI 调用超时（秒），0 使用默认值
+	Tools           []string `json:"tools,omitempty"`              // 启用的内置工具名称列表
+	MCPServerIDs    []int64  `json:"mcp_server_ids,omitempty"`     // 引用的 MCP 服务器 ID 列表
+	MaxToolRounds   int      `json:"max_tool_rounds,omitempty"`    // 最大工具调用轮次，默认 10
+	MCPProxyBaseURL string   `json:"mcp_proxy_base_url,omitempty"` // MCP 代理服务地址
+}
+
+// humanInteractionToolName 人机交互工具名称
+const humanInteractionToolName = "human_interaction"
+
+// humanInteractionToolDef 返回人机交互工具的定义
+func humanInteractionToolDef() *types.ToolDefinition {
+	return &types.ToolDefinition{
+		Name:        humanInteractionToolName,
+		Description: "当你需要用户确认、输入信息或从选项中选择时，调用此工具与用户进行交互。用户将看到你提供的提示并作出响应。仅在确实需要人类介入时使用。",
+		Parameters: json.RawMessage(`{
+			"type": "object",
+			"properties": {
+				"type": {
+					"type": "string",
+					"enum": ["confirm", "input", "select"],
+					"description": "交互类型：confirm（确认/拒绝）、input（自由文本输入）、select（从选项中选择）"
+				},
+				"prompt": {
+					"type": "string",
+					"description": "展示给用户的提示信息，应清晰说明需要用户做什么"
+				},
+				"options": {
+					"type": "array",
+					"items": { "type": "string" },
+					"description": "当 type 为 select 时，提供给用户的选项列表"
+				},
+				"default_value": {
+					"type": "string",
+					"description": "超时时使用的默认值"
+				}
+			},
+			"required": ["type", "prompt"]
+		}`),
+	}
 }
 
 // AIOutput AI 节点输出
@@ -171,16 +202,6 @@ func (e *AIExecutor) Execute(ctx context.Context, step *types.Step, execCtx *Exe
 	// 将解析后的 prompt 写入输出，方便调试时查看实际输入
 	output.SystemPrompt = config.SystemPrompt
 	output.Prompt = config.Prompt
-
-	if config.Interactive && aiCallback != nil {
-		interactionResult, err := e.handleInteraction(ctx, step.ID, config, output.Content, aiCallback)
-		if err != nil {
-			return CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "交互处理失败", err)), nil
-		}
-		if interactionResult != nil {
-			output.Content = fmt.Sprintf("%s\n\n[用户响应: %s]", output.Content, interactionResult.Value)
-		}
-	}
 
 	result := CreateSuccessResult(step.ID, startTime, output)
 	result.Metrics["ai_prompt_tokens"] = float64(output.PromptTokens)
@@ -326,17 +347,47 @@ func (e *AIExecutor) executeStream(ctx context.Context, chatModel model.ChatMode
 	return output, nil
 }
 
-func (e *AIExecutor) handleInteraction(ctx context.Context, stepID string, config *AIConfig, aiContent string, callback types.AICallback) (*types.InteractionResponse, error) {
+// humanInteractionArgs 人机交互工具参数
+type humanInteractionArgs struct {
+	Type         string   `json:"type"`
+	Prompt       string   `json:"prompt"`
+	Options      []string `json:"options,omitempty"`
+	DefaultValue string   `json:"default_value,omitempty"`
+}
+
+// executeHumanInteraction 执行人机交互工具调用
+// 解析 AI 模型传入的参数，通过 SSE 回调发送交互请求给用户，阻塞等待响应后返回结果给 AI。
+func (e *AIExecutor) executeHumanInteraction(ctx context.Context, arguments string, stepID string, config *AIConfig, callback types.AICallback) *types.ToolResult {
+	var args humanInteractionArgs
+	if err := json.Unmarshal([]byte(arguments), &args); err != nil {
+		return &types.ToolResult{
+			IsError: true,
+			Content: fmt.Sprintf("参数解析失败: %v", err),
+		}
+	}
+
+	if args.Type == "" {
+		args.Type = "confirm"
+	}
+	if args.Prompt == "" {
+		return &types.ToolResult{
+			IsError: true,
+			Content: "缺少必填参数: prompt",
+		}
+	}
+
+	// 构建交互请求
 	request := &types.InteractionRequest{
-		Type:         config.InteractionType,
-		Prompt:       config.InteractionPrompt,
-		DefaultValue: config.InteractionDefault,
+		Type:         types.InteractionType(args.Type),
+		Prompt:       args.Prompt,
+		DefaultValue: args.DefaultValue,
 		Timeout:      config.InteractionTimeout,
 	}
 
-	if config.InteractionType == types.InteractionTypeSelect && len(config.InteractionOptions) > 0 {
-		request.Options = make([]types.InteractionOption, len(config.InteractionOptions))
-		for i, opt := range config.InteractionOptions {
+	// 处理 select 类型的选项
+	if args.Type == "select" && len(args.Options) > 0 {
+		request.Options = make([]types.InteractionOption, len(args.Options))
+		for i, opt := range args.Options {
 			request.Options[i] = types.InteractionOption{Value: opt, Label: opt}
 		}
 	}
@@ -345,7 +396,30 @@ func (e *AIExecutor) handleInteraction(ctx context.Context, stepID string, confi
 		request.Timeout = 300
 	}
 
-	return callback.OnAIInteractionRequired(ctx, stepID, request)
+	// 通过回调发送交互请求并等待用户响应
+	resp, err := callback.OnAIInteractionRequired(ctx, stepID, request)
+	if err != nil {
+		return &types.ToolResult{
+			IsError: true,
+			Content: fmt.Sprintf("交互处理失败: %v", err),
+		}
+	}
+
+	if resp == nil || resp.Skipped {
+		defaultVal := args.DefaultValue
+		if defaultVal == "" {
+			defaultVal = "(用户未响应)"
+		}
+		return &types.ToolResult{
+			IsError: false,
+			Content: fmt.Sprintf(`{"skipped": true, "value": %q}`, defaultVal),
+		}
+	}
+
+	return &types.ToolResult{
+		IsError: false,
+		Content: fmt.Sprintf(`{"skipped": false, "value": %q}`, resp.Value),
+	}
 }
 
 func (e *AIExecutor) parseConfig(config map[string]any) (*AIConfig, error) {
@@ -400,24 +474,8 @@ func (e *AIExecutor) parseConfig(config map[string]any) (*AIConfig, error) {
 	if interactive, ok := config["interactive"].(bool); ok {
 		aiConfig.Interactive = interactive
 	}
-	if interactionType, ok := config["interaction_type"].(string); ok {
-		aiConfig.InteractionType = types.InteractionType(interactionType)
-	}
-	if interactionPrompt, ok := config["interaction_prompt"].(string); ok {
-		aiConfig.InteractionPrompt = interactionPrompt
-	}
-	if interactionOptions, ok := config["interaction_options"].([]any); ok {
-		for _, opt := range interactionOptions {
-			if s, ok := opt.(string); ok {
-				aiConfig.InteractionOptions = append(aiConfig.InteractionOptions, s)
-			}
-		}
-	}
 	if interactionTimeout, ok := config["interaction_timeout"].(float64); ok {
 		aiConfig.InteractionTimeout = int(interactionTimeout)
-	}
-	if interactionDefault, ok := config["interaction_default"].(string); ok {
-		aiConfig.InteractionDefault = interactionDefault
 	}
 	if timeout, ok := config["timeout"].(float64); ok {
 		aiConfig.Timeout = int(timeout)
@@ -458,8 +516,6 @@ func (e *AIExecutor) resolveVariables(config *AIConfig, execCtx *ExecutionContex
 	config.APIKey = resolver.ResolveString(config.APIKey, evalCtx)
 	config.SystemPrompt = resolver.ResolveString(config.SystemPrompt, evalCtx)
 	config.Prompt = resolver.ResolveString(config.Prompt, evalCtx)
-	config.InteractionPrompt = resolver.ResolveString(config.InteractionPrompt, evalCtx)
-	config.InteractionDefault = resolver.ResolveString(config.InteractionDefault, evalCtx)
 	config.BaseURL = resolver.ResolveString(config.BaseURL, evalCtx)
 	config.MCPProxyBaseURL = resolver.ResolveString(config.MCPProxyBaseURL, evalCtx)
 
@@ -468,7 +524,7 @@ func (e *AIExecutor) resolveVariables(config *AIConfig, execCtx *ExecutionContex
 
 // hasTools 检查配置中是否启用了工具 (Task 9.4)
 func (e *AIExecutor) hasTools(config *AIConfig) bool {
-	return len(config.Tools) > 0 || len(config.MCPServerIDs) > 0
+	return len(config.Tools) > 0 || len(config.MCPServerIDs) > 0 || config.Interactive
 }
 
 // getMCPProxyBaseURL 获取 MCP 代理服务地址
@@ -482,7 +538,7 @@ func (e *AIExecutor) getMCPProxyBaseURL(config *AIConfig) string {
 	return defaultMCPProxyBaseURL
 }
 
-// collectToolDefinitions 收集所有工具定义（内置工具 + MCP 工具）(Task 9.5, 9.6)
+// collectToolDefinitions 收集所有工具定义（内置工具 + MCP 工具 + 人机交互工具）(Task 9.5, 9.6)
 func (e *AIExecutor) collectToolDefinitions(ctx context.Context, config *AIConfig, mcpClient *MCPRemoteClient) ([]*types.ToolDefinition, error) {
 	var allDefs []*types.ToolDefinition
 
@@ -494,6 +550,11 @@ func (e *AIExecutor) collectToolDefinitions(ctx context.Context, config *AIConfi
 		} else {
 			log.Printf("[WARN] 未知的内置工具名称，已跳过: %s", toolName)
 		}
+	}
+
+	// 如果启用了人机交互，注入 human_interaction 工具
+	if config.Interactive {
+		allDefs = append(allDefs, humanInteractionToolDef())
 	}
 
 	// 收集 MCP 工具定义 (Task 9.6)
@@ -723,7 +784,7 @@ func (e *AIExecutor) executeToolCallLoop(
 				}
 
 				callStart := time.Now()
-				toolResult := e.executeSingleToolCall(ctx, toolCall, execCtx, mcpClient, config.MCPServerIDs, allToolDefs)
+				toolResult := e.executeSingleToolCall(ctx, toolCall, execCtx, mcpClient, config.MCPServerIDs, allToolDefs, stepID, config, aiCallback)
 				callDuration := time.Since(callStart)
 
 				// 通知工具调用完成
@@ -827,8 +888,25 @@ func (e *AIExecutor) executeSingleToolCall(
 	mcpClient *MCPRemoteClient,
 	mcpServerIDs []int64,
 	allToolDefs []*types.ToolDefinition,
+	stepID string,
+	config *AIConfig,
+	aiCallback types.AICallback,
 ) *types.ToolResult {
 	toolName := tc.Function.Name
+
+	// 检查是否为人机交互工具
+	if toolName == humanInteractionToolName {
+		if aiCallback == nil {
+			return &types.ToolResult{
+				ToolCallID: tc.ID,
+				Content:    "人机交互不可用：缺少回调接口",
+				IsError:    true,
+			}
+		}
+		result := e.executeHumanInteraction(ctx, tc.Function.Arguments, stepID, config, aiCallback)
+		result.ToolCallID = tc.ID
+		return result
+	}
 
 	// 检查是否为内置工具
 	if DefaultToolRegistry.Has(toolName) {

@@ -3,11 +3,17 @@ package executor
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
 	"time"
 )
+
+// jsonMarshal 是 json.Marshal 的包装，避免命名冲突。
+func jsonMarshal(v any) ([]byte, error) {
+	return json.Marshal(v)
+}
 
 // HTTPGlobalConfig HTTP 全局配置
 type HTTPGlobalConfig struct {
@@ -322,9 +328,10 @@ type BodyConfig struct {
 }
 
 // ParseBodyConfig 解析请求体配置
-// 支持两种格式：
+// 支持三种格式：
 // 1. 字符串格式（直接作为 raw body）
-// 2. 对象格式：{type: "json", raw: "...", formData: [...], urlencoded: [...]}
+// 2. 标准配置格式：{type: "json", raw: "...", formData: [...], urlencoded: [...]}
+// 3. 直接 JSON 对象格式：{"username": "test"} → 自动序列化为 JSON raw body
 func ParseBodyConfig(raw any) *BodyConfig {
 	if raw == nil {
 		return nil
@@ -358,8 +365,29 @@ func ParseBodyConfig(raw any) *BodyConfig {
 	}
 
 	// 如果是 none 类型，返回 nil
-	if config.Type == "none" || config.Type == "" {
+	if config.Type == "none" {
 		return nil
+	}
+
+	// 如果没有 type 字段，判断是否是标准配置格式（有 raw/formData/urlencoded 字段）
+	// 如果都没有，说明是直接传的 JSON 对象，序列化为 JSON raw body
+	if config.Type == "" {
+		_, hasRaw := bodyMap["raw"]
+		_, hasFormData := bodyMap["formData"]
+		_, hasURLEncoded := bodyMap["urlencoded"]
+		if !hasRaw && !hasFormData && !hasURLEncoded {
+			// 直接 JSON 对象格式，序列化为 JSON
+			jsonBytes, err := jsonMarshal(bodyMap)
+			if err != nil {
+				return nil
+			}
+			return &BodyConfig{
+				Type: "json",
+				Raw:  string(jsonBytes),
+			}
+		}
+		// 有标准字段但没有 type，默认当作 json
+		config.Type = "json"
 	}
 
 	// 解析 raw 内容

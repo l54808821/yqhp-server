@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	pkgExecutor "yqhp/workflow-engine/pkg/executor"
 	"yqhp/workflow-engine/pkg/types"
 
 	"github.com/valyala/fasthttp"
@@ -23,40 +22,22 @@ const (
 
 // FastHTTPExecutor 使用 fasthttp 执行 HTTP 请求步骤，性能更优。
 type FastHTTPExecutor struct {
-	*BaseExecutor
-	client       *fasthttp.Client
-	globalConfig *HTTPGlobalConfig
+	*HTTPBaseExecutor
+	client *fasthttp.Client
 }
 
 // NewFastHTTPExecutor 创建一个新的 FastHTTP 执行器。
 func NewFastHTTPExecutor() *FastHTTPExecutor {
 	return &FastHTTPExecutor{
-		BaseExecutor: NewBaseExecutor(FastHTTPExecutorType),
-		globalConfig: DefaultHTTPGlobalConfig(),
+		HTTPBaseExecutor: NewHTTPBaseExecutor(FastHTTPExecutorType, nil),
 	}
 }
 
 // NewFastHTTPExecutorWithConfig 使用全局配置创建一个新的 FastHTTP 执行器。
 func NewFastHTTPExecutorWithConfig(globalConfig *HTTPGlobalConfig) *FastHTTPExecutor {
-	if globalConfig == nil {
-		globalConfig = DefaultHTTPGlobalConfig()
-	}
 	return &FastHTTPExecutor{
-		BaseExecutor: NewBaseExecutor(FastHTTPExecutorType),
-		globalConfig: globalConfig,
+		HTTPBaseExecutor: NewHTTPBaseExecutor(FastHTTPExecutorType, globalConfig),
 	}
-}
-
-// SetGlobalConfig 设置全局 HTTP 配置。
-func (e *FastHTTPExecutor) SetGlobalConfig(config *HTTPGlobalConfig) {
-	if config != nil {
-		e.globalConfig = config
-	}
-}
-
-// GetGlobalConfig 返回全局 HTTP 配置。
-func (e *FastHTTPExecutor) GetGlobalConfig() *HTTPGlobalConfig {
-	return e.globalConfig
 }
 
 // Init 使用配置初始化 FastHTTP 执行器。
@@ -65,113 +46,26 @@ func (e *FastHTTPExecutor) Init(ctx context.Context, config map[string]any) erro
 		return err
 	}
 
-	// 解析全局配置
 	if httpConfig, ok := config["http"].(map[string]any); ok {
-		e.parseGlobalConfig(httpConfig)
+		e.ParseGlobalConfig(httpConfig)
 	}
 
-	// 构建 FastHTTP 客户端
-	if err := e.buildClient(); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// parseGlobalConfig 解析全局配置
-func (e *FastHTTPExecutor) parseGlobalConfig(config map[string]any) {
-	if baseURL, ok := config["base_url"].(string); ok {
-		e.globalConfig.BaseURL = baseURL
-	}
-
-	if headers, ok := config["headers"].(map[string]any); ok {
-		for k, v := range headers {
-			if s, ok := v.(string); ok {
-				e.globalConfig.Headers[k] = s
-			}
-		}
-	}
-
-	if domains, ok := config["domains"].(map[string]any); ok {
-		for k, v := range domains {
-			if s, ok := v.(string); ok {
-				e.globalConfig.Domains[k] = s
-			}
-		}
-	}
-
-	// 解析 SSL 配置
-	if ssl, ok := config["ssl"].(map[string]any); ok {
-		if verify, ok := ssl["verify"].(bool); ok {
-			e.globalConfig.SSL.Verify = &verify
-		}
-		if cert, ok := ssl["cert"].(string); ok {
-			e.globalConfig.SSL.CertPath = cert
-		}
-		if key, ok := ssl["key"].(string); ok {
-			e.globalConfig.SSL.KeyPath = key
-		}
-		if ca, ok := ssl["ca"].(string); ok {
-			e.globalConfig.SSL.CAPath = ca
-		}
-	}
-
-	// 解析重定向配置
-	if redirect, ok := config["redirect"].(map[string]any); ok {
-		if follow, ok := redirect["follow"].(bool); ok {
-			e.globalConfig.Redirect.Follow = &follow
-		}
-		if maxRedirects, ok := redirect["max_redirects"].(int); ok {
-			e.globalConfig.Redirect.MaxRedirects = &maxRedirects
-		}
-	}
-
-	// 解析超时配置
-	if timeout, ok := config["timeout"].(map[string]any); ok {
-		if connect, ok := timeout["connect"].(string); ok {
-			if d, err := time.ParseDuration(connect); err == nil {
-				e.globalConfig.Timeout.Connect = d
-			}
-		}
-		if read, ok := timeout["read"].(string); ok {
-			if d, err := time.ParseDuration(read); err == nil {
-				e.globalConfig.Timeout.Read = d
-			}
-		}
-		if write, ok := timeout["write"].(string); ok {
-			if d, err := time.ParseDuration(write); err == nil {
-				e.globalConfig.Timeout.Write = d
-			}
-		}
-		if request, ok := timeout["request"].(string); ok {
-			if d, err := time.ParseDuration(request); err == nil {
-				e.globalConfig.Timeout.Request = d
-			}
-		}
-	}
+	return e.buildClient()
 }
 
 // buildClient 构建 FastHTTP 客户端
 func (e *FastHTTPExecutor) buildClient() error {
-	// 构建 TLS 配置
-	tlsConfig, err := e.globalConfig.SSL.BuildTLSConfig()
+	tlsConfig, err := e.GlobalConfig.SSL.BuildTLSConfig()
 	if err != nil {
 		return fmt.Errorf("构建 TLS 配置失败: %w", err)
 	}
 
 	e.client = &fasthttp.Client{
-		// 连接池配置
-		MaxConnsPerHost:     1000,
-		MaxIdleConnDuration: 90 * time.Second,
-
-		// 超时配置
-		ReadTimeout:  e.globalConfig.Timeout.Read,
-		WriteTimeout: e.globalConfig.Timeout.Write,
-
-		// TLS 配置
-		TLSConfig: tlsConfig,
-
-		// 禁用路径规范化以提高性能
+		MaxConnsPerHost:        1000,
+		MaxIdleConnDuration:    90 * time.Second,
+		ReadTimeout:            e.GlobalConfig.Timeout.Read,
+		WriteTimeout:           e.GlobalConfig.Timeout.Write,
+		TLSConfig:              tlsConfig,
 		DisablePathNormalizing: true,
 	}
 
@@ -180,392 +74,123 @@ func (e *FastHTTPExecutor) buildClient() error {
 
 // Execute 执行 HTTP 请求步骤。
 func (e *FastHTTPExecutor) Execute(ctx context.Context, step *types.Step, execCtx *ExecutionContext) (*types.StepResult, error) {
-	startTime := time.Now()
+	// 1. 创建结果和输出，开头就构建好，过程中逐步填充
+	result := types.NewStepResult(step.ID)
+	output := &types.HTTPResponseData{}
+	result.Output = output
+	defer result.Finish()
 
-	// 确保客户端已初始化
+	// 2. 确保客户端已初始化
 	if e.client == nil {
 		if err := e.buildClient(); err != nil {
-			errOutput := &types.HTTPResponseData{
-				Error:    fmt.Sprintf("初始化 HTTP 客户端失败: %s", err.Error()),
-				Duration: time.Since(startTime).Milliseconds(),
-			}
-			return CreateFailedResultWithOutput(step.ID, startTime, err, errOutput), nil
+			output.Error = fmt.Sprintf("初始化 HTTP 客户端失败: %s", err.Error())
+			result.Fail(err)
+			return result, nil
 		}
 	}
 
-	// 创建处理器执行器
-	variables := make(map[string]interface{})
-	envVars := make(map[string]interface{})
-	if execCtx != nil && execCtx.Variables != nil {
-		for k, v := range execCtx.Variables {
-			variables[k] = v
-		}
-	}
-	procExecutor := pkgExecutor.NewProcessorExecutor(variables, envVars)
+	// 3. 执行前置处理器
+	procExecutor := e.ExecutePreProcessors(ctx, step, execCtx)
 
-	// 1. 执行前置处理器
-	if len(step.PreProcessors) > 0 {
-		preLogs := procExecutor.ExecuteProcessors(ctx, step.PreProcessors, "pre")
-		// 使用统一的日志接口
-		execCtx.AppendLogs(preLogs)
-		// 追踪变量变更
-		e.trackVariableChanges(execCtx, preLogs)
-
-		// 更新执行上下文中的变量
-		if execCtx != nil && execCtx.Variables != nil {
-			for k, v := range procExecutor.GetVariables() {
-				execCtx.Variables[k] = v
-			}
-		}
-	}
-
-	// 解析步骤配置
-	config, err := e.parseConfig(step.Config)
+	// 4. 准备配置（解析 → 合并 → 变量替换 → URL 解析 → 域名头合并）
+	config, mergedConfig, err := e.PrepareConfig(step, execCtx)
 	if err != nil {
-		errOutput := &types.HTTPResponseData{
-			Error:    fmt.Sprintf("解析步骤配置失败: %s", err.Error()),
-			Duration: time.Since(startTime).Milliseconds(),
-		}
-		return CreateFailedResultWithOutput(step.ID, startTime, err, errOutput), nil
+		output.Error = fmt.Sprintf("解析步骤配置失败: %s", err.Error())
+		result.Fail(err)
+		return result, nil
 	}
 
-	// 合并步骤级配置
-	stepConfig := e.mergeStepConfig(config)
+	// 5. 解析超时
+	timeout := e.ResolveTimeout(step, mergedConfig, defaultFastHTTPTimeout)
 
-	// 解析配置中的变量
-	config = e.resolveVariables(config, execCtx)
-
-	// 解析 URL：优先使用内联域名配置（由 gulu handler 注入），fallback 到全局配置
-	if config.DomainBaseURL != "" {
-		config.URL = resolveURLWithBase(config.URL, config.DomainBaseURL)
-	} else {
-		config.URL = e.globalConfig.ResolveURL(config.URL, config.Domain)
-	}
-
-	// 合并域名级请求头
-	if len(config.DomainHeaders) > 0 {
-		for k, v := range config.DomainHeaders {
-			if _, exists := config.Headers[k]; !exists {
-				config.Headers[k] = v
-			}
-		}
-	}
-
-	// 如果指定了步骤超时则应用
-	timeout := step.Timeout
-	if timeout <= 0 {
-		timeout = stepConfig.Timeout.Request
-		if timeout <= 0 {
-			timeout = defaultFastHTTPTimeout
-		}
-	}
-
-	// 获取请求和响应对象（使用对象池）
+	// 6. 获取请求和响应对象（使用对象池）
 	req := fasthttp.AcquireRequest()
 	resp := fasthttp.AcquireResponse()
 	defer fasthttp.ReleaseRequest(req)
 	defer fasthttp.ReleaseResponse(resp)
 
-	// 构建请求
-	if err := e.buildRequest(req, config, stepConfig); err != nil {
-		errOutput := &types.HTTPResponseData{
-			Error:    fmt.Sprintf("构建请求失败: %s", err.Error()),
-			Duration: time.Since(startTime).Milliseconds(),
-		}
-		return CreateFailedResultWithOutput(step.ID, startTime, err, errOutput), nil
+	// 7. 构建请求
+	if err := e.buildRequest(req, config, mergedConfig); err != nil {
+		output.Error = fmt.Sprintf("构建请求失败: %s", err.Error())
+		result.Fail(err)
+		return result, nil
 	}
 
-	// 捕获请求信息用于调试
-	reqInfo := &types.ActualRequest{
-		Method:  config.Method,
-		URL:     string(req.URI().FullURI()),
-		Headers: make(map[string]string),
-	}
-	// 复制请求头
-	req.Header.VisitAll(func(key, value []byte) {
-		reqInfo.Headers[string(key)] = string(value)
-	})
-	// 复制请求体
-	if len(req.Body()) > 0 {
-		reqInfo.Body = string(req.Body())
-	}
+	// 8. 捕获请求信息用于调试（构建请求后立即记录，这样即使请求失败也能看到）
+	output.ActualRequest = e.captureRequestInfo(req, config)
 
-	// 执行请求
+	// 9. 执行请求
 	var execErr error
-	if e.globalConfig.Redirect.GetFollow() {
-		// 跟随重定向
-		execErr = e.client.DoRedirects(req, resp, e.globalConfig.Redirect.GetMaxRedirects())
+	if e.GlobalConfig.Redirect.GetFollow() {
+		execErr = e.client.DoRedirects(req, resp, e.GlobalConfig.Redirect.GetMaxRedirects())
 	} else {
 		execErr = e.client.DoTimeout(req, resp, timeout)
 	}
 
 	if execErr != nil {
-		// 构建错误响应，携带请求信息便于前端调试
-		errOutput := &types.HTTPResponseData{
-			ActualRequest: reqInfo,
-			Duration:      time.Since(startTime).Milliseconds(),
-		}
 		if execErr == fasthttp.ErrTimeout {
-			errOutput.Error = fmt.Sprintf("请求超时（超时时间: %s）", timeout.String())
-			return CreateTimeoutResultWithOutput(step.ID, startTime, timeout, errOutput), nil
+			output.Error = fmt.Sprintf("请求超时（超时时间: %s）", timeout.String())
+			result.Timeout(execErr)
+		} else {
+			output.Error = fmt.Sprintf("HTTP 请求失败: %s", execErr.Error())
+			result.Fail(NewExecutionError(step.ID, "HTTP 请求失败", execErr))
 		}
-		errOutput.Error = fmt.Sprintf("HTTP 请求失败: %s", execErr.Error())
-		return CreateFailedResultWithOutput(step.ID, startTime, NewExecutionError(step.ID, "HTTP 请求失败", execErr), errOutput), nil
+		return result, nil
 	}
 
-	// 构建响应输出（包含请求信息）
-	output := e.buildOutputWithRequest(resp, reqInfo)
+	// 10. 填充响应数据
+	e.fillResponseData(output, resp)
 
-	// 2. 执行后置处理器
-	if len(step.PostProcessors) > 0 {
-		// 将响应数据转换为 map 供处理器使用
-		respHeaders := make(map[string]interface{})
-		for k, v := range output.Headers {
-			respHeaders[k] = v
-		}
+	// 11. 执行后置处理器
+	e.ExecutePostProcessors(ctx, step, execCtx, procExecutor, output, result.StartTime)
 
-		procExecutor.SetResponse(map[string]interface{}{
-			"statusCode": output.StatusCode,
-			"statusText": output.StatusText,
-			"body":       output.Body,
-			"headers":    respHeaders,
-			"duration":   time.Since(startTime).Milliseconds(),
-		})
+	// 12. 收集日志和断言
+	e.CollectLogsAndAssertions(execCtx, output)
 
-		postLogs := procExecutor.ExecuteProcessors(ctx, step.PostProcessors, "post")
-		// 使用统一的日志接口
-		execCtx.AppendLogs(postLogs)
-		// 追踪变量变更
-		e.trackVariableChanges(execCtx, postLogs)
-
-		// 更新执行上下文中的变量
-		if execCtx != nil && execCtx.Variables != nil {
-			for k, v := range procExecutor.GetVariables() {
-				execCtx.Variables[k] = v
-			}
-		}
-	}
-
-	// 创建变量快照（在 FlushLogs 之前，因为 FlushLogs 会清空日志）
-	// 使用处理器执行器获取最新的变量状态
-	execCtx.CreateVariableSnapshotWithEnvVars(nil)
-
-	// 从执行上下文获取所有日志，并提取断言结果
-	allConsoleLogs := execCtx.FlushLogs()
-	if len(allConsoleLogs) > 0 {
-		output.ConsoleLogs = allConsoleLogs
-
-		// 从处理器日志中提取断言结果
-		for _, entry := range allConsoleLogs {
-			if entry.Type == types.LogTypeProcessor && entry.Processor != nil && entry.Processor.Type == "assertion" {
-				output.Assertions = append(output.Assertions, types.AssertionResult{
-					ID:      entry.Processor.ID,
-					Name:    entry.Processor.Name,
-					Passed:  entry.Processor.Success,
-					Message: entry.Processor.Message,
-				})
-			}
-		}
-	}
-
-	// 设置耗时
-	output.Duration = time.Since(startTime).Milliseconds()
-
-	// 创建结果
-	result := CreateSuccessResult(step.ID, startTime, output)
-
-	// 添加 HTTP 特定指标
-	result.Metrics["http_status"] = float64(resp.StatusCode())
-	result.Metrics["http_response_size"] = float64(len(resp.Body()))
+	// 13. 添加指标
+	result.AddMetric("http_status", float64(resp.StatusCode()))
+	result.AddMetric("http_response_size", float64(len(resp.Body())))
 
 	return result, nil
 }
 
-// mergeStepConfig 合并步骤级配置
-func (e *FastHTTPExecutor) mergeStepConfig(config *HTTPConfig) *HTTPGlobalConfig {
-	stepConfig := &HTTPGlobalConfig{
+// captureRequestInfo 捕获请求信息用于调试。
+func (e *FastHTTPExecutor) captureRequestInfo(req *fasthttp.Request, config *HTTPConfig) *types.ActualRequest {
+	reqInfo := &types.ActualRequest{
+		Method:  config.Method,
+		URL:     string(req.URI().FullURI()),
 		Headers: make(map[string]string),
-		Domains: make(map[string]string),
 	}
-
-	// 从步骤配置中提取 SSL 配置
-	if config.SSL != nil {
-		stepConfig.SSL = *config.SSL
+	req.Header.VisitAll(func(key, value []byte) {
+		reqInfo.Headers[string(key)] = string(value)
+	})
+	if len(req.Body()) > 0 {
+		reqInfo.Body = string(req.Body())
 	}
-
-	// 从步骤配置中提取重定向配置
-	if config.Redirect != nil {
-		stepConfig.Redirect = *config.Redirect
-	}
-
-	// 从步骤配置中提取超时配置
-	if config.Timeout != nil {
-		stepConfig.Timeout = *config.Timeout
-	}
-
-	// 合并：全局配置 < 步骤配置
-	return e.globalConfig.Merge(stepConfig)
+	return reqInfo
 }
 
-// Cleanup 释放 FastHTTP 执行器持有的资源。
-func (e *FastHTTPExecutor) Cleanup(ctx context.Context) error {
-	// fasthttp.Client 不需要显式关闭
-	return nil
-}
+// fillResponseData 从 fasthttp.Response 填充响应数据到 output。
+func (e *FastHTTPExecutor) fillResponseData(output *types.HTTPResponseData, resp *fasthttp.Response) {
+	// 复制响应体（resp.Body() 返回的是内部缓冲区的引用）
+	bodyBytes := make([]byte, len(resp.Body()))
+	copy(bodyBytes, resp.Body())
+	bodyStr := string(bodyBytes)
 
-// parseConfig 将步骤配置解析为 HTTPConfig。
-func (e *FastHTTPExecutor) parseConfig(config map[string]any) (*HTTPConfig, error) {
-	httpConfig := &HTTPConfig{
-		Method:  "GET",
-		Headers: make(map[string]string),
-		Params:  make(map[string]string),
-	}
-
-	if method, ok := config["method"].(string); ok {
-		httpConfig.Method = strings.ToUpper(method)
-	}
-
-	// 解析域名标识
-	if domain, ok := config["domain"].(string); ok {
-		httpConfig.Domain = domain
-	}
-
-	// 解析内联域名配置（由 gulu handler 从环境配置注入）
-	if domainBaseURL, ok := config["domain_base_url"].(string); ok {
-		httpConfig.DomainBaseURL = domainBaseURL
-	}
-	if domainHeaders, ok := config["domain_headers"].(map[string]interface{}); ok {
-		httpConfig.DomainHeaders = make(map[string]string, len(domainHeaders))
-		for k, v := range domainHeaders {
-			if s, ok := v.(string); ok {
-				httpConfig.DomainHeaders[k] = s
-			}
+	headers := make(map[string]string)
+	resp.Header.VisitAll(func(key, value []byte) {
+		k := string(key)
+		if _, exists := headers[k]; !exists {
+			headers[k] = string(value)
 		}
-	} else if domainHeaders, ok := config["domain_headers"].(map[string]string); ok {
-		httpConfig.DomainHeaders = domainHeaders
-	}
+	})
 
-	if url, ok := config["url"].(string); ok {
-		url = strings.TrimSpace(url)
-		if url == "" && httpConfig.Domain == "" {
-			return nil, NewConfigError("HTTP 请求地址不能为空", nil)
-		}
-		httpConfig.URL = url
-	} else if httpConfig.Domain == "" {
-		return nil, NewConfigError("HTTP 步骤需要 'url' 配置", nil)
-	}
-
-	// 解析 headers（支持 map 格式和数组格式）
-	if headersRaw, exists := config["headers"]; exists {
-		httpConfig.Headers = ParseKeyValueConfig(headersRaw)
-	}
-
-	// 解析 params（支持 map 格式和数组格式）
-	if paramsRaw, exists := config["params"]; exists {
-		httpConfig.Params = ParseKeyValueConfig(paramsRaw)
-	}
-
-	// 解析 body 配置
-	if bodyRaw, exists := config["body"]; exists {
-		httpConfig.BodyConfig = ParseBodyConfig(bodyRaw)
-	}
-
-	// 解析步骤级 SSL 配置
-	if ssl, ok := config["ssl"].(map[string]any); ok {
-		httpConfig.SSL = &SSLConfig{}
-		if verify, ok := ssl["verify"].(bool); ok {
-			httpConfig.SSL.Verify = &verify
-		}
-		if cert, ok := ssl["cert"].(string); ok {
-			httpConfig.SSL.CertPath = cert
-		}
-		if key, ok := ssl["key"].(string); ok {
-			httpConfig.SSL.KeyPath = key
-		}
-		if ca, ok := ssl["ca"].(string); ok {
-			httpConfig.SSL.CAPath = ca
-		}
-	}
-
-	// 解析步骤级重定向配置
-	if redirect, ok := config["redirect"].(map[string]any); ok {
-		httpConfig.Redirect = &RedirectConfig{}
-		if follow, ok := redirect["follow"].(bool); ok {
-			httpConfig.Redirect.Follow = &follow
-		}
-		if maxRedirects, ok := redirect["max_redirects"].(int); ok {
-			httpConfig.Redirect.MaxRedirects = &maxRedirects
-		}
-	}
-
-	// 解析步骤级超时配置
-	if timeout, ok := config["timeout"].(map[string]any); ok {
-		httpConfig.Timeout = &TimeoutConfig{}
-		if connect, ok := timeout["connect"].(string); ok {
-			if d, err := time.ParseDuration(connect); err == nil {
-				httpConfig.Timeout.Connect = d
-			}
-		}
-		if read, ok := timeout["read"].(string); ok {
-			if d, err := time.ParseDuration(read); err == nil {
-				httpConfig.Timeout.Read = d
-			}
-		}
-		if write, ok := timeout["write"].(string); ok {
-			if d, err := time.ParseDuration(write); err == nil {
-				httpConfig.Timeout.Write = d
-			}
-		}
-		if request, ok := timeout["request"].(string); ok {
-			if d, err := time.ParseDuration(request); err == nil {
-				httpConfig.Timeout.Request = d
-			}
-		}
-	}
-
-	return httpConfig, nil
-}
-
-// resolveVariables 解析配置中的变量引用。
-// 使用优化后的 VariableResolver，通过正则表达式一次性提取所有变量引用。
-func (e *FastHTTPExecutor) resolveVariables(config *HTTPConfig, execCtx *ExecutionContext) *HTTPConfig {
-	if execCtx == nil {
-		return config
-	}
-
-	evalCtx := execCtx.ToEvaluationContext()
-	resolver := GetVariableResolver()
-
-	// 解析 URL
-	config.URL = resolver.ResolveString(config.URL, evalCtx)
-
-	// 解析 headers
-	for k, v := range config.Headers {
-		config.Headers[k] = resolver.ResolveString(v, evalCtx)
-	}
-
-	// 解析 params
-	for k, v := range config.Params {
-		config.Params[k] = resolver.ResolveString(v, evalCtx)
-	}
-
-	// 解析 body 中的变量
-	if config.BodyConfig != nil {
-		// 解析 raw 内容
-		if config.BodyConfig.Raw != "" {
-			config.BodyConfig.Raw = resolver.ResolveString(config.BodyConfig.Raw, evalCtx)
-		}
-		// 解析 formData
-		for k, v := range config.BodyConfig.FormData {
-			config.BodyConfig.FormData[k] = resolver.ResolveString(v, evalCtx)
-		}
-		// 解析 urlencoded
-		for k, v := range config.BodyConfig.URLEncoded {
-			config.BodyConfig.URLEncoded[k] = resolver.ResolveString(v, evalCtx)
-		}
-	}
-
-	return config
+	output.StatusText = fmt.Sprintf("%d %s", resp.StatusCode(), fasthttp.StatusMessage(resp.StatusCode()))
+	output.StatusCode = resp.StatusCode()
+	output.Headers = headers
+	output.Body = bodyStr
+	output.BodyType = types.DetectBodyType(bodyStr)
+	output.Size = int64(len(bodyBytes))
 }
 
 // buildRequest 构建 FastHTTP 请求。
@@ -584,127 +209,64 @@ func (e *FastHTTPExecutor) buildRequest(req *fasthttp.Request, config *HTTPConfi
 		}
 	}
 
-	// 设置请求方法和 URL
 	req.Header.SetMethod(config.Method)
 	req.SetRequestURI(url)
 
-	// 先设置全局 headers
+	// 先设置全局 headers，再设置步骤级 headers（覆盖全局）
 	for k, v := range mergedConfig.Headers {
 		req.Header.Set(k, v)
 	}
-
-	// 再设置步骤级 headers（覆盖全局）
 	for k, v := range config.Headers {
 		req.Header.Set(k, v)
 	}
 
 	// 设置请求体
 	if config.BodyConfig != nil {
-		switch config.BodyConfig.Type {
-		case "form-data":
-			// multipart/form-data
-			if len(config.BodyConfig.FormData) > 0 {
-				// 简单实现：使用 url 编码（完整实现需要 multipart writer）
-				var parts []string
-				for k, v := range config.BodyConfig.FormData {
-					parts = append(parts, fmt.Sprintf("%s=%s", k, v))
-				}
-				req.SetBodyString(strings.Join(parts, "&"))
-				if len(req.Header.ContentType()) == 0 {
-					req.Header.SetContentType("multipart/form-data")
-				}
-			}
-		case "x-www-form-urlencoded":
-			// application/x-www-form-urlencoded
-			if len(config.BodyConfig.URLEncoded) > 0 {
-				var parts []string
-				for k, v := range config.BodyConfig.URLEncoded {
-					parts = append(parts, fmt.Sprintf("%s=%s", k, v))
-				}
-				req.SetBodyString(strings.Join(parts, "&"))
-				if len(req.Header.ContentType()) == 0 {
-					req.Header.SetContentType("application/x-www-form-urlencoded")
-				}
-			}
-		case "json":
-			// application/json
-			if config.BodyConfig.Raw != "" {
-				req.SetBodyString(config.BodyConfig.Raw)
-				if len(req.Header.ContentType()) == 0 {
-					req.Header.SetContentType("application/json")
-				}
-			}
-		case "xml":
-			// application/xml
-			if config.BodyConfig.Raw != "" {
-				req.SetBodyString(config.BodyConfig.Raw)
-				if len(req.Header.ContentType()) == 0 {
-					req.Header.SetContentType("application/xml")
-				}
-			}
-		case "text":
-			// text/plain
-			if config.BodyConfig.Raw != "" {
-				req.SetBodyString(config.BodyConfig.Raw)
-				if len(req.Header.ContentType()) == 0 {
-					req.Header.SetContentType("text/plain")
-				}
-			}
-		case "graphql":
-			// GraphQL 请求
-			if config.BodyConfig.Raw != "" {
-				req.SetBodyString(config.BodyConfig.Raw)
-				if len(req.Header.ContentType()) == 0 {
-					req.Header.SetContentType("application/json")
-				}
-			}
-		default:
-			// 其他类型（raw 等）
-			if config.BodyConfig.Raw != "" {
-				req.SetBodyString(config.BodyConfig.Raw)
-				if len(req.Header.ContentType()) == 0 {
-					req.Header.SetContentType("application/json")
-				}
-			}
-		}
+		e.setRequestBody(req, config.BodyConfig)
 	}
 
 	return nil
 }
 
-// buildOutput 构建响应输出（使用统一的 HTTPResponseData 结构）
-func (e *FastHTTPExecutor) buildOutput(resp *fasthttp.Response) *types.HTTPResponseData {
-	return e.buildOutputWithRequest(resp, nil)
-}
+// setRequestBody 设置请求体。
+func (e *FastHTTPExecutor) setRequestBody(req *fasthttp.Request, body *BodyConfig) {
+	var content string
+	var contentType string
 
-// buildOutputWithRequest 构建响应输出，包含请求信息。
-func (e *FastHTTPExecutor) buildOutputWithRequest(resp *fasthttp.Response, reqInfo *types.ActualRequest) *types.HTTPResponseData {
-	// 复制响应体（因为 resp.Body() 返回的是内部缓冲区的引用）
-	bodyBytes := make([]byte, len(resp.Body()))
-	copy(bodyBytes, resp.Body())
-	bodyStr := string(bodyBytes)
-
-	// 将 headers 转换为 map[string]string（取第一个值）
-	headers := make(map[string]string)
-	resp.Header.VisitAll(func(key, value []byte) {
-		k := string(key)
-		// 如果已存在则跳过（保留第一个值）
-		if _, exists := headers[k]; !exists {
-			headers[k] = string(value)
+	switch body.Type {
+	case "form-data":
+		if len(body.FormData) > 0 {
+			content = encodeKeyValues(body.FormData)
+			contentType = "multipart/form-data"
 		}
-	})
-
-	output := &types.HTTPResponseData{
-		StatusText:    fmt.Sprintf("%d %s", resp.StatusCode(), fasthttp.StatusMessage(resp.StatusCode())),
-		StatusCode:    resp.StatusCode(),
-		Headers:       headers,
-		Body:          bodyStr,
-		BodyType:      types.DetectBodyType(bodyStr),
-		Size:          int64(len(bodyBytes)),
-		ActualRequest: reqInfo,
+	case "x-www-form-urlencoded":
+		if len(body.URLEncoded) > 0 {
+			content = encodeKeyValues(body.URLEncoded)
+			contentType = "application/x-www-form-urlencoded"
+		}
+	case "json":
+		content = body.Raw
+		contentType = "application/json"
+	case "xml":
+		content = body.Raw
+		contentType = "application/xml"
+	case "text":
+		content = body.Raw
+		contentType = "text/plain"
+	case "graphql":
+		content = body.Raw
+		contentType = "application/json"
+	default:
+		content = body.Raw
+		contentType = "application/json"
 	}
 
-	return output
+	if content != "" {
+		req.SetBodyString(content)
+		if len(req.Header.ContentType()) == 0 {
+			req.Header.SetContentType(contentType)
+		}
+	}
 }
 
 // ConfigureTLS 配置 TLS（用于 HTTPS 请求）
@@ -714,82 +276,21 @@ func (e *FastHTTPExecutor) ConfigureTLS(tlsConfig *tls.Config) {
 	}
 }
 
-// trackVariableChanges 从处理器日志中追踪变量变更
-func (e *FastHTTPExecutor) trackVariableChanges(execCtx *ExecutionContext, logs []types.ConsoleLogEntry) {
-	if execCtx == nil {
-		return
+// Cleanup 释放 FastHTTP 执行器持有的资源。
+func (e *FastHTTPExecutor) Cleanup(ctx context.Context) error {
+	return nil
+}
+
+// encodeKeyValues 将 key-value map 编码为 URL 编码字符串。
+func encodeKeyValues(kv map[string]string) string {
+	parts := make([]string, 0, len(kv))
+	for k, v := range kv {
+		parts = append(parts, fmt.Sprintf("%s=%s", k, v))
 	}
-
-	for _, entry := range logs {
-		if entry.Type != types.LogTypeProcessor || entry.Processor == nil {
-			continue
-		}
-
-		output := entry.Processor.Output
-		if output == nil {
-			continue
-		}
-
-		// 处理 set_variable 和 extract_param 的变量变更
-		if entry.Processor.Type == "set_variable" || entry.Processor.Type == "extract_param" {
-			varName, _ := output["variableName"].(string)
-			if varName == "" {
-				continue
-			}
-			scope, _ := output["scope"].(string)
-			if scope == "" {
-				scope = "temp"
-			}
-			source, _ := output["source"].(string)
-			if source == "" {
-				source = entry.Processor.Type
-			}
-
-			// 记录变量变更
-			execCtx.AppendLog(types.NewVariableChangeEntry(types.VariableChangeInfo{
-				Name:     varName,
-				OldValue: output["oldValue"],
-				NewValue: output["value"],
-				Scope:    scope,
-				Source:   source,
-			}))
-
-			// 标记环境变量
-			if scope == "env" {
-				execCtx.MarkAsEnvVar(varName)
-			}
-		}
-
-		// 处理 js_script 的变量变更
-		if entry.Processor.Type == "js_script" {
-			if varChanges, ok := output["varChanges"].([]map[string]any); ok {
-				for _, change := range varChanges {
-					name, _ := change["name"].(string)
-					if name == "" {
-						continue
-					}
-					scope, _ := change["scope"].(string)
-					source, _ := change["source"].(string)
-
-					execCtx.AppendLog(types.NewVariableChangeEntry(types.VariableChangeInfo{
-						Name:     name,
-						OldValue: change["oldValue"],
-						NewValue: change["newValue"],
-						Scope:    scope,
-						Source:   source,
-					}))
-
-					if scope == "env" {
-						execCtx.MarkAsEnvVar(name)
-					}
-				}
-			}
-		}
-	}
+	return strings.Join(parts, "&")
 }
 
 // init 在默认注册表中注册 FastHTTP 执行器（替代原有的 HTTP 执行器）。
 func init() {
-	// 注册 FastHTTP 执行器作为默认的 HTTP 执行器
 	MustRegister(NewFastHTTPExecutor())
 }

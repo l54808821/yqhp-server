@@ -17,6 +17,8 @@ const (
 )
 
 // StepResult contains the result of a step execution.
+// 推荐使用 NewStepResult 创建，然后在执行过程中逐步填充 Output，
+// 最后用 defer result.Finish() 自动设置 EndTime 和 Duration。
 type StepResult struct {
 	StepID    string
 	Status    ResultStatus
@@ -26,6 +28,49 @@ type StepResult struct {
 	Output    any
 	Error     error
 	Metrics   map[string]float64
+}
+
+// NewStepResult 创建一个初始状态为 success 的 StepResult。
+// 配合 defer result.Finish() 使用，在执行过程中逐步填充数据。
+func NewStepResult(stepID string) *StepResult {
+	return &StepResult{
+		StepID:    stepID,
+		Status:    ResultStatusSuccess,
+		StartTime: time.Now(),
+		Metrics:   make(map[string]float64),
+	}
+}
+
+// Fail 标记步骤为失败。
+func (r *StepResult) Fail(err error) {
+	r.Status = ResultStatusFailed
+	r.Error = err
+}
+
+// Timeout 标记步骤为超时。
+func (r *StepResult) Timeout(err error) {
+	r.Status = ResultStatusTimeout
+	r.Error = err
+}
+
+// Finish 完成结果构建，设置 EndTime 和 Duration。
+// 通常在 Execute 方法开头用 defer result.Finish() 调用。
+func (r *StepResult) Finish() {
+	r.EndTime = time.Now()
+	r.Duration = r.EndTime.Sub(r.StartTime)
+}
+
+// AddMetric 添加一个指标。
+func (r *StepResult) AddMetric(key string, value float64) {
+	if r.Metrics == nil {
+		r.Metrics = make(map[string]float64)
+	}
+	r.Metrics[key] = value
+}
+
+// IsSuccess 判断步骤是否成功。
+func (r *StepResult) IsSuccess() bool {
+	return r.Status == ResultStatusSuccess
 }
 
 // ExecutionContext holds runtime state for step execution.

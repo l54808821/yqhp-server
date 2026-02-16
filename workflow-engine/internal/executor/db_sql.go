@@ -93,6 +93,8 @@ func (a *SQLDBAdapter) Query(ctx context.Context, sqlStr string, params ...any) 
 		return nil, err
 	}
 
+	columnTypes, _ := rows.ColumnTypes()
+
 	var result []map[string]any
 	for rows.Next() {
 		values := make([]any, len(columns))
@@ -112,7 +114,11 @@ func (a *SQLDBAdapter) Query(ctx context.Context, sqlStr string, params ...any) 
 			case []byte:
 				row[col] = string(v)
 			case time.Time:
-				row[col] = v.Format("2006-01-02 15:04:05")
+				dbTypeName := ""
+				if columnTypes != nil && i < len(columnTypes) {
+					dbTypeName = columnTypes[i].DatabaseTypeName()
+				}
+				row[col] = formatTimeValue(v, dbTypeName)
 			default:
 				row[col] = val
 			}
@@ -258,4 +264,27 @@ func (a *SQLDBAdapter) IsConnected() bool {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
 	return a.connected && a.db != nil
+}
+
+// formatTimeValue 根据数据库列类型格式化时间值
+func formatTimeValue(t time.Time, dbTypeName string) string {
+	upper := strings.ToUpper(dbTypeName)
+	switch {
+	case upper == "DATE":
+		return t.Format("2006-01-02")
+	case upper == "TIME":
+		return t.Format("15:04:05")
+	case upper == "TIMETZ":
+		return t.Format("15:04:05-07:00")
+	case upper == "YEAR":
+		return t.Format("2006")
+	default:
+		// DATETIME, TIMESTAMP, TIMESTAMPTZ 等
+		if t.Nanosecond() > 0 {
+			// 保留微秒精度，去掉末尾多余的 0
+			return strings.TrimRight(strings.TrimRight(
+				t.Format("2006-01-02 15:04:05.000000"), "0"), ".")
+		}
+		return t.Format("2006-01-02 15:04:05")
+	}
 }

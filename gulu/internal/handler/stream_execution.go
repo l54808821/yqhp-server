@@ -699,7 +699,7 @@ func resolveEnvConfigReferences(steps []types.Step, config *workflow.MergedConfi
 		switch step.Type {
 		case "http":
 			resolveHTTPDomainConfig(step.Config, config)
-		case "database":
+		case "db", "database":
 			resolveDatabaseConfig(step.Config, config)
 		case "mq":
 			resolveMQConfig(step.Config, config)
@@ -753,13 +753,60 @@ func resolveHTTPDomainConfig(stepConfig map[string]interface{}, config *workflow
 }
 
 // resolveDatabaseConfig 解析数据库步骤的配置引用。
-// 将 database_config（引用 code）展开为 driver、dsn 等执行器可消费的字段。
+// 将 database_config / datasourceCode（引用 code）展开为 driver、dsn 等执行器可消费的字段。
+// 同时规范化前端字段名与执行器期望的字段名之间的差异。
 func resolveDatabaseConfig(stepConfig map[string]interface{}, config *workflow.MergedConfig) {
-	if stepConfig == nil || config.Databases == nil {
+	if stepConfig == nil {
 		return
 	}
 
+	// === 1. 规范化前端参数 ===
+
+	// 前端 params 是 [{key, value, ...}] 对象数组，执行器期望 [value1, value2, ...]
+	if params, ok := stepConfig["params"].([]interface{}); ok && len(params) > 0 {
+		plainParams := make([]interface{}, 0, len(params))
+		for _, p := range params {
+			if pMap, ok := p.(map[string]interface{}); ok {
+				if v, exists := pMap["value"]; exists {
+					plainParams = append(plainParams, v)
+				}
+			} else {
+				plainParams = append(plainParams, p)
+			}
+		}
+		stepConfig["params"] = plainParams
+	}
+
+	// 处理 settings 中的 timeout（毫秒 -> 持续时间字符串）
+	if settings, ok := stepConfig["settings"].(map[string]interface{}); ok {
+		if timeout, ok := settings["timeout"].(float64); ok && timeout > 0 {
+			stepConfig["timeout"] = fmt.Sprintf("%dms", int(timeout))
+		}
+	}
+
+	// 旧格式兼容：旧版使用 "query" 字段存储 SQL
+	if _, hasSQL := stepConfig["sql"]; !hasSQL {
+		if query, ok := stepConfig["query"].(string); ok {
+			stepConfig["sql"] = query
+		}
+	}
+
+	// 旧格式兼容：如果没有 action，默认为 query
+	if _, hasAction := stepConfig["action"]; !hasAction {
+		stepConfig["action"] = "query"
+	}
+
+	// === 2. 解析数据源配置引用 ===
+
+	if config == nil || config.Databases == nil {
+		return
+	}
+
+	// 兼容新旧字段名：新前端使用 datasourceCode，旧配置使用 database_config
 	dbCode, _ := stepConfig["database_config"].(string)
+	if dbCode == "" {
+		dbCode, _ = stepConfig["datasourceCode"].(string)
+	}
 	if dbCode == "" {
 		return
 	}

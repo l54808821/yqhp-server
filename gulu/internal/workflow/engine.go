@@ -232,11 +232,21 @@ func convertStep(s Step) types.Step {
 	return convertStepWithOptions(s, false)
 }
 
+// mapStepType 将前端步骤类型映射为执行器类型
+func mapStepType(frontendType string) string {
+	switch frontendType {
+	case "database":
+		return "db"
+	default:
+		return frontendType
+	}
+}
+
 // convertStepWithOptions 转换单个步骤，支持调试模式选项
 func convertStepWithOptions(s Step, debugMode bool) types.Step {
 	step := types.Step{
 		ID:       s.ID,
-		Type:     s.Type,
+		Type:     mapStepType(s.Type),
 		Name:     s.Name,
 		Config:   s.Config,
 		Disabled: s.Disabled,

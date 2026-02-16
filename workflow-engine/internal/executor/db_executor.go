@@ -90,7 +90,12 @@ type DBExecutor struct {
 func NewDBExecutor() *DBExecutor {
 	return &DBExecutor{
 		BaseExecutor: NewBaseExecutor(DBExecutorType),
-		adapters:     make(map[DBDriver]DBAdapter),
+		config: &DBConfig{
+			Driver:         DBDriverSQLite,
+			MaxConnections: 10,
+			Timeout:        defaultDBTimeout,
+		},
+		adapters: make(map[DBDriver]DBAdapter),
 	}
 }
 
@@ -160,8 +165,13 @@ func (e *DBExecutor) Execute(ctx context.Context, step *types.Step, execCtx *Exe
 	// 获取适配器
 	adapter, ok := e.adapters[stepConfig.Driver]
 	if !ok {
-		// 使用内存适配器作为默认
-		adapter = NewInMemoryDBAdapter()
+		// 根据驱动类型创建适配器
+		switch stepConfig.Driver {
+		case DBDriverMySQL, DBDriverPostgres:
+			adapter = NewSQLDBAdapter()
+		default:
+			adapter = NewInMemoryDBAdapter()
+		}
 		e.adapters[stepConfig.Driver] = adapter
 	}
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 )
 
 // SQLDBAdapter 基于 database/sql 的通用数据库适配器
@@ -107,10 +108,12 @@ func (a *SQLDBAdapter) Query(ctx context.Context, sqlStr string, params ...any) 
 		row := make(map[string]any, len(columns))
 		for i, col := range columns {
 			val := values[i]
-			// 将 []byte 转为 string
-			if b, ok := val.([]byte); ok {
-				row[col] = string(b)
-			} else {
+			switch v := val.(type) {
+			case []byte:
+				row[col] = string(v)
+			case time.Time:
+				row[col] = v.Format("2006-01-02 15:04:05")
+			default:
 				row[col] = val
 			}
 		}

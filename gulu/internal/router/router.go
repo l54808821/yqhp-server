@@ -112,6 +112,11 @@ func Setup(app *fiber.App) {
 	envs.Put("/:envId/configs/:code", handler.ConfigUpdate)
 	envs.Put("/:envId/configs", handler.ConfigBatchUpdate)
 
+	// 数据库 Schema 查询路由
+	database := api.Group("/database")
+	database.Get("/:configCode/tables", handler.DatabaseGetTables)
+	database.Get("/:configCode/columns", handler.DatabaseGetColumns)
+
 	// 配置定义管理路由（项目级别）
 	configDefs := api.Group("/projects/:projectId/config-definitions")
 	configDefs.Get("", handler.ConfigDefinitionList)

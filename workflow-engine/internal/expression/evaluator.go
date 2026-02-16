@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // EvaluationContext holds the context for expression evaluation.
@@ -58,7 +59,10 @@ type ExpressionEvaluator interface {
 }
 
 // DefaultEvaluator is the default implementation of ExpressionEvaluator.
-type DefaultEvaluator struct{}
+// 内置 AST 缓存，避免对同一表达式重复解析。
+type DefaultEvaluator struct {
+	astCache sync.Map // key: string(expression), value: *ExpressionAST
+}
 
 // NewEvaluator creates a new DefaultEvaluator.
 func NewEvaluator() *DefaultEvaluator {
@@ -85,11 +89,18 @@ func (e *DefaultEvaluator) Evaluate(ast *ExpressionAST, ctx *EvaluationContext) 
 }
 
 // EvaluateString parses and evaluates an expression string.
+// 使用 AST 缓存：相同的表达式只解析一次，后续直接复用缓存的 AST。
 func (e *DefaultEvaluator) EvaluateString(expr string, ctx *EvaluationContext) (bool, error) {
+	// 先查缓存
+	if cached, ok := e.astCache.Load(expr); ok {
+		return e.Evaluate(cached.(*ExpressionAST), ctx)
+	}
+	// 缓存未命中，解析并存储
 	ast, err := e.Parse(expr)
 	if err != nil {
 		return false, err
 	}
+	e.astCache.Store(expr, ast)
 	return e.Evaluate(ast, ctx)
 }
 
@@ -207,7 +218,7 @@ func getField(v any, field string) (any, error) {
 		return nil, fmt.Errorf("在结构体中未找到字段 '%s'", field)
 	}
 
-	return nil, fmt.Errorf("无法从类型 %T 获取字段 '%s'", field, v)
+	return nil, fmt.Errorf("无法从类型 %T 获取字段 '%s'", v, field)
 }
 
 // evaluateComparison evaluates a comparison expression.
@@ -306,9 +317,15 @@ func compare(left, right any, op string) (bool, error) {
 		return compareNumbers(leftNum, rightNum, op)
 	}
 
-	// String comparison
-	leftStr := fmt.Sprintf("%v", left)
-	rightStr := fmt.Sprintf("%v", right)
+	// String comparison — 优先类型断言，避免不必要的 fmt.Sprintf
+	leftStr, ok := left.(string)
+	if !ok {
+		leftStr = fmt.Sprintf("%v", left)
+	}
+	rightStr, ok := right.(string)
+	if !ok {
+		rightStr = fmt.Sprintf("%v", right)
+	}
 
 	switch op {
 	case "==":
@@ -386,16 +403,35 @@ func toFloat64(v any) (float64, bool) {
 }
 
 // toBool converts a value to bool.
+// 使用拆分的 case 分支直接类型转换，避免反射开销。
 func toBool(v any) (bool, error) {
 	switch val := v.(type) {
 	case bool:
 		return val, nil
-	case int, int8, int16, int32, int64:
-		return reflect.ValueOf(val).Int() != 0, nil
-	case uint, uint8, uint16, uint32, uint64:
-		return reflect.ValueOf(val).Uint() != 0, nil
-	case float32, float64:
-		return reflect.ValueOf(val).Float() != 0, nil
+	case int:
+		return val != 0, nil
+	case int8:
+		return val != 0, nil
+	case int16:
+		return val != 0, nil
+	case int32:
+		return val != 0, nil
+	case int64:
+		return val != 0, nil
+	case uint:
+		return val != 0, nil
+	case uint8:
+		return val != 0, nil
+	case uint16:
+		return val != 0, nil
+	case uint32:
+		return val != 0, nil
+	case uint64:
+		return val != 0, nil
+	case float32:
+		return val != 0, nil
+	case float64:
+		return val != 0, nil
 	case string:
 		lower := strings.ToLower(val)
 		if lower == "true" || lower == "1" {

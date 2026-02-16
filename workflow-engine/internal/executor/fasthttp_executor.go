@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"yqhp/workflow-engine/pkg/types"
@@ -18,6 +20,12 @@ const (
 
 	// FastHTTP 请求的默认超时时间。
 	defaultFastHTTPTimeout = 30 * time.Second
+)
+
+var (
+	// 全局共享的 FastHTTP 客户端，多 VU 共享连接池
+	globalFastHTTPClient     *fasthttp.Client
+	globalFastHTTPClientOnce sync.Once
 )
 
 // FastHTTPExecutor 使用 fasthttp 执行 HTTP 请求步骤，性能更优。
@@ -53,22 +61,29 @@ func (e *FastHTTPExecutor) Init(ctx context.Context, config map[string]any) erro
 	return e.buildClient()
 }
 
-// buildClient 构建 FastHTTP 客户端
+// buildClient 构建 FastHTTP 客户端（全局共享，仅初始化一次）
 func (e *FastHTTPExecutor) buildClient() error {
-	tlsConfig, err := e.GlobalConfig.SSL.BuildTLSConfig()
-	if err != nil {
-		return fmt.Errorf("构建 TLS 配置失败: %w", err)
-	}
+	var initErr error
+	globalFastHTTPClientOnce.Do(func() {
+		tlsConfig, err := e.GlobalConfig.SSL.BuildTLSConfig()
+		if err != nil {
+			initErr = fmt.Errorf("构建 TLS 配置失败: %w", err)
+			return
+		}
 
-	e.client = &fasthttp.Client{
-		MaxConnsPerHost:        1000,
-		MaxIdleConnDuration:    90 * time.Second,
-		ReadTimeout:            e.GlobalConfig.Timeout.Read,
-		WriteTimeout:           e.GlobalConfig.Timeout.Write,
-		TLSConfig:              tlsConfig,
-		DisablePathNormalizing: true,
+		globalFastHTTPClient = &fasthttp.Client{
+			MaxConnsPerHost:        1000,
+			MaxIdleConnDuration:    90 * time.Second,
+			ReadTimeout:            e.GlobalConfig.Timeout.Read,
+			WriteTimeout:           e.GlobalConfig.Timeout.Write,
+			TLSConfig:              tlsConfig,
+			DisablePathNormalizing: true,
+		}
+	})
+	if initErr != nil {
+		return initErr
 	}
-
+	e.client = globalFastHTTPClient
 	return nil
 }
 
@@ -133,16 +148,19 @@ func (e *FastHTTPExecutor) Execute(ctx context.Context, step *types.Step, execCt
 	// 8. 捕获请求信息用于调试（构建请求后立即记录，这样即使请求失败也能看到）
 	output.ActualRequest = e.captureRequestInfo(req, config)
 
-	// 9. 执行请求
+	// 9. 执行请求（统一使用 DoDeadline 确保超时始终生效）
 	var execErr error
+	deadline := time.Now().Add(timeout)
 	if e.GlobalConfig.Redirect.GetFollow() {
+		// 使用 DoRedirects + deadline：先设置请求超时，再执行重定向
+		req.SetTimeout(timeout)
 		execErr = e.client.DoRedirects(req, resp, e.GlobalConfig.Redirect.GetMaxRedirects())
 	} else {
-		execErr = e.client.DoTimeout(req, resp, timeout)
+		execErr = e.client.DoDeadline(req, resp, deadline)
 	}
 
 	if execErr != nil {
-		if execErr == fasthttp.ErrTimeout {
+		if execErr == fasthttp.ErrTimeout || time.Now().After(deadline) {
 			output.Error = fmt.Sprintf("请求超时（超时时间: %s）", timeout.String())
 			result.Timeout(execErr)
 		} else {
@@ -209,22 +227,22 @@ func (e *FastHTTPExecutor) fillResponseData(output *types.HTTPResponseData, resp
 
 // buildRequest 构建 FastHTTP 请求。
 func (e *FastHTTPExecutor) buildRequest(req *fasthttp.Request, config *HTTPConfig, mergedConfig *HTTPGlobalConfig) error {
-	// 构建带查询参数的 URL
-	url := config.URL
+	// 构建带查询参数的 URL（使用 URL 编码防止特殊字符破坏请求）
+	requestURL := config.URL
 	if len(config.Params) > 0 {
 		params := make([]string, 0, len(config.Params))
 		for k, v := range config.Params {
-			params = append(params, fmt.Sprintf("%s=%s", k, v))
+			params = append(params, url.QueryEscape(k)+"="+url.QueryEscape(v))
 		}
-		if strings.Contains(url, "?") {
-			url += "&" + strings.Join(params, "&")
+		if strings.Contains(requestURL, "?") {
+			requestURL += "&" + strings.Join(params, "&")
 		} else {
-			url += "?" + strings.Join(params, "&")
+			requestURL += "?" + strings.Join(params, "&")
 		}
 	}
 
 	req.Header.SetMethod(config.Method)
-	req.SetRequestURI(url)
+	req.SetRequestURI(requestURL)
 
 	// 先设置全局 headers，再设置步骤级 headers（覆盖全局）
 	for k, v := range mergedConfig.Headers {
@@ -299,7 +317,7 @@ func (e *FastHTTPExecutor) Cleanup(ctx context.Context) error {
 func encodeKeyValues(kv map[string]string) string {
 	parts := make([]string, 0, len(kv))
 	for k, v := range kv {
-		parts = append(parts, fmt.Sprintf("%s=%s", k, v))
+		parts = append(parts, url.QueryEscape(k)+"="+url.QueryEscape(v))
 	}
 	return strings.Join(parts, "&")
 }

@@ -56,6 +56,11 @@ type ExecutionContext struct {
 	// logCollector 日志收集器（用于统一收集执行过程中的日志）
 	logCollector *types.LogCollector
 
+	// cachedEvalCtx 缓存的表达式求值上下文，避免频繁重建
+	cachedEvalCtx *expression.EvaluationContext
+	// evalCtxDirty 标记求值上下文是否需要重建
+	evalCtxDirty bool
+
 	mu sync.RWMutex
 }
 
@@ -65,6 +70,7 @@ func NewExecutionContext() *ExecutionContext {
 		Variables:    make(map[string]any),
 		Results:      make(map[string]*types.StepResult),
 		logCollector: types.NewLogCollector(),
+		evalCtxDirty: true,
 	}
 }
 
@@ -73,6 +79,7 @@ func (c *ExecutionContext) WithVariables(vars map[string]any) *ExecutionContext 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.Variables = vars
+	c.evalCtxDirty = true
 	return c
 }
 
@@ -113,6 +120,7 @@ func (c *ExecutionContext) SetVariable(name string, value any) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.Variables[name] = value
+	c.evalCtxDirty = true
 }
 
 // GetVariable 获取变量值。
@@ -128,6 +136,7 @@ func (c *ExecutionContext) SetResult(stepID string, result *types.StepResult) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.Results[stepID] = result
+	c.evalCtxDirty = true
 }
 
 // GetResult 获取步骤结果。
@@ -155,6 +164,7 @@ func (c *ExecutionContext) Clone() *ExecutionContext {
 		ParentStepID:  c.ParentStepID,
 		LoopIteration: c.LoopIteration,
 		logCollector:  c.logCollector.Clone(),
+		evalCtxDirty:  true, // 新克隆的上下文需要重建求值缓存
 	}
 
 	// 深拷贝变量，防止子上下文修改影响父上下文
@@ -329,6 +339,7 @@ func (c *ExecutionContext) SetVariableWithTracking(name string, value any, scope
 	c.mu.Lock()
 	oldValue, _ := c.Variables[name]
 	c.Variables[name] = value
+	c.evalCtxDirty = true
 	c.mu.Unlock()
 
 	if c.logCollector != nil {
@@ -405,10 +416,25 @@ func (c *ExecutionContext) MergeLogsFrom(other *ExecutionContext) {
 // ========== 表达式求值上下文转换 ==========
 
 // BuildEvaluationContext 将 ExecutionContext 转换为表达式求值上下文。
+// 使用脏标记机制：仅在变量或结果发生变化时重建，否则复用缓存。
 // 这是一个公共方法，用于消除 ConditionExecutor 和 LoopExecutor 中的重复代码。
 func (c *ExecutionContext) BuildEvaluationContext() *expression.EvaluationContext {
 	c.mu.RLock()
-	defer c.mu.RUnlock()
+	if !c.evalCtxDirty && c.cachedEvalCtx != nil {
+		cached := c.cachedEvalCtx
+		c.mu.RUnlock()
+		return cached
+	}
+	c.mu.RUnlock()
+
+	// 需要重建，升级为写锁
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// double-check：防止并发场景下重复构建
+	if !c.evalCtxDirty && c.cachedEvalCtx != nil {
+		return c.cachedEvalCtx
+	}
 
 	evalCtx := expression.NewEvaluationContext()
 
@@ -451,6 +477,8 @@ func (c *ExecutionContext) BuildEvaluationContext() *expression.EvaluationContex
 		evalCtx.SetResult(stepID, resultMap)
 	}
 
+	c.cachedEvalCtx = evalCtx
+	c.evalCtxDirty = false
 	return evalCtx
 }
 

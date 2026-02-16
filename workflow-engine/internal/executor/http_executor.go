@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -231,17 +232,17 @@ func (e *HTTPExecutor) fillResponseData(output *types.HTTPResponseData, resp *ht
 
 // createRequest 从配置创建 HTTP 请求。
 func (e *HTTPExecutor) createRequest(ctx context.Context, config *HTTPConfig, mergedConfig *HTTPGlobalConfig) (*http.Request, error) {
-	// 构建带查询参数的 URL
-	url := config.URL
+	// 构建带查询参数的 URL（使用 URL 编码防止特殊字符破坏请求）
+	requestURL := config.URL
 	if len(config.Params) > 0 {
 		params := make([]string, 0, len(config.Params))
 		for k, v := range config.Params {
-			params = append(params, fmt.Sprintf("%s=%s", k, v))
+			params = append(params, url.QueryEscape(k)+"="+url.QueryEscape(v))
 		}
-		if strings.Contains(url, "?") {
-			url += "&" + strings.Join(params, "&")
+		if strings.Contains(requestURL, "?") {
+			requestURL += "&" + strings.Join(params, "&")
 		} else {
-			url += "?" + strings.Join(params, "&")
+			requestURL += "?" + strings.Join(params, "&")
 		}
 	}
 
@@ -252,7 +253,7 @@ func (e *HTTPExecutor) createRequest(ctx context.Context, config *HTTPConfig, me
 		bodyReader, contentType = e.prepareBody(config.BodyConfig)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, config.Method, url, bodyReader)
+	req, err := http.NewRequestWithContext(ctx, config.Method, requestURL, bodyReader)
 	if err != nil {
 		return nil, NewConfigError("创建 HTTP 请求失败", err)
 	}

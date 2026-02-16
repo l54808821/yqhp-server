@@ -64,6 +64,10 @@ func (r *VariableResolver) ResolveString(s string, ctx map[string]any) string {
 			return match
 		}
 
+		// 优先字符串类型断言，避免不必要的 fmt.Sprintf 开销
+		if str, ok := value.(string); ok {
+			return str
+		}
 		return fmt.Sprintf("%v", value)
 	})
 

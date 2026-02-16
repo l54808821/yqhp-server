@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"strings"
 	"time"
 
 	"yqhp/workflow-engine/internal/expression"
@@ -381,12 +382,13 @@ func (e *LoopExecutor) executeLoopBody(ctx context.Context, parentStep *types.St
 			return stepsExecuted, NewExecutionError(parentStep.ID, fmt.Sprintf("第 %d 次迭代，步骤 '%s': %v", iteration, step.ID, err), nil)
 		}
 
-		// 创建子上下文，设置父步骤信息
-		childCtx := execCtx.Clone().WithParentStep(parentStep.ID, iteration+1)
+		// 直接复用父上下文并设置父步骤信息，避免循环体中每步都深拷贝
+		// 循环变量已通过 setLoopVariables 设置在 execCtx 上
+		execCtx.WithParentStep(parentStep.ID, iteration+1)
 
 		// 执行步骤
 		startTime := time.Now()
-		result, err := executor.Execute(ctx, step, childCtx)
+		result, err := executor.Execute(ctx, step, execCtx)
 		if err != nil {
 			if callback != nil {
 				callback.OnStepFailed(ctx, step, err, time.Since(startTime), parentStep.ID, iteration+1)
@@ -516,22 +518,7 @@ func (e *LoopExecutor) resolvePathValue(path string, evalCtx *expression.Evaluat
 
 // splitPath 分割点分路径
 func splitPath(path string) []string {
-	var parts []string
-	var current string
-	for _, c := range path {
-		if c == '.' {
-			if current != "" {
-				parts = append(parts, current)
-				current = ""
-			}
-		} else {
-			current += string(c)
-		}
-	}
-	if current != "" {
-		parts = append(parts, current)
-	}
-	return parts
+	return strings.Split(path, ".")
 }
 
 // getFieldValue 从 map 或结构体中获取字段值

@@ -71,6 +71,9 @@ type DBAdapter interface {
 // DBResult 数据库操作结果
 type DBResult struct {
 	Success      bool             `json:"success"`
+	Action       string           `json:"action,omitempty"`
+	Driver       string           `json:"driver,omitempty"`
+	ActualSQL    string           `json:"actual_sql,omitempty"`
 	Data         []map[string]any `json:"data,omitempty"`
 	RowsAffected int64            `json:"rows_affected,omitempty"`
 	Count        int64            `json:"count,omitempty"`
@@ -215,6 +218,11 @@ func (e *DBExecutor) Execute(ctx context.Context, step *types.Step, execCtx *Exe
 		return CreateFailedResult(step.ID, startTime, err), nil
 	}
 
+	// 注入请求元信息到结果
+	result.Action = op.Action
+	result.Driver = string(stepConfig.Driver)
+	result.ActualSQL = op.SQL
+
 	return CreateSuccessResult(step.ID, startTime, result), nil
 }
 
@@ -304,12 +312,6 @@ func (e *DBExecutor) executeRollbackTx(ctx context.Context, adapter DBAdapter, o
 func (e *DBExecutor) parseOperation(config map[string]any) (*DBOperation, error) {
 	op := &DBOperation{}
 
-	if action, ok := config["action"].(string); ok {
-		op.Action = strings.ToLower(action)
-	} else {
-		return nil, NewConfigError("数据库步骤需要配置 'action'（操作类型）", nil)
-	}
-
 	if sql, ok := config["sql"].(string); ok {
 		op.SQL = sql
 	}
@@ -320,7 +322,68 @@ func (e *DBExecutor) parseOperation(config map[string]any) (*DBOperation, error)
 		op.TxID = txID
 	}
 
+	// 优先使用显式指定的 action，否则从 SQL 语句自动推断
+	if action, ok := config["action"].(string); ok && action != "" {
+		op.Action = strings.ToLower(action)
+	} else {
+		op.Action = inferDBAction(op.SQL)
+	}
+
 	return op, nil
+}
+
+// inferDBAction 根据 SQL 语句自动推断数据库操作类型
+func inferDBAction(sql string) string {
+	sql = strings.TrimSpace(sql)
+	if sql == "" {
+		return "query"
+	}
+
+	upper := strings.ToUpper(sql)
+
+	// 跳过 CTE（WITH ... AS ...）前缀，定位主语句
+	if strings.HasPrefix(upper, "WITH") {
+		depth := 0
+		for i, ch := range sql {
+			if ch == '(' {
+				depth++
+			} else if ch == ')' {
+				depth--
+				if depth == 0 {
+					rest := strings.TrimSpace(sql[i+1:])
+					upper = strings.ToUpper(rest)
+					break
+				}
+			}
+		}
+	}
+
+	switch {
+	case strings.HasPrefix(upper, "SELECT"),
+		strings.HasPrefix(upper, "SHOW"),
+		strings.HasPrefix(upper, "DESCRIBE"),
+		strings.HasPrefix(upper, "DESC "),
+		strings.HasPrefix(upper, "EXPLAIN"):
+		return "query"
+	case strings.HasPrefix(upper, "INSERT"),
+		strings.HasPrefix(upper, "UPDATE"),
+		strings.HasPrefix(upper, "DELETE"),
+		strings.HasPrefix(upper, "CREATE"),
+		strings.HasPrefix(upper, "ALTER"),
+		strings.HasPrefix(upper, "DROP"),
+		strings.HasPrefix(upper, "TRUNCATE"),
+		strings.HasPrefix(upper, "REPLACE"),
+		strings.HasPrefix(upper, "MERGE"):
+		return "execute"
+	case strings.HasPrefix(upper, "BEGIN"):
+		return "begin"
+	case strings.HasPrefix(upper, "COMMIT"):
+		return "commit"
+	case strings.HasPrefix(upper, "ROLLBACK"):
+		return "rollback"
+	default:
+		return "query"
+	}
 }
 
 // parseStepConfig 解析步骤级配置

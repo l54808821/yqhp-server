@@ -791,10 +791,7 @@ func resolveDatabaseConfig(stepConfig map[string]interface{}, config *workflow.M
 		}
 	}
 
-	// 旧格式兼容：如果没有 action，默认为 query
-	if _, hasAction := stepConfig["action"]; !hasAction {
-		stepConfig["action"] = "query"
-	}
+	// action 由流程引擎根据 SQL 自动推断，这里不再设置
 
 	// === 2. 解析数据源配置引用 ===
 
@@ -904,3 +901,4 @@ func buildDSN(dc *workflow.DatabaseConfig) string {
 			dc.Username, dc.Password, dc.Host, dc.Port, dc.Database)
 	}
 }
+

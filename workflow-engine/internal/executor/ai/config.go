@@ -26,7 +26,8 @@ type AIConfig struct {
 	MaxToolRounds      int         `json:"max_tool_rounds,omitempty"`
 	MCPProxyBaseURL    string      `json:"mcp_proxy_base_url,omitempty"`
 	Skills             []*SkillInfo `json:"skills,omitempty"`
-	AgentMode          string       `json:"agent_mode,omitempty"`
+	AgentMode            string       `json:"agent_mode,omitempty"`
+	MaxReflectionRounds  int          `json:"max_reflection_rounds,omitempty"`
 }
 
 // SkillInfo Skill 能力信息（由 gulu 层从数据库查询后注入到 config）
@@ -122,6 +123,9 @@ func (e *AIExecutor) parseConfig(config map[string]any) (*AIConfig, error) {
 	// 解析 Agent 模式
 	if agentMode, ok := config["agent_mode"].(string); ok {
 		aiConfig.AgentMode = agentMode
+	}
+	if maxReflectionRounds, ok := config["max_reflection_rounds"].(float64); ok {
+		aiConfig.MaxReflectionRounds = int(maxReflectionRounds)
 	}
 
 	// 解析 Skill 列表（由 gulu 层注入的完整 Skill 信息）

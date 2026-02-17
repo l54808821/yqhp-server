@@ -64,10 +64,10 @@ func (e *AIExecutor) Execute(ctx context.Context, step *types.Step, execCtx *exe
 		}
 	}
 
-	// 当 tools 和 mcp_server_ids 均为空时，保持无工具模式
-	if e.hasTools(config) {
-		output, err = e.executeWithTools(ctx, chatModel, messages, config, step.ID, execCtx, aiCallback)
-		// 工具调用路径完成后，发送 ai_complete 事件通知前端流式结束
+	// 根据 agent_mode 分发执行流程
+	switch config.AgentMode {
+	case "plan_and_execute":
+		output, err = e.executePlanAndExecute(ctx, chatModel, config, step.ID, execCtx, aiCallback)
 		if err == nil && output != nil && aiCallback != nil && config.Streaming {
 			aiCallback.OnAIComplete(ctx, step.ID, &types.AIResult{
 				Content:          output.Content,
@@ -76,12 +76,36 @@ func (e *AIExecutor) Execute(ctx context.Context, step *types.Step, execCtx *exe
 				TotalTokens:      output.TotalTokens,
 			})
 		}
-	} else {
-		// 无工具模式
-		if config.Streaming && aiCallback != nil {
-			output, err = e.executeStream(ctx, chatModel, messages, step.ID, config, aiCallback)
+
+	case "reflection":
+		output, err = e.executeReflection(ctx, chatModel, messages, config, step.ID, execCtx, aiCallback)
+		if err == nil && output != nil && aiCallback != nil && config.Streaming {
+			aiCallback.OnAIComplete(ctx, step.ID, &types.AIResult{
+				Content:          output.Content,
+				PromptTokens:     output.PromptTokens,
+				CompletionTokens: output.CompletionTokens,
+				TotalTokens:      output.TotalTokens,
+			})
+		}
+
+	default:
+		// 默认模式（含 react）：使用原有的工具调用 / 无工具模式
+		if e.hasTools(config) {
+			output, err = e.executeWithTools(ctx, chatModel, messages, config, step.ID, execCtx, aiCallback)
+			if err == nil && output != nil && aiCallback != nil && config.Streaming {
+				aiCallback.OnAIComplete(ctx, step.ID, &types.AIResult{
+					Content:          output.Content,
+					PromptTokens:     output.PromptTokens,
+					CompletionTokens: output.CompletionTokens,
+					TotalTokens:      output.TotalTokens,
+				})
+			}
 		} else {
-			output, err = e.executeNonStream(ctx, chatModel, messages, config)
+			if config.Streaming && aiCallback != nil {
+				output, err = e.executeStream(ctx, chatModel, messages, step.ID, config, aiCallback)
+			} else {
+				output, err = e.executeNonStream(ctx, chatModel, messages, config)
+			}
 		}
 	}
 

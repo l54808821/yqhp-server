@@ -217,6 +217,11 @@ func (e *AIExecutor) executeToolCallLoop(
 		Model: config.Model,
 	}
 
+	// 初始化 AgentTrace（ReAct 模式或默认工具调用模式）
+	if config.AgentMode == "react" {
+		output.AgentTrace = &AgentTrace{Mode: "react"}
+	}
+
 	for round := 1; round <= maxRounds; round++ {
 		// 调用 LLM（带工具定义）
 		var resp *schema.Message
@@ -315,18 +320,22 @@ func (e *AIExecutor) executeToolCallLoop(
 		wg.Wait()
 
 		// 按顺序追加工具结果消息并记录
-		// 同时构建本轮的 ReActRound
-		currentRound := ReActRound{
-			Round:    round,
-			Thinking: roundThinking,
-		}
+		var roundToolCalls []ToolCallRecord
 		for _, r := range results {
 			toolMsg := schema.ToolMessage(r.result.Content, r.tc.ID)
 			messages = append(messages, toolMsg)
 			output.ToolCalls = append(output.ToolCalls, r.record)
-			currentRound.ToolCalls = append(currentRound.ToolCalls, r.record)
+			roundToolCalls = append(roundToolCalls, r.record)
 		}
-		output.ReActTrace = append(output.ReActTrace, currentRound)
+
+		// 追加到 AgentTrace（ReAct 模式）
+		if output.AgentTrace != nil && output.AgentTrace.Mode == "react" {
+			output.AgentTrace.ReAct = append(output.AgentTrace.ReAct, ReActRound{
+				Round:     round,
+				Thinking:  roundThinking,
+				ToolCalls: roundToolCalls,
+			})
+		}
 	}
 
 	// 达到最大轮次限制，进行最后一次调用（不带工具）获取最终回答

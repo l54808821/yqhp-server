@@ -26,6 +26,76 @@ const reactSystemInstruction = `
 - 思考过程应包含：对当前情况的分析、选择该工具的原因、预期结果
 - 当所有必要信息收集完毕后，输出最终的完整回答`
 
+// planningInstruction Plan-and-Execute 模式的规划阶段提示词
+const planningInstruction = `请为以下任务制定一个分步执行计划。
+
+规则：
+- 每个步骤应独立且具体，可以独立执行
+- 步骤数量控制在 2-10 个之间
+- 按逻辑顺序排列，后续步骤可以依赖前续步骤的结果
+- 严格按以下 JSON 数组格式输出，不要输出其他任何内容
+
+输出格式：
+[
+  {"step": 1, "task": "具体任务描述"},
+  {"step": 2, "task": "具体任务描述"}
+]`
+
+// planStepExecutionInstruction Plan-and-Execute 模式的步骤执行提示词模板
+const planStepExecutionInstruction = `你正在执行一个多步骤计划。
+
+整体计划：
+%s
+
+当前执行：第 %d 步 - %s
+
+%s
+
+请执行当前步骤并提供结果。只需输出执行结果，不要重复计划内容。`
+
+// planSynthesisInstruction Plan-and-Execute 模式的汇总阶段提示词模板
+const planSynthesisInstruction = `请综合以下所有步骤的执行结果，给出最终完整的回答。
+
+原始任务：
+%s
+
+各步骤执行结果：
+%s
+
+请直接输出最终答案，要求完整、准确、清晰。`
+
+// reflectionCritiqueInstruction Reflection 模式的审视阶段提示词模板
+const reflectionCritiqueInstruction = `请审视以下回答，从以下角度进行严格评估：
+
+1. 准确性：信息是否正确？是否有事实错误？
+2. 完整性：是否遗漏了重要内容？
+3. 清晰度：表达是否清晰易懂？
+4. 逻辑性：论述是否有逻辑连贯性？
+5. 相关性：是否紧扣原始问题？
+
+原始问题：
+%s
+
+待审视的回答：
+%s
+
+如果回答已经足够好，无需改进，请只输出 "LGTM"（不含引号）。
+否则请列出具体的改进建议，每条建议要明确指出问题和改进方向。`
+
+// reflectionImproveInstruction Reflection 模式的改进阶段提示词模板
+const reflectionImproveInstruction = `请根据审视意见改进你的回答。
+
+原始问题：
+%s
+
+当前回答：
+%s
+
+审视意见：
+%s
+
+请输出改进后的完整回答。注意要针对审视意见中指出的每个问题进行改进。`
+
 // interactiveSystemInstruction 当启用人机交互时追加到系统提示词中的指令
 const interactiveSystemInstruction = `
 

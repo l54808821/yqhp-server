@@ -6,28 +6,28 @@ import (
 
 // AIConfig AI 节点配置
 type AIConfig struct {
-	Provider           string      `json:"provider"`
-	Model              string      `json:"model"`
-	APIKey             string      `json:"api_key"`
-	BaseURL            string      `json:"base_url,omitempty"`
-	APIVersion         string      `json:"api_version,omitempty"`
-	Temperature        *float32    `json:"temperature,omitempty"`
-	MaxTokens          *int        `json:"max_tokens,omitempty"`
-	TopP               *float32    `json:"top_p,omitempty"`
-	PresencePenalty    *float32    `json:"presence_penalty,omitempty"`
-	SystemPrompt       string      `json:"system_prompt,omitempty"`
-	Prompt             string      `json:"prompt"`
-	Streaming          bool        `json:"streaming"`
-	Interactive        bool        `json:"interactive"`
-	InteractionTimeout int         `json:"interaction_timeout,omitempty"`
-	Timeout            int         `json:"timeout,omitempty"`
-	Tools              []string    `json:"tools,omitempty"`
-	MCPServerIDs       []int64     `json:"mcp_server_ids,omitempty"`
-	MaxToolRounds      int         `json:"max_tool_rounds,omitempty"`
-	MCPProxyBaseURL    string      `json:"mcp_proxy_base_url,omitempty"`
-	Skills             []*SkillInfo `json:"skills,omitempty"`
-	AgentMode            string       `json:"agent_mode,omitempty"`
-	MaxReflectionRounds  int          `json:"max_reflection_rounds,omitempty"`
+	Provider            string       `json:"provider"`
+	Model               string       `json:"model"`
+	APIKey              string       `json:"api_key"`
+	BaseURL             string       `json:"base_url,omitempty"`
+	APIVersion          string       `json:"api_version,omitempty"`
+	Temperature         *float32     `json:"temperature,omitempty"`
+	MaxTokens           *int         `json:"max_tokens,omitempty"`
+	TopP                *float32     `json:"top_p,omitempty"`
+	PresencePenalty     *float32     `json:"presence_penalty,omitempty"`
+	SystemPrompt        string       `json:"system_prompt,omitempty"`
+	Prompt              string       `json:"prompt"`
+	Streaming           bool         `json:"streaming"`
+	Interactive         bool         `json:"interactive"`
+	InteractionTimeout  int          `json:"interaction_timeout,omitempty"`
+	Timeout             int          `json:"timeout,omitempty"`
+	Tools               []string     `json:"tools,omitempty"`
+	MCPServerIDs        []int64      `json:"mcp_server_ids,omitempty"`
+	MaxToolRounds       int          `json:"max_tool_rounds,omitempty"`
+	MCPProxyBaseURL     string       `json:"mcp_proxy_base_url,omitempty"`
+	Skills              []*SkillInfo `json:"skills,omitempty"`
+	AgentMode           string       `json:"agent_mode,omitempty"`
+	MaxReflectionRounds int          `json:"max_reflection_rounds,omitempty"`
 }
 
 // SkillInfo Skill 能力信息（由 gulu 层从数据库查询后注入到 config）

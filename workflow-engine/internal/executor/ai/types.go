@@ -55,10 +55,10 @@ type ToolCallRecord struct {
 
 // AgentTrace 统一的 Agent 模式执行轨迹
 type AgentTrace struct {
-	Mode           string             `json:"mode"`
-	ReAct          []ReActRound       `json:"react,omitempty"`
-	PlanAndExecute *PlanExecTrace     `json:"plan_and_execute,omitempty"`
-	Reflection     *ReflectionTrace   `json:"reflection,omitempty"`
+	Mode           string           `json:"mode"`
+	ReAct          []ReActRound     `json:"react,omitempty"`
+	PlanAndExecute *PlanExecTrace   `json:"plan_and_execute,omitempty"`
+	Reflection     *ReflectionTrace `json:"reflection,omitempty"`
 }
 
 // ============ ReAct 模式 ============

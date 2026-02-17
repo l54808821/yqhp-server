@@ -10,6 +10,22 @@ import (
 	"github.com/cloudwego/eino/schema"
 )
 
+// reactSystemInstruction 当启用 ReAct 模式时追加到系统提示词中的指令
+const reactSystemInstruction = `
+
+[ReAct 推理模式]
+在解决任务时，请严格遵循以下推理模式：
+
+1. 思考（Thought）：分析当前情况，明确下一步需要做什么，评估应该使用哪个工具
+2. 行动（Action）：调用合适的工具获取信息或执行操作
+3. 观察（Observation）：分析工具返回的结果
+4. 重复以上步骤，直到问题完全解决
+
+重要规则：
+- 在每次调用工具之前，必须先输出你的思考过程（Thought）
+- 思考过程应包含：对当前情况的分析、选择该工具的原因、预期结果
+- 当所有必要信息收集完毕后，输出最终的完整回答`
+
 // interactiveSystemInstruction 当启用人机交互时追加到系统提示词中的指令
 const interactiveSystemInstruction = `
 
@@ -73,6 +89,9 @@ func (e *AIExecutor) buildMessages(config *AIConfig) []*schema.Message {
 	var messages []*schema.Message
 
 	systemPrompt := config.SystemPrompt
+	if config.AgentMode == "react" {
+		systemPrompt += reactSystemInstruction
+	}
 	if config.Interactive {
 		systemPrompt += interactiveSystemInstruction
 	}

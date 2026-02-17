@@ -243,10 +243,20 @@ func (e *AIExecutor) executeToolCallLoop(
 			}
 		}
 
+		// 捕获本轮的 thinking（模型在决定调用工具前的推理内容）
+		roundThinking := resp.Content
+
 		// 如果没有工具调用，返回最终结果
 		if len(resp.ToolCalls) == 0 {
 			output.Content = resp.Content
 			return output, nil
+		}
+
+		// 通知 thinking（流式模式下实时推送推理过程）
+		if roundThinking != "" && aiCallback != nil {
+			if tc, ok := aiCallback.(types.AIThinkingCallback); ok {
+				tc.OnAIThinking(ctx, stepID, round, roundThinking)
+			}
 		}
 
 		// 将 assistant 消息（含 ToolCalls）追加到消息列表
@@ -305,11 +315,18 @@ func (e *AIExecutor) executeToolCallLoop(
 		wg.Wait()
 
 		// 按顺序追加工具结果消息并记录
+		// 同时构建本轮的 ReActRound
+		currentRound := ReActRound{
+			Round:    round,
+			Thinking: roundThinking,
+		}
 		for _, r := range results {
 			toolMsg := schema.ToolMessage(r.result.Content, r.tc.ID)
 			messages = append(messages, toolMsg)
 			output.ToolCalls = append(output.ToolCalls, r.record)
+			currentRound.ToolCalls = append(currentRound.ToolCalls, r.record)
 		}
+		output.ReActTrace = append(output.ReActTrace, currentRound)
 	}
 
 	// 达到最大轮次限制，进行最后一次调用（不带工具）获取最终回答

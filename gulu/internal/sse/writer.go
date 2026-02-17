@@ -25,6 +25,7 @@ const (
 	EventAIComplete         EventType = "ai_complete"
 	EventAIError            EventType = "ai_error"
 	EventAIInteraction      EventType = "ai_interaction_required"
+	EventAIThinking         EventType = "ai_thinking"
 	EventAIToolCallStart    EventType = "ai_tool_call_start"
 	EventAIToolCallComplete EventType = "ai_tool_call_complete"
 	EventHeartbeat          EventType = "heartbeat"
@@ -266,6 +267,13 @@ type AIErrorData struct {
 	StepID  string `json:"stepId"`
 	Error   string `json:"error"`
 	Details string `json:"details,omitempty"`
+}
+
+// AIThinkingData AI 推理思考数据（ReAct 模式）
+type AIThinkingData struct {
+	StepID   string `json:"stepId"`
+	Round    int    `json:"round"`
+	Thinking string `json:"thinking"`
 }
 
 // AIToolCallStartData AI 工具调用开始数据

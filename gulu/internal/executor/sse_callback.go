@@ -291,6 +291,23 @@ var _ types.AICallback = (*SSECallback)(nil)
 // 确保 SSECallback 实现了 AIToolCallback 接口
 var _ types.AIToolCallback = (*SSECallback)(nil)
 
+// ============ AI 推理过程回调 (实现 AIThinkingCallback 接口) ============
+
+// OnAIThinking AI 推理思考（ReAct 模式每轮的推理内容）
+func (c *SSECallback) OnAIThinking(ctx context.Context, stepID string, round int, thinking string) {
+	c.writer.WriteEvent(&sse.Event{
+		Type: sse.EventAIThinking,
+		Data: &sse.AIThinkingData{
+			StepID:   stepID,
+			Round:    round,
+			Thinking: thinking,
+		},
+	})
+}
+
+// 确保 SSECallback 实现了 AIThinkingCallback 接口
+var _ types.AIThinkingCallback = (*SSECallback)(nil)
+
 // ============ AI 工具调用回调 (实现 AIToolCallback 接口) ============
 
 // OnAIToolCallStart 工具调用开始

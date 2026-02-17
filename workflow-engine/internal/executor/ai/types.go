@@ -31,6 +31,7 @@ type AIOutput struct {
 	SystemPrompt     string                  `json:"system_prompt,omitempty"`
 	Prompt           string                  `json:"prompt"`
 	ToolCalls        []ToolCallRecord        `json:"tool_calls,omitempty"`
+	ReActTrace       []ReActRound            `json:"react_trace,omitempty"`
 	ConsoleLogs      []types.ConsoleLogEntry `json:"console_logs,omitempty"`
 }
 
@@ -42,4 +43,11 @@ type ToolCallRecord struct {
 	Result    string `json:"result"`
 	IsError   bool   `json:"is_error"`
 	Duration  int64  `json:"duration_ms"`
+}
+
+// ReActRound 单轮 ReAct 推理记录（Thinking → Action → Observation）
+type ReActRound struct {
+	Round     int              `json:"round"`
+	Thinking  string           `json:"thinking,omitempty"`
+	ToolCalls []ToolCallRecord `json:"tool_calls,omitempty"`
 }

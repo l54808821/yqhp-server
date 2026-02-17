@@ -136,6 +136,13 @@ func (n *NoopCallback) OnExecutionComplete(ctx context.Context, summary *Executi
 // 确保 NoopCallback 实现了 ExecutionCallback 接口
 var _ ExecutionCallback = (*NoopCallback)(nil)
 
+// AIThinkingCallback AI 推理过程回调接口（可选实现）
+// 用于 ReAct 等 Agent 模式下，实时推送每轮的推理思考内容
+type AIThinkingCallback interface {
+	// OnAIThinking AI 推理思考（每轮工具调用前的推理内容）
+	OnAIThinking(ctx context.Context, stepID string, round int, thinking string)
+}
+
 // AIToolCallback AI 工具调用回调接口（可选实现）
 type AIToolCallback interface {
 	AICallback // 继承现有接口

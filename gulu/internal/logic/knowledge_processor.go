@@ -51,17 +51,39 @@ func (p *DocumentProcessor) Process(kb *model.TKnowledgeBase, doc *model.TKnowle
 		return fmt.Errorf("文档内容为空")
 	}
 
-	// 2. 文本分块
+	// 2. 文本预处理（使用文档级别参数）
+	if doc.CleanWhitespace != nil && *doc.CleanWhitespace {
+		text = cleanWhitespace(text)
+	}
+	if doc.RemoveURLs != nil && *doc.RemoveURLs {
+		text = removeURLsAndEmails(text)
+	}
+
+	// 3. 文本分块（优先使用文档级别参数，其次使用知识库级别参数）
 	chunkSize := 500
 	chunkOverlap := 50
-	if kb.ChunkSize != nil {
+	if doc.DocChunkSize != nil && *doc.DocChunkSize > 0 {
+		chunkSize = int(*doc.DocChunkSize)
+	} else if kb.ChunkSize != nil {
 		chunkSize = int(*kb.ChunkSize)
 	}
-	if kb.ChunkOverlap != nil {
+	if doc.DocChunkOverlap != nil && *doc.DocChunkOverlap >= 0 {
+		chunkOverlap = int(*doc.DocChunkOverlap)
+	} else if kb.ChunkOverlap != nil {
 		chunkOverlap = int(*kb.ChunkOverlap)
 	}
 
-	chunks := p.splitText(text, chunkSize, chunkOverlap)
+	// 使用分段标识符或默认滑动窗口
+	var chunks []string
+	separator := ""
+	if doc.Separator != nil && *doc.Separator != "" {
+		separator = *doc.Separator
+	}
+	if separator != "" && separator != "\\n\\n" {
+		chunks = splitBySeparator(text, separator, chunkSize, chunkOverlap)
+	} else {
+		chunks = p.splitText(text, chunkSize, chunkOverlap)
+	}
 	if len(chunks) == 0 {
 		p.markFailed(ctx, doc.ID, "分块结果为空")
 		return fmt.Errorf("分块结果为空")
@@ -82,6 +104,15 @@ func (p *DocumentProcessor) Process(kb *model.TKnowledgeBase, doc *model.TKnowle
 	if collectionName == "" {
 		p.markFailed(ctx, doc.ID, "Qdrant Collection 未配置")
 		return fmt.Errorf("qdrant collection 未配置")
+	}
+
+	// 确保 Collection 存在（兼容旧数据、重试等场景）
+	dimension := 1536
+	if kb.EmbeddingDimension != nil {
+		dimension = int(*kb.EmbeddingDimension)
+	}
+	if err := CreateQdrantCollection(collectionName, dimension); err != nil {
+		fmt.Printf("[WARN] 确保 Qdrant Collection 存在失败: %v\n", err)
 	}
 
 	points := make([]VectorPoint, len(chunks))
@@ -431,24 +462,36 @@ func (p *DocumentProcessor) splitText(text string, chunkSize, overlap int) []str
 
 // generateEmbeddings 生成 Embedding 向量
 func (p *DocumentProcessor) generateEmbeddings(kb *model.TKnowledgeBase, chunks []string) ([][]float32, error) {
-	// TODO: 调用嵌入模型 API 生成向量
-	// 1. 从 kb.EmbeddingModelID 获取模型配置
-	// 2. 调用 OpenAI-compatible /v1/embeddings 接口
-	// 3. 返回向量列表
-
-	// 当前返回占位零向量
-	dimension := 1536
-	if kb.EmbeddingDimension != nil {
-		dimension = int(*kb.EmbeddingDimension)
+	// 获取嵌入模型配置
+	embClient, err := p.getEmbeddingClient(kb)
+	if err != nil {
+		return nil, err
 	}
 
-	vectors := make([][]float32, len(chunks))
-	for i := range chunks {
-		vectors[i] = make([]float32, dimension)
+	ctx := context.Background()
+	vectors, err := embClient.EmbedTexts(ctx, chunks)
+	if err != nil {
+		return nil, fmt.Errorf("Embedding 生成失败: %w", err)
 	}
 
-	fmt.Printf("[INFO] Embedding: 生成 %d 个向量 (维度: %d) - 待接入实际Embedding模型\n", len(chunks), dimension)
+	fmt.Printf("[INFO] Embedding: 成功生成 %d 个向量 (模型: %s)\n", len(vectors), embClient.Model)
 	return vectors, nil
+}
+
+// getEmbeddingClient 根据知识库配置获取 Embedding 客户端
+func (p *DocumentProcessor) getEmbeddingClient(kb *model.TKnowledgeBase) (*EmbeddingClient, error) {
+	if kb.EmbeddingModelID == nil || *kb.EmbeddingModelID == 0 {
+		return nil, fmt.Errorf("知识库未配置嵌入模型，请在知识库设置中选择嵌入模型")
+	}
+
+	// 从数据库获取模型完整配置（含 API Key）
+	aiModelLogic := NewAiModelLogic(context.Background())
+	aiModel, err := aiModelLogic.GetByIDWithKey(*kb.EmbeddingModelID)
+	if err != nil {
+		return nil, fmt.Errorf("嵌入模型不存在或已删除 (ID=%d): %w", *kb.EmbeddingModelID, err)
+	}
+
+	return NewEmbeddingClient(aiModel.APIBaseURL, aiModel.APIKey, aiModel.ModelID), nil
 }
 
 // markFailed 标记文档处理失败

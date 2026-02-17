@@ -1,10 +1,15 @@
 package ai
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
+	"net/http"
 	"strings"
+	"time"
 
 	"yqhp/workflow-engine/pkg/types"
 )
@@ -153,16 +158,163 @@ func (e *AIExecutor) executeKnowledgeSearch(ctx context.Context, arguments strin
 
 // searchQdrant 搜索 Qdrant 向量数据库
 func (e *AIExecutor) searchQdrant(ctx context.Context, kb *KnowledgeBaseInfo, query string, topK int) []knowledgeChunk {
-	// TODO: 实际实现需要:
-	// 1. 调用嵌入模型将 query 转为向量
-	// 2. 调用 Qdrant 进行相似度搜索
-	// 3. 返回结果
+	// 1. 调用嵌入模型将查询文本转为向量
+	queryVector, err := callEmbeddingAPI(ctx, kb.EmbeddingBaseURL, kb.EmbeddingAPIKey, kb.EmbeddingModel, query)
+	if err != nil {
+		log.Printf("[WARN] 知识库 %s 的查询向量化失败: %v", kb.Name, err)
+		return nil
+	}
 
-	// 当前占位实现
-	fmt.Printf("[INFO] 知识库检索: kb=%s, collection=%s, query=%s, topK=%d\n",
-		kb.Name, kb.QdrantCollection, query, topK)
+	// 2. 通过 Qdrant REST API 搜索（使用 HTTP 而非 gRPC，避免依赖冲突）
+	qdrantHost := "http://127.0.0.1:6333"
+	hits, err := searchQdrantREST(ctx, qdrantHost, kb.QdrantCollection, queryVector, topK, float32(kb.ScoreThreshold))
+	if err != nil {
+		log.Printf("[WARN] 知识库 %s 向量搜索失败: %v", kb.Name, err)
+		return nil
+	}
 
-	return nil
+	// 3. 转换结果
+	var chunks []knowledgeChunk
+	for _, hit := range hits {
+		chunks = append(chunks, knowledgeChunk{
+			Content:    hit.Content,
+			Score:      hit.Score,
+			Source:     kb.Name,
+			DocumentID: hit.DocumentID,
+			ChunkIndex: hit.ChunkIndex,
+		})
+	}
+
+	return chunks
+}
+
+// -----------------------------------------------
+// Qdrant REST API 搜索（workflow engine 侧）
+// 使用 HTTP REST API (端口 6333) 代替 gRPC，避免 genproto 依赖冲突
+// -----------------------------------------------
+
+type qdrantSearchHit struct {
+	Content    string
+	Score      float64
+	DocumentID int64
+	ChunkIndex int
+}
+
+func searchQdrantREST(ctx context.Context, qdrantHost, collection string, queryVector []float32, topK int, scoreThreshold float32) ([]qdrantSearchHit, error) {
+	reqBody := map[string]interface{}{
+		"query":           queryVector,
+		"using":           "text",
+		"limit":           topK,
+		"score_threshold": scoreThreshold,
+		"with_payload":    true,
+	}
+
+	bodyBytes, _ := json.Marshal(reqBody)
+	url := fmt.Sprintf("%s/collections/%s/points/query", qdrantHost, collection)
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := (&http.Client{Timeout: 15 * time.Second}).Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("Qdrant HTTP 请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("Qdrant 返回错误 (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Result struct {
+			Points []struct {
+				Score   float64                `json:"score"`
+				Payload map[string]interface{} `json:"payload"`
+			} `json:"points"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("Qdrant 响应解析失败: %w", err)
+	}
+
+	var hits []qdrantSearchHit
+	for _, p := range result.Result.Points {
+		hit := qdrantSearchHit{Score: p.Score}
+		if v, ok := p.Payload["content"].(string); ok {
+			hit.Content = v
+		}
+		if v, ok := p.Payload["document_id"].(float64); ok {
+			hit.DocumentID = int64(v)
+		}
+		if v, ok := p.Payload["chunk_index"].(float64); ok {
+			hit.ChunkIndex = int(v)
+		}
+		hits = append(hits, hit)
+	}
+
+	return hits, nil
+}
+
+// -----------------------------------------------
+// Embedding API 调用（workflow engine 侧）
+// -----------------------------------------------
+
+// callEmbeddingAPI 调用 OpenAI-compatible /v1/embeddings 接口
+func callEmbeddingAPI(ctx context.Context, baseURL, apiKey, model, text string) ([]float32, error) {
+	if baseURL == "" {
+		baseURL = "https://api.openai.com/v1"
+	}
+
+	reqBody, _ := json.Marshal(map[string]interface{}{
+		"model": model,
+		"input": text,
+	})
+
+	url := baseURL + "/embeddings"
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(reqBody))
+	if err != nil {
+		return nil, err
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	if apiKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+	}
+
+	httpClient := &http.Client{Timeout: 30 * time.Second}
+	resp, err := httpClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("Embedding HTTP 请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("Embedding API 错误 (HTTP %d): %s", resp.StatusCode, string(body))
+	}
+
+	var result struct {
+		Data []struct {
+			Embedding []float32 `json:"embedding"`
+		} `json:"data"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("Embedding 响应解析失败: %w", err)
+	}
+	if result.Error != nil {
+		return nil, fmt.Errorf("Embedding API 错误: %s", result.Error.Message)
+	}
+	if len(result.Data) == 0 || len(result.Data[0].Embedding) == 0 {
+		return nil, fmt.Errorf("Embedding 结果为空")
+	}
+
+	return result.Data[0].Embedding, nil
 }
 
 // knowledgeChunk 知识片段

@@ -21,6 +21,11 @@ type TKnowledgeDocument struct {
 	FilePath        *string    `gorm:"column:file_path;type:varchar(500);comment:文件存储路径" json:"file_path"`
 	FileSize        *int64     `gorm:"column:file_size;type:bigint;default:0;comment:文件大小" json:"file_size"`
 	Content         *string    `gorm:"column:content;type:longtext;comment:文档原始文本内容" json:"content"`
+	Separator       *string    `gorm:"column:separator;type:varchar(50);default:\\n\\n;comment:分段标识符" json:"separator"`
+	DocChunkSize    *int32     `gorm:"column:chunk_size;type:int;comment:分段最大长度" json:"chunk_size"`
+	DocChunkOverlap *int32     `gorm:"column:chunk_overlap;type:int;comment:分段重叠长度" json:"chunk_overlap"`
+	CleanWhitespace *bool      `gorm:"column:clean_whitespace;type:tinyint(1);default:1;comment:替换连续空格" json:"clean_whitespace"`
+	RemoveURLs      *bool      `gorm:"column:remove_urls;type:tinyint(1);default:0;comment:删除URL" json:"remove_urls"`
 	Status          *string    `gorm:"column:status;type:varchar(20);default:pending;index:idx_t_knowledge_document_status,priority:1;comment:处理状态" json:"status"`
 	ErrorMessage    *string    `gorm:"column:error_message;type:text;comment:错误信息" json:"error_message"`
 	ChunkCount      *int32     `gorm:"column:chunk_count;type:int;default:0;comment:分块数量" json:"chunk_count"`

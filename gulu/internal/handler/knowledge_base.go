@@ -238,6 +238,28 @@ func KnowledgeDocumentDelete(c *fiber.Ctx) error {
 	return response.Success(c, nil)
 }
 
+// KnowledgeDocumentChunks 获取文档分块列表
+// GET /api/knowledge-bases/:id/documents/:docId/chunks
+func KnowledgeDocumentChunks(c *fiber.Ctx) error {
+	kbID, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	if err != nil {
+		return response.Error(c, "无效的知识库ID")
+	}
+
+	docID, err := strconv.ParseInt(c.Params("docId"), 10, 64)
+	if err != nil {
+		return response.Error(c, "无效的文档ID")
+	}
+
+	kbLogic := logic.NewKnowledgeBaseLogic(c.UserContext())
+	chunks, err := kbLogic.GetDocumentChunks(kbID, docID)
+	if err != nil {
+		return response.Error(c, err.Error())
+	}
+
+	return response.Success(c, chunks)
+}
+
 // KnowledgeDocumentReprocess 重新处理文档
 // POST /api/knowledge-bases/:id/documents/:docId/reprocess
 func KnowledgeDocumentReprocess(c *fiber.Ctx) error {
@@ -253,6 +275,50 @@ func KnowledgeDocumentReprocess(c *fiber.Ctx) error {
 
 	kbLogic := logic.NewKnowledgeBaseLogic(c.UserContext())
 	if err := kbLogic.ReprocessDocument(kbID, docID); err != nil {
+		return response.Error(c, err.Error())
+	}
+
+	return response.Success(c, nil)
+}
+
+// KnowledgeDocumentPreviewChunks 预览文档分块（不保存到 Qdrant）
+// POST /api/knowledge-bases/:id/documents/preview-chunks
+func KnowledgeDocumentPreviewChunks(c *fiber.Ctx) error {
+	var req logic.PreviewChunksReq
+	if err := c.BodyParser(&req); err != nil {
+		return response.Error(c, "参数解析失败")
+	}
+
+	if req.Content == "" {
+		return response.Error(c, "文档内容不能为空")
+	}
+
+	kbLogic := logic.NewKnowledgeBaseLogic(c.UserContext())
+	chunks := kbLogic.PreviewChunks(&req)
+
+	return response.Success(c, chunks)
+}
+
+// KnowledgeDocumentProcess 确认分段设置并开始处理文档
+// PUT /api/knowledge-bases/:id/documents/:docId/process
+func KnowledgeDocumentProcess(c *fiber.Ctx) error {
+	kbID, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	if err != nil {
+		return response.Error(c, "无效的知识库ID")
+	}
+
+	docID, err := strconv.ParseInt(c.Params("docId"), 10, 64)
+	if err != nil {
+		return response.Error(c, "无效的文档ID")
+	}
+
+	var req logic.ProcessDocumentReq
+	if err := c.BodyParser(&req); err != nil {
+		return response.Error(c, "参数解析失败")
+	}
+
+	kbLogic := logic.NewKnowledgeBaseLogic(c.UserContext())
+	if err := kbLogic.ProcessDocument(kbID, docID, &req); err != nil {
 		return response.Error(c, err.Error())
 	}
 

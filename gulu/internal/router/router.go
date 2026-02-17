@@ -183,6 +183,9 @@ func Setup(app *fiber.App) {
 	kb.Get("/:id/documents", handler.KnowledgeDocumentList)
 	kb.Delete("/:id/documents/:docId", handler.KnowledgeDocumentDelete)
 	kb.Post("/:id/documents/:docId/reprocess", handler.KnowledgeDocumentReprocess)
+	kb.Get("/:id/documents/:docId/chunks", handler.KnowledgeDocumentChunks)
+	kb.Post("/:id/documents/preview-chunks", handler.KnowledgeDocumentPreviewChunks)
+	kb.Put("/:id/documents/:docId/process", handler.KnowledgeDocumentProcess)
 	kb.Post("/:id/search", handler.KnowledgeBaseSearch)
 
 	// MCP 代理服务路由

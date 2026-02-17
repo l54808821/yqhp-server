@@ -120,11 +120,20 @@ type KnowledgeSearchReq struct {
 
 // KnowledgeSearchResult 知识库检索结果
 type KnowledgeSearchResult struct {
-	Content    string  `json:"content"`
-	Score      float64 `json:"score"`
-	DocumentID int64   `json:"document_id"`
-	ChunkIndex int     `json:"chunk_index"`
-	Metadata   map[string]interface{} `json:"metadata,omitempty"`
+	Content      string                 `json:"content"`
+	Score        float64                `json:"score"`
+	DocumentID   int64                  `json:"document_id"`
+	DocumentName string                 `json:"document_name"`
+	ChunkIndex   int                    `json:"chunk_index"`
+	Metadata     map[string]interface{} `json:"metadata,omitempty"`
+}
+
+// DocumentChunkInfo 文档分块信息
+type DocumentChunkInfo struct {
+	ChunkIndex int    `json:"chunk_index"`
+	Content    string `json:"content"`
+	CharCount  int    `json:"char_count"`
+	Enabled    bool   `json:"enabled"`
 }
 
 // -----------------------------------------------
@@ -191,13 +200,11 @@ func (l *KnowledgeBaseLogic) Create(req *CreateKnowledgeBaseReq) (*KnowledgeBase
 		return nil, fmt.Errorf("更新 Collection 名称失败: %w", err)
 	}
 
-	// 异步创建 Qdrant Collection（不阻塞接口返回）
+	// 同步创建 Qdrant Collection（确保写入前 Collection 已就绪）
 	if req.Type == "normal" {
-		go func() {
-			if err := CreateQdrantCollection(collectionName, int(embeddingDimension)); err != nil {
-				fmt.Printf("[WARN] 创建 Qdrant Collection 失败: %v\n", err)
-			}
-		}()
+		if err := CreateQdrantCollection(collectionName, int(embeddingDimension)); err != nil {
+			fmt.Printf("[WARN] 创建 Qdrant Collection 失败: %v\n", err)
+		}
 	}
 
 	return l.toKnowledgeBaseInfo(kb), nil
@@ -346,7 +353,7 @@ func (l *KnowledgeBaseLogic) UpdateStatus(id int64, status int32) error {
 func (l *KnowledgeBaseLogic) CreateDocument(req *CreateKnowledgeDocumentReq) (*KnowledgeDocumentInfo, error) {
 	// 验证知识库存在
 	q := query.Use(svc.Ctx.DB)
-	kb, err := q.TKnowledgeBase.WithContext(l.ctx).Where(
+	_, err := q.TKnowledgeBase.WithContext(l.ctx).Where(
 		q.TKnowledgeBase.ID.Eq(req.KnowledgeBaseID),
 		q.TKnowledgeBase.IsDelete.Is(false),
 	).First()
@@ -378,14 +385,7 @@ func (l *KnowledgeBaseLogic) CreateDocument(req *CreateKnowledgeDocumentReq) (*K
 		l.updateDocumentCount(req.KnowledgeBaseID)
 	}()
 
-	// 异步处理文档（分块 + Embedding + 写入 Qdrant）
-	go func() {
-		processor := NewDocumentProcessor()
-		if err := processor.Process(kb, doc); err != nil {
-			fmt.Printf("[ERROR] 文档处理失败: docID=%d, err=%v\n", doc.ID, err)
-		}
-	}()
-
+	// 不再自动处理，等待用户在 Step 2 配置分段参数后手动触发
 	return l.toDocumentInfo(doc), nil
 }
 
@@ -480,29 +480,351 @@ func (l *KnowledgeBaseLogic) ReprocessDocument(kbID, docID int64) error {
 	return nil
 }
 
-// Search 知识库检索
-func (l *KnowledgeBaseLogic) Search(kbID int64, req *KnowledgeSearchReq) ([]*KnowledgeSearchResult, error) {
-	kb, err := l.GetByID(kbID)
+// GetDocumentChunks 获取文档的分块列表（从 Qdrant 读取）
+func (l *KnowledgeBaseLogic) GetDocumentChunks(kbID, docID int64) ([]*DocumentChunkInfo, error) {
+	q := query.Use(svc.Ctx.DB)
+
+	// 获取知识库信息
+	kb, err := q.TKnowledgeBase.WithContext(l.ctx).Where(
+		q.TKnowledgeBase.ID.Eq(kbID),
+		q.TKnowledgeBase.IsDelete.Is(false),
+	).First()
 	if err != nil {
 		return nil, errors.New("知识库不存在")
 	}
 
-	if kb.QdrantCollection == "" {
+	if kb.QdrantCollection == nil || *kb.QdrantCollection == "" {
+		return nil, errors.New("知识库尚未初始化向量存储")
+	}
+
+	// 验证文档存在
+	_, err = q.TKnowledgeDocument.WithContext(l.ctx).Where(
+		q.TKnowledgeDocument.ID.Eq(docID),
+		q.TKnowledgeDocument.KnowledgeBaseID.Eq(kbID),
+	).First()
+	if err != nil {
+		return nil, errors.New("文档不存在")
+	}
+
+	// 从 Qdrant 获取该文档的所有分块
+	hits, err := ScrollDocumentVectors(*kb.QdrantCollection, docID)
+	if err != nil {
+		return nil, fmt.Errorf("获取分块失败: %w", err)
+	}
+
+	// 按 chunk_index 排序
+	chunks := make([]*DocumentChunkInfo, 0, len(hits))
+	for _, hit := range hits {
+		content := hit.Content
+		chunks = append(chunks, &DocumentChunkInfo{
+			ChunkIndex: hit.ChunkIndex,
+			Content:    content,
+			CharCount:  len([]rune(content)),
+			Enabled:    true,
+		})
+	}
+
+	// 按 chunk_index 排序
+	for i := 0; i < len(chunks); i++ {
+		for j := i + 1; j < len(chunks); j++ {
+			if chunks[i].ChunkIndex > chunks[j].ChunkIndex {
+				chunks[i], chunks[j] = chunks[j], chunks[i]
+			}
+		}
+	}
+
+	return chunks, nil
+}
+
+// -----------------------------------------------
+// 分块预览 + 文档处理
+// -----------------------------------------------
+
+// PreviewChunksReq 预览分块请求
+type PreviewChunksReq struct {
+	Content         string `json:"content"`
+	Separator       string `json:"separator"`
+	ChunkSize       int    `json:"chunk_size"`
+	ChunkOverlap    int    `json:"chunk_overlap"`
+	CleanWhitespace bool   `json:"clean_whitespace"`
+	RemoveURLs      bool   `json:"remove_urls"`
+}
+
+// PreviewChunkItem 预览分块项
+type PreviewChunkItem struct {
+	Index     int    `json:"index"`
+	Content   string `json:"content"`
+	CharCount int    `json:"char_count"`
+}
+
+// ProcessDocumentReq 处理文档请求（Step 2 确认分段参数后触发）
+type ProcessDocumentReq struct {
+	Separator       string `json:"separator"`
+	ChunkSize       int    `json:"chunk_size"`
+	ChunkOverlap    int    `json:"chunk_overlap"`
+	CleanWhitespace bool   `json:"clean_whitespace"`
+	RemoveURLs      bool   `json:"remove_urls"`
+}
+
+// PreviewChunks 预览文档分块（不写入 Qdrant，仅用于前端展示）
+func (l *KnowledgeBaseLogic) PreviewChunks(req *PreviewChunksReq) []*PreviewChunkItem {
+	text := req.Content
+
+	// 文本预处理
+	if req.CleanWhitespace {
+		text = cleanWhitespace(text)
+	}
+	if req.RemoveURLs {
+		text = removeURLsAndEmails(text)
+	}
+
+	chunkSize := req.ChunkSize
+	if chunkSize <= 0 {
+		chunkSize = 500
+	}
+	chunkOverlap := req.ChunkOverlap
+	if chunkOverlap < 0 {
+		chunkOverlap = 0
+	}
+
+	processor := NewDocumentProcessor()
+
+	// 使用分段标识符切分
+	separator := req.Separator
+	var chunks []string
+	if separator != "" && separator != "\\n\\n" {
+		chunks = splitBySeparator(text, separator, chunkSize, chunkOverlap)
+	} else {
+		chunks = processor.splitText(text, chunkSize, chunkOverlap)
+	}
+
+	result := make([]*PreviewChunkItem, 0, len(chunks))
+	for i, chunk := range chunks {
+		result = append(result, &PreviewChunkItem{
+			Index:     i,
+			Content:   chunk,
+			CharCount: len([]rune(chunk)),
+		})
+	}
+
+	return result
+}
+
+// ProcessDocument 确认分段参数并开始处理文档
+func (l *KnowledgeBaseLogic) ProcessDocument(kbID, docID int64, req *ProcessDocumentReq) error {
+	q := query.Use(svc.Ctx.DB)
+
+	kb, err := q.TKnowledgeBase.WithContext(l.ctx).Where(
+		q.TKnowledgeBase.ID.Eq(kbID),
+		q.TKnowledgeBase.IsDelete.Is(false),
+	).First()
+	if err != nil {
+		return errors.New("知识库不存在")
+	}
+
+	doc, err := q.TKnowledgeDocument.WithContext(l.ctx).Where(
+		q.TKnowledgeDocument.ID.Eq(docID),
+		q.TKnowledgeDocument.KnowledgeBaseID.Eq(kbID),
+	).First()
+	if err != nil {
+		return errors.New("文档不存在")
+	}
+
+	// 保存文档级别的分段参数
+	updates := map[string]interface{}{}
+	if req.Separator != "" {
+		updates["separator"] = req.Separator
+	}
+	if req.ChunkSize > 0 {
+		updates["chunk_size"] = req.ChunkSize
+	}
+	if req.ChunkOverlap >= 0 {
+		updates["chunk_overlap"] = req.ChunkOverlap
+	}
+	cleanWS := req.CleanWhitespace
+	updates["clean_whitespace"] = cleanWS
+	removeURL := req.RemoveURLs
+	updates["remove_urls"] = removeURL
+	updates["status"] = "processing"
+
+	if len(updates) > 0 {
+		q.TKnowledgeDocument.WithContext(l.ctx).Where(q.TKnowledgeDocument.ID.Eq(docID)).Updates(updates)
+	}
+
+	// 重新读取更新后的文档
+	doc, _ = q.TKnowledgeDocument.WithContext(l.ctx).Where(q.TKnowledgeDocument.ID.Eq(docID)).First()
+
+	// 异步处理
+	go func() {
+		processor := NewDocumentProcessor()
+		if err := processor.Process(kb, doc); err != nil {
+			fmt.Printf("[ERROR] 文档处理失败: docID=%d, err=%v\n", doc.ID, err)
+		}
+	}()
+
+	return nil
+}
+
+// cleanWhitespace 替换连续空格、换行符、制表符
+func cleanWhitespace(text string) string {
+	// 将制表符替换为空格
+	text = strings.ReplaceAll(text, "\t", " ")
+	// 合并连续空格
+	for strings.Contains(text, "  ") {
+		text = strings.ReplaceAll(text, "  ", " ")
+	}
+	// 合并连续换行
+	for strings.Contains(text, "\n\n\n") {
+		text = strings.ReplaceAll(text, "\n\n\n", "\n\n")
+	}
+	return strings.TrimSpace(text)
+}
+
+// removeURLsAndEmails 删除 URL 和邮件地址
+func removeURLsAndEmails(text string) string {
+	// 简单的 URL 移除（http/https）
+	lines := strings.Split(text, "\n")
+	var result []string
+	for _, line := range lines {
+		words := strings.Fields(line)
+		var cleaned []string
+		for _, w := range words {
+			if strings.HasPrefix(w, "http://") || strings.HasPrefix(w, "https://") {
+				continue
+			}
+			if strings.Contains(w, "@") && strings.Contains(w, ".") {
+				continue
+			}
+			cleaned = append(cleaned, w)
+		}
+		result = append(result, strings.Join(cleaned, " "))
+	}
+	return strings.Join(result, "\n")
+}
+
+// splitBySeparator 按分段标识符切分文本
+func splitBySeparator(text, separator string, chunkSize, overlap int) []string {
+	// 处理转义的换行符
+	sep := strings.ReplaceAll(separator, "\\n", "\n")
+
+	parts := strings.Split(text, sep)
+	var chunks []string
+	var current strings.Builder
+
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+
+		if current.Len() > 0 && current.Len()+len([]rune(part)) > chunkSize {
+			chunk := strings.TrimSpace(current.String())
+			if chunk != "" {
+				chunks = append(chunks, chunk)
+			}
+			current.Reset()
+		}
+
+		if current.Len() > 0 {
+			current.WriteString("\n")
+		}
+		current.WriteString(part)
+	}
+
+	// 最后一个块
+	if current.Len() > 0 {
+		chunk := strings.TrimSpace(current.String())
+		if chunk != "" {
+			chunks = append(chunks, chunk)
+		}
+	}
+
+	return chunks
+}
+
+// Search 知识库检索
+func (l *KnowledgeBaseLogic) Search(kbID int64, req *KnowledgeSearchReq) ([]*KnowledgeSearchResult, error) {
+	// 获取知识库信息
+	q := query.Use(svc.Ctx.DB)
+	kbModel, err := q.TKnowledgeBase.WithContext(l.ctx).Where(
+		q.TKnowledgeBase.ID.Eq(kbID),
+		q.TKnowledgeBase.IsDelete.Is(false),
+	).First()
+	if err != nil {
+		return nil, errors.New("知识库不存在")
+	}
+
+	if kbModel.QdrantCollection == nil || *kbModel.QdrantCollection == "" {
 		return nil, errors.New("知识库尚未初始化向量存储")
 	}
 
 	topK := req.TopK
+	if topK <= 0 && kbModel.TopK != nil {
+		topK = int(*kbModel.TopK)
+	}
 	if topK <= 0 {
-		topK = int(kb.TopK)
+		topK = 5
 	}
 	score := req.Score
-	if score <= 0 {
-		score = kb.SimilarityThreshold
+	if score <= 0 && kbModel.SimilarityThreshold != nil {
+		score = *kbModel.SimilarityThreshold
 	}
 
-	// TODO: 调用 Embedding 模型生成查询向量，然后搜索 Qdrant
-	// 当前返回占位结果，Phase 1 后续接入 Qdrant 检索
-	return []*KnowledgeSearchResult{}, nil
+	// 1. 获取 Embedding 客户端
+	if kbModel.EmbeddingModelID == nil || *kbModel.EmbeddingModelID == 0 {
+		return nil, errors.New("知识库未配置嵌入模型")
+	}
+
+	aiModelLogic := NewAiModelLogic(l.ctx)
+	aiModel, err := aiModelLogic.GetByIDWithKey(*kbModel.EmbeddingModelID)
+	if err != nil {
+		return nil, fmt.Errorf("获取嵌入模型配置失败: %w", err)
+	}
+
+	embClient := NewEmbeddingClient(aiModel.APIBaseURL, aiModel.APIKey, aiModel.ModelID)
+
+	// 2. 将查询文本转为向量
+	queryVector, err := embClient.EmbedText(l.ctx, req.Query)
+	if err != nil {
+		return nil, fmt.Errorf("查询文本向量化失败: %w", err)
+	}
+
+	// 3. 在 Qdrant 中搜索
+	hits, err := SearchVectors(*kbModel.QdrantCollection, queryVector, topK, float32(score))
+	if err != nil {
+		return nil, fmt.Errorf("向量搜索失败: %w", err)
+	}
+
+	// 4. 补充文档名称
+	docNameCache := make(map[int64]string)
+	results := make([]*KnowledgeSearchResult, 0, len(hits))
+	for _, hit := range hits {
+		docName := ""
+		if hit.DocumentID > 0 {
+			if name, ok := docNameCache[hit.DocumentID]; ok {
+				docName = name
+			} else {
+				doc, err := q.TKnowledgeDocument.WithContext(l.ctx).Where(
+					q.TKnowledgeDocument.ID.Eq(hit.DocumentID),
+				).First()
+				if err == nil {
+					docName = doc.Name
+				}
+				docNameCache[hit.DocumentID] = docName
+			}
+		}
+
+		results = append(results, &KnowledgeSearchResult{
+			Content:      hit.Content,
+			Score:        hit.Score,
+			DocumentID:   hit.DocumentID,
+			DocumentName: docName,
+			ChunkIndex:   hit.ChunkIndex,
+			Metadata:     hit.Metadata,
+		})
+	}
+
+	return results, nil
 }
 
 // -----------------------------------------------

@@ -9,6 +9,7 @@ import (
 
 	httpclient "yqhp/workflow-engine/api/rest/client"
 	"yqhp/workflow-engine/internal/executor"
+	_ "yqhp/workflow-engine/internal/executor/ai" // 注册 AI 执行器
 	"yqhp/workflow-engine/pkg/types"
 )
 

@@ -31,6 +31,8 @@ var (
 	TTeamMember        *tTeamMember
 	TWorkflow          *tWorkflow
 	TMcpServer         *tMcpServer
+	TSkill             *tSkill
+	TSkillResource     *tSkillResource
 )
 
 func SetDefault(db *gorm.DB, opts ...gen.DOOption) {
@@ -49,6 +51,8 @@ func SetDefault(db *gorm.DB, opts ...gen.DOOption) {
 	TTeamMember = &Q.TTeamMember
 	TWorkflow = &Q.TWorkflow
 	TMcpServer = &Q.TMcpServer
+	TSkill = &Q.TSkill
+	TSkillResource = &Q.TSkillResource
 }
 
 func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
@@ -68,6 +72,8 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		TTeamMember:        newTTeamMember(db, opts...),
 		TWorkflow:          newTWorkflow(db, opts...),
 		TMcpServer:         newTMcpServer(db, opts...),
+		TSkill:             newTSkill(db, opts...),
+		TSkillResource:     newTSkillResource(db, opts...),
 	}
 }
 
@@ -88,6 +94,8 @@ type Query struct {
 	TTeamMember        tTeamMember
 	TWorkflow          tWorkflow
 	TMcpServer         tMcpServer
+	TSkill             tSkill
+	TSkillResource     tSkillResource
 }
 
 func (q *Query) Available() bool { return q.db != nil }
@@ -109,6 +117,8 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		TTeamMember:        q.TTeamMember.clone(db),
 		TWorkflow:          q.TWorkflow.clone(db),
 		TMcpServer:         q.TMcpServer.clone(db),
+		TSkill:             q.TSkill.clone(db),
+		TSkillResource:     q.TSkillResource.clone(db),
 	}
 }
 
@@ -137,6 +147,8 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		TTeamMember:        q.TTeamMember.replaceDB(db),
 		TWorkflow:          q.TWorkflow.replaceDB(db),
 		TMcpServer:         q.TMcpServer.replaceDB(db),
+		TSkill:             q.TSkill.replaceDB(db),
+		TSkillResource:     q.TSkillResource.replaceDB(db),
 	}
 }
 
@@ -155,6 +167,8 @@ type queryCtx struct {
 	TTeamMember        ITTeamMemberDo
 	TWorkflow          ITWorkflowDo
 	TMcpServer         ITMcpServerDo
+	TSkill             ITSkillDo
+	TSkillResource     ITSkillResourceDo
 }
 
 func (q *Query) WithContext(ctx context.Context) *queryCtx {
@@ -173,6 +187,8 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		TTeamMember:        q.TTeamMember.WithContext(ctx),
 		TWorkflow:          q.TWorkflow.WithContext(ctx),
 		TMcpServer:         q.TMcpServer.WithContext(ctx),
+		TSkill:             q.TSkill.WithContext(ctx),
+		TSkillResource:     q.TSkillResource.WithContext(ctx),
 	}
 }
 

@@ -103,10 +103,13 @@ func (h *StreamExecutionHandler) Execute(c *fiber.Ctx) error {
 	// 处理 Step 快捷方式：将单个步骤包装为工作流
 	var workflowDef interface{}
 	if req.Step != nil {
-		// 如果是 AI 节点且含 ai_model_id，预解析托管模型配置
+		// 如果是 AI 节点，预解析托管模型配置和 Skill 数据
 		if req.Step.Type == "ai" {
 			if err := h.resolveAIModelConfig(c, req.Step.Config); err != nil {
 				return response.Error(c, "解析 AI 模型失败: "+err.Error())
+			}
+			if err := h.resolveSkillConfigs(c, req.Step.Config); err != nil {
+				logger.Warn("解析 Skill 配置失败", "error", err)
 			}
 		}
 
@@ -124,7 +127,7 @@ func (h *StreamExecutionHandler) Execute(c *fiber.Ctx) error {
 			},
 		}
 	} else if req.Workflow != nil {
-		// 对完整工作流定义中的 AI 节点进行模型解析
+		// 对完整工作流定义中的 AI 节点进行模型解析和 Skill 解析
 		workflowDef = req.Workflow
 		h.resolveAIModelConfigsInWorkflow(c, workflowDef)
 	} else {
@@ -610,6 +613,9 @@ func (h *StreamExecutionHandler) resolveAIModelConfigsInWorkflow(c *fiber.Ctx, w
 					if err := h.resolveAIModelConfig(c, config); err != nil {
 						logger.Warn("解析 AI 模型配置失败", "error", err)
 					}
+					if err := h.resolveSkillConfigs(c, config); err != nil {
+						logger.Warn("解析 Skill 配置失败", "error", err)
+					}
 				}
 			}
 		}
@@ -637,6 +643,64 @@ func (h *StreamExecutionHandler) resolveAIModelConfigsInWorkflow(c *fiber.Ctx, w
 			}
 		}
 	}
+}
+
+// resolveSkillConfigs 解析 AI 节点中的 Skill 配置
+// 如果 config 中包含 skill_ids，则从数据库获取 Skill 的完整信息并注入到 config["skills"] 中
+func (h *StreamExecutionHandler) resolveSkillConfigs(c *fiber.Ctx, config map[string]interface{}) error {
+	skillIDsRaw, ok := config["skill_ids"]
+	if !ok || skillIDsRaw == nil {
+		return nil
+	}
+
+	skillIDsSlice, ok := skillIDsRaw.([]interface{})
+	if !ok || len(skillIDsSlice) == 0 {
+		return nil
+	}
+
+	// 提取 skill IDs
+	var skillIDs []int64
+	for _, idRaw := range skillIDsSlice {
+		switch v := idRaw.(type) {
+		case float64:
+			skillIDs = append(skillIDs, int64(v))
+		case int:
+			skillIDs = append(skillIDs, int64(v))
+		case int64:
+			skillIDs = append(skillIDs, v)
+		}
+	}
+
+	if len(skillIDs) == 0 {
+		return nil
+	}
+
+	// 从数据库查询 Skill 详情
+	skillLogic := logic.NewSkillLogic(c.Context())
+	var skills []map[string]interface{}
+	for _, id := range skillIDs {
+		skillInfo, err := skillLogic.GetByID(id)
+		if err != nil {
+			logger.Warn("获取 Skill 失败", "id", id, "error", err)
+			continue
+		}
+		if skillInfo.Status != 1 {
+			logger.Warn("Skill 已禁用，跳过", "id", id, "name", skillInfo.Name)
+			continue
+		}
+		skills = append(skills, map[string]interface{}{
+			"id":            skillInfo.ID,
+			"name":          skillInfo.Name,
+			"description":   skillInfo.Description,
+			"system_prompt": skillInfo.SystemPrompt,
+		})
+	}
+
+	if len(skills) > 0 {
+		config["skills"] = skills
+	}
+
+	return nil
 }
 
 // filterSteps 过滤选中的步骤

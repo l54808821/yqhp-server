@@ -66,7 +66,19 @@ type AIConfig struct {
 	MCPServerIDs    []int64  `json:"mcp_server_ids,omitempty"`     // 引用的 MCP 服务器 ID 列表
 	MaxToolRounds   int      `json:"max_tool_rounds,omitempty"`    // 最大工具调用轮次，默认 10
 	MCPProxyBaseURL string   `json:"mcp_proxy_base_url,omitempty"` // MCP 代理服务地址
+	Skills          []*SkillInfo `json:"skills,omitempty"`         // 挂载的 Skill 列表（由 gulu 层注入）
 }
+
+// SkillInfo Skill 能力信息（由 gulu 层从数据库查询后注入到 config）
+type SkillInfo struct {
+	ID           int64  `json:"id"`
+	Name         string `json:"name"`
+	Description  string `json:"description"`
+	SystemPrompt string `json:"system_prompt"`
+}
+
+// skillToolPrefix Skill 工具名称前缀
+const skillToolPrefix = "skill__"
 
 // humanInteractionToolName 人机交互工具名称
 const humanInteractionToolName = "human_interaction"
@@ -418,11 +430,31 @@ func (e *AIExecutor) buildMessages(config *AIConfig) []*schema.Message {
 		systemPrompt += interactiveSystemInstruction
 	}
 
+	// 当挂载了 Skill 时，追加 Skill 能力说明
+	if len(config.Skills) > 0 {
+		systemPrompt += e.buildSkillInstruction(config.Skills)
+	}
+
 	if systemPrompt != "" {
 		messages = append(messages, schema.SystemMessage(systemPrompt))
 	}
 	messages = append(messages, schema.UserMessage(config.Prompt))
 	return messages
+}
+
+// buildSkillInstruction 构建 Skill 能力说明，追加到系统提示词中
+func (e *AIExecutor) buildSkillInstruction(skills []*SkillInfo) string {
+	var sb strings.Builder
+	sb.WriteString("\n\n[专业能力（Skill）]\n")
+	sb.WriteString("你拥有以下专业能力，当用户的问题需要某个专业领域的深度分析时，请调用对应的工具获取专业结果：\n\n")
+
+	for _, skill := range skills {
+		toolName := skillToolPrefix + sanitizeToolName(skill.Name)
+		sb.WriteString(fmt.Sprintf("- %s: %s\n", toolName, skill.Description))
+	}
+
+	sb.WriteString("\n调用 Skill 时，请在 task 参数中提供完整的上下文信息，以便专家给出准确的结果。")
+	return sb.String()
 }
 
 func (e *AIExecutor) executeNonStream(ctx context.Context, chatModel model.ChatModel, messages []*schema.Message, config *AIConfig) (*AIOutput, error) {
@@ -580,6 +612,54 @@ func (e *AIExecutor) executeHumanInteraction(ctx context.Context, arguments stri
 	}
 }
 
+// executeSkillCall 执行 Skill 调用 -- 使用 Skill 的系统提示词发起子 LLM 调用
+func (e *AIExecutor) executeSkillCall(ctx context.Context, skill *SkillInfo, arguments string, config *AIConfig) *types.ToolResult {
+	var args struct {
+		Task string `json:"task"`
+	}
+	if err := json.Unmarshal([]byte(arguments), &args); err != nil {
+		return &types.ToolResult{
+			IsError: true,
+			Content: fmt.Sprintf("Skill 参数解析失败: %v", err),
+		}
+	}
+
+	if args.Task == "" {
+		return &types.ToolResult{
+			IsError: true,
+			Content: "Skill 调用缺少 task 参数",
+		}
+	}
+
+	// 使用 Skill 的系统提示词 + 用户传入的 task 构建消息
+	messages := []*schema.Message{
+		schema.SystemMessage(skill.SystemPrompt),
+		schema.UserMessage(args.Task),
+	}
+
+	// 复用同一个模型创建子调用
+	chatModel, err := e.createChatModel(ctx, config)
+	if err != nil {
+		return &types.ToolResult{
+			IsError: true,
+			Content: fmt.Sprintf("Skill 创建模型失败: %v", err),
+		}
+	}
+
+	resp, err := chatModel.Generate(ctx, messages)
+	if err != nil {
+		return &types.ToolResult{
+			IsError: true,
+			Content: fmt.Sprintf("Skill 执行失败: %v", err),
+		}
+	}
+
+	return &types.ToolResult{
+		IsError: false,
+		Content: resp.Content,
+	}
+}
+
 func (e *AIExecutor) parseConfig(config map[string]any) (*AIConfig, error) {
 	aiConfig := &AIConfig{Provider: "openai", Streaming: false}
 
@@ -661,6 +741,30 @@ func (e *AIExecutor) parseConfig(config map[string]any) (*AIConfig, error) {
 		aiConfig.MCPProxyBaseURL = mcpProxyBaseURL
 	}
 
+	// 解析 Skill 列表（由 gulu 层注入的完整 Skill 信息）
+	if skills, ok := config["skills"].([]any); ok {
+		for _, s := range skills {
+			if skillMap, ok := s.(map[string]any); ok {
+				skill := &SkillInfo{}
+				if id, ok := skillMap["id"].(float64); ok {
+					skill.ID = int64(id)
+				}
+				if name, ok := skillMap["name"].(string); ok {
+					skill.Name = name
+				}
+				if desc, ok := skillMap["description"].(string); ok {
+					skill.Description = desc
+				}
+				if sp, ok := skillMap["system_prompt"].(string); ok {
+					skill.SystemPrompt = sp
+				}
+				if skill.Name != "" && skill.SystemPrompt != "" {
+					aiConfig.Skills = append(aiConfig.Skills, skill)
+				}
+			}
+		}
+	}
+
 	return aiConfig, nil
 }
 
@@ -682,7 +786,7 @@ func (e *AIExecutor) resolveVariables(config *AIConfig, execCtx *ExecutionContex
 
 // hasTools 检查配置中是否启用了工具 (Task 9.4)
 func (e *AIExecutor) hasTools(config *AIConfig) bool {
-	return len(config.Tools) > 0 || len(config.MCPServerIDs) > 0 || config.Interactive
+	return len(config.Tools) > 0 || len(config.MCPServerIDs) > 0 || config.Interactive || len(config.Skills) > 0
 }
 
 // getMCPProxyBaseURL 获取 MCP 代理服务地址
@@ -727,7 +831,60 @@ func (e *AIExecutor) collectToolDefinitions(ctx context.Context, config *AIConfi
 		}
 	}
 
+	// 收集 Skill 工具定义
+	for _, skill := range config.Skills {
+		allDefs = append(allDefs, skillToToolDef(skill))
+	}
+
 	return allDefs, nil
+}
+
+// skillToToolDef 将 Skill 转换为工具定义，使 AI 可以像调用工具一样调用 Skill
+func skillToToolDef(skill *SkillInfo) *types.ToolDefinition {
+	toolName := skillToolPrefix + sanitizeToolName(skill.Name)
+	return &types.ToolDefinition{
+		Name:        toolName,
+		Description: fmt.Sprintf("[Skill] %s", skill.Description),
+		Parameters: json.RawMessage(`{
+			"type": "object",
+			"properties": {
+				"task": {
+					"type": "string",
+					"description": "需要该专家处理的具体任务内容，请提供完整上下文"
+				}
+			},
+			"required": ["task"]
+		}`),
+	}
+}
+
+// sanitizeToolName 将中文/特殊字符的 Skill 名称转换为合法的工具名称
+func sanitizeToolName(name string) string {
+	var result strings.Builder
+	for _, r := range name {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' {
+			result.WriteRune(r)
+		} else if r >= 0x4e00 && r <= 0x9fff {
+			result.WriteRune(r)
+		} else {
+			result.WriteRune('_')
+		}
+	}
+	s := result.String()
+	if s == "" {
+		s = "unnamed"
+	}
+	return s
+}
+
+// findSkillByToolName 根据工具名称查找 Skill
+func findSkillByToolName(toolName string, skills []*SkillInfo) *SkillInfo {
+	for _, skill := range skills {
+		if skillToolPrefix+sanitizeToolName(skill.Name) == toolName {
+			return skill
+		}
+	}
+	return nil
 }
 
 // toSchemaTools 将 ToolDefinition 列表转换为 eino schema 格式
@@ -1064,6 +1221,16 @@ func (e *AIExecutor) executeSingleToolCall(
 		result := e.executeHumanInteraction(ctx, tc.Function.Arguments, stepID, config, aiCallback)
 		result.ToolCallID = tc.ID
 		return result
+	}
+
+	// 检查是否为 Skill 工具调用
+	if strings.HasPrefix(toolName, skillToolPrefix) {
+		skill := findSkillByToolName(toolName, config.Skills)
+		if skill != nil {
+			result := e.executeSkillCall(ctx, skill, tc.Function.Arguments, config)
+			result.ToolCallID = tc.ID
+			return result
+		}
 	}
 
 	// 检查是否为内置工具

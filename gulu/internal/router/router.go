@@ -147,6 +147,21 @@ func Setup(app *fiber.App) {
 	aiModels.Put("/:id/status", handler.AiModelUpdateStatus)
 	aiModels.Post("/:id/chat", handler.AiChatStream)
 
+	// Skill 管理路由
+	skills := api.Group("/skills")
+	skills.Post("", handler.SkillCreate)
+	skills.Get("", handler.SkillList)
+	skills.Get("/categories", handler.SkillGetCategories)
+	skills.Post("/import", handler.SkillImport)
+	skills.Get("/:id", handler.SkillGetByID)
+	skills.Put("/:id", handler.SkillUpdate)
+	skills.Delete("/:id", handler.SkillDelete)
+	skills.Put("/:id/status", handler.SkillUpdateStatus)
+	skills.Get("/:id/export", handler.SkillExport)
+	skills.Get("/:id/resources", handler.SkillResourceList)
+	skills.Post("/:id/resources", handler.SkillResourceCreate)
+	skills.Delete("/:id/resources/:resourceId", handler.SkillResourceDelete)
+
 	// MCP 服务器管理路由
 	mcpServers := api.Group("/mcp-servers")
 	mcpServers.Post("", handler.McpServerCreate)

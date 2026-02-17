@@ -25,9 +25,12 @@ type AIConfig struct {
 	MCPServerIDs        []int64      `json:"mcp_server_ids,omitempty"`
 	MaxToolRounds       int          `json:"max_tool_rounds,omitempty"`
 	MCPProxyBaseURL     string       `json:"mcp_proxy_base_url,omitempty"`
-	Skills              []*SkillInfo `json:"skills,omitempty"`
-	AgentMode           string       `json:"agent_mode,omitempty"`
-	MaxReflectionRounds int          `json:"max_reflection_rounds,omitempty"`
+	Skills              []*SkillInfo        `json:"skills,omitempty"`
+	AgentMode           string              `json:"agent_mode,omitempty"`
+	MaxReflectionRounds int                 `json:"max_reflection_rounds,omitempty"`
+	KnowledgeBases      []*KnowledgeBaseInfo `json:"knowledge_bases,omitempty"`
+	KBTopK              int                  `json:"kb_top_k,omitempty"`
+	KBScoreThreshold    float32              `json:"kb_score_threshold,omitempty"`
 }
 
 // SkillInfo Skill 能力信息（由 gulu 层从数据库查询后注入到 config）
@@ -150,6 +153,63 @@ func (e *AIExecutor) parseConfig(config map[string]any) (*AIConfig, error) {
 				}
 			}
 		}
+	}
+
+	// 解析知识库列表（由 gulu 层注入的完整知识库信息）
+	if kbs, ok := config["knowledge_bases"].([]any); ok {
+		for _, k := range kbs {
+			if kbMap, ok := k.(map[string]any); ok {
+				kbInfo := &KnowledgeBaseInfo{}
+				if id, ok := kbMap["id"].(float64); ok {
+					kbInfo.ID = int64(id)
+				}
+				if name, ok := kbMap["name"].(string); ok {
+					kbInfo.Name = name
+				}
+				if t, ok := kbMap["type"].(string); ok {
+					kbInfo.Type = t
+				}
+				if col, ok := kbMap["qdrant_collection"].(string); ok {
+					kbInfo.QdrantCollection = col
+				}
+				if neo, ok := kbMap["neo4j_database"].(string); ok {
+					kbInfo.Neo4jDatabase = neo
+				}
+				if em, ok := kbMap["embedding_model"].(string); ok {
+					kbInfo.EmbeddingModel = em
+				}
+				if emID, ok := kbMap["embedding_model_id"].(float64); ok {
+					kbInfo.EmbeddingModelID = int64(emID)
+				}
+				if tk, ok := kbMap["top_k"].(float64); ok {
+					kbInfo.TopK = int(tk)
+				}
+				if st, ok := kbMap["score_threshold"].(float64); ok {
+					kbInfo.ScoreThreshold = st
+				}
+				if ep, ok := kbMap["embedding_provider"].(string); ok {
+					kbInfo.EmbeddingProvider = ep
+				}
+				if ek, ok := kbMap["embedding_api_key"].(string); ok {
+					kbInfo.EmbeddingAPIKey = ek
+				}
+				if eu, ok := kbMap["embedding_base_url"].(string); ok {
+					kbInfo.EmbeddingBaseURL = eu
+				}
+				if ed, ok := kbMap["embedding_dimension"].(float64); ok {
+					kbInfo.EmbeddingDimension = int(ed)
+				}
+				if kbInfo.Name != "" {
+					aiConfig.KnowledgeBases = append(aiConfig.KnowledgeBases, kbInfo)
+				}
+			}
+		}
+	}
+	if kbTopK, ok := config["kb_top_k"].(float64); ok {
+		aiConfig.KBTopK = int(kbTopK)
+	}
+	if kbThreshold, ok := config["kb_score_threshold"].(float64); ok {
+		aiConfig.KBScoreThreshold = float32(kbThreshold)
 	}
 
 	return aiConfig, nil

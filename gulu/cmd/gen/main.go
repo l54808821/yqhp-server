@@ -75,6 +75,9 @@ func main() {
 		g.GenerateModel("t_execution"),
 		// AI模型管理
 		g.GenerateModel("t_ai_model"),
+		// 知识库管理
+		g.GenerateModel("t_knowledge_base"),
+		g.GenerateModel("t_knowledge_document"),
 	)
 
 	// 执行生成

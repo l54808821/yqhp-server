@@ -111,6 +111,9 @@ func (h *StreamExecutionHandler) Execute(c *fiber.Ctx) error {
 			if err := h.resolveSkillConfigs(c, req.Step.Config); err != nil {
 				logger.Warn("解析 Skill 配置失败", "error", err)
 			}
+			if err := h.resolveKnowledgeBaseConfigs(c, req.Step.Config); err != nil {
+				logger.Warn("解析知识库配置失败", "error", err)
+			}
 		}
 
 		// 构建单步工作流
@@ -616,6 +619,9 @@ func (h *StreamExecutionHandler) resolveAIModelConfigsInWorkflow(c *fiber.Ctx, w
 					if err := h.resolveSkillConfigs(c, config); err != nil {
 						logger.Warn("解析 Skill 配置失败", "error", err)
 					}
+					if err := h.resolveKnowledgeBaseConfigs(c, config); err != nil {
+						logger.Warn("解析知识库配置失败", "error", err)
+					}
 				}
 			}
 		}
@@ -698,6 +704,84 @@ func (h *StreamExecutionHandler) resolveSkillConfigs(c *fiber.Ctx, config map[st
 
 	if len(skills) > 0 {
 		config["skills"] = skills
+	}
+
+	return nil
+}
+
+// resolveKnowledgeBaseConfigs 解析 AI 节点中的知识库配置
+// 如果 config 中包含 knowledge_base_ids，则从数据库获取知识库的完整信息并注入到 config["knowledge_bases"] 中
+func (h *StreamExecutionHandler) resolveKnowledgeBaseConfigs(c *fiber.Ctx, config map[string]interface{}) error {
+	kbIDsRaw, ok := config["knowledge_base_ids"]
+	if !ok || kbIDsRaw == nil {
+		return nil
+	}
+
+	kbIDsSlice, ok := kbIDsRaw.([]interface{})
+	if !ok || len(kbIDsSlice) == 0 {
+		return nil
+	}
+
+	// 提取知识库 IDs
+	var kbIDs []int64
+	for _, idRaw := range kbIDsSlice {
+		switch v := idRaw.(type) {
+		case float64:
+			kbIDs = append(kbIDs, int64(v))
+		case int:
+			kbIDs = append(kbIDs, int64(v))
+		case int64:
+			kbIDs = append(kbIDs, v)
+		}
+	}
+
+	if len(kbIDs) == 0 {
+		return nil
+	}
+
+	// 从数据库查询知识库详情
+	kbLogic := logic.NewKnowledgeBaseLogic(c.Context())
+	var knowledgeBases []map[string]interface{}
+	for _, id := range kbIDs {
+		kbInfo, err := kbLogic.GetByID(id)
+		if err != nil {
+			logger.Warn("获取知识库失败", "id", id, "error", err)
+			continue
+		}
+		if kbInfo.Status != 1 {
+			logger.Warn("知识库已禁用，跳过", "id", id, "name", kbInfo.Name)
+			continue
+		}
+
+		kbData := map[string]interface{}{
+			"id":                  kbInfo.ID,
+			"name":                kbInfo.Name,
+			"type":                kbInfo.Type,
+			"qdrant_collection":   kbInfo.QdrantCollection,
+			"embedding_model_name": kbInfo.EmbeddingModelName,
+			"embedding_dimension": kbInfo.EmbeddingDimension,
+			"top_k":               kbInfo.TopK,
+			"score_threshold":     kbInfo.SimilarityThreshold,
+		}
+
+		// 如果有嵌入模型 ID，解析模型的 API 配置
+		if kbInfo.EmbeddingModelID != nil && *kbInfo.EmbeddingModelID > 0 {
+			aiModelLogic := logic.NewAiModelLogic(c.Context())
+			aiModel, err := aiModelLogic.GetByIDWithKey(*kbInfo.EmbeddingModelID)
+			if err == nil {
+				kbData["embedding_model_id"] = aiModel.ID
+				kbData["embedding_model"] = aiModel.ModelID
+				kbData["embedding_provider"] = aiModel.Provider
+				kbData["embedding_api_key"] = aiModel.APIKey
+				kbData["embedding_base_url"] = aiModel.APIBaseURL
+			}
+		}
+
+		knowledgeBases = append(knowledgeBases, kbData)
+	}
+
+	if len(knowledgeBases) > 0 {
+		config["knowledge_bases"] = knowledgeBases
 	}
 
 	return nil

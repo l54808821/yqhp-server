@@ -69,6 +69,21 @@ workflow_engine:
   debug: false # 是否启用调试日志
 
 
+# Qdrant 向量数据库配置
+qdrant:
+  host: 127.0.0.1
+  port: 6334           # gRPC 端口
+  api_key: ""          # 可选，Qdrant Cloud 时需要
+  use_tls: false       # 是否使用 TLS
+  collection_prefix: "kb_"  # Collection 名称前缀
+
+# Neo4j 图数据库配置（Phase 3）
+# neo4j:
+#   uri: bolt://127.0.0.1:7687
+#   username: neo4j
+#   password: neo4j
+#   database: neo4j
+
   # 指标输出配置（可选）
   # 支持将压测指标输出到 InfluxDB、Kafka、JSON 文件等
   # outputs:

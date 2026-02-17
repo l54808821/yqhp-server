@@ -171,10 +171,29 @@ func (e *AIExecutor) buildMessages(config *AIConfig) []*schema.Message {
 		systemPrompt += buildSkillInstruction(config.Skills)
 	}
 
+	// 当挂载了知识库时，追加知识库能力说明
+	if len(config.KnowledgeBases) > 0 {
+		systemPrompt += buildKnowledgeInstruction(config.KnowledgeBases)
+	}
+
 	if systemPrompt != "" {
 		messages = append(messages, schema.SystemMessage(systemPrompt))
 	}
-	messages = append(messages, schema.UserMessage(config.Prompt))
+
+	// 知识库上下文注入：在用户提示词前插入检索到的知识
+	userPrompt := config.Prompt
+	if len(config.KnowledgeBases) > 0 {
+		topK := config.KBTopK
+		if topK <= 0 {
+			topK = 5
+		}
+		knowledgeContext := e.retrieveKnowledge(context.Background(), config.Prompt, config.KnowledgeBases, topK)
+		if knowledgeContext != "" {
+			userPrompt = knowledgeContext + "\n---\n\n用户问题：\n" + config.Prompt
+		}
+	}
+
+	messages = append(messages, schema.UserMessage(userPrompt))
 	return messages
 }
 

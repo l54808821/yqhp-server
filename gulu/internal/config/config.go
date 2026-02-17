@@ -35,11 +35,21 @@ type OutputConfig struct {
 	Options map[string]string `yaml:"options"` // 额外配置选项
 }
 
+// QdrantConfig Qdrant 向量数据库配置
+type QdrantConfig struct {
+	Host             string `yaml:"host"`
+	Port             int    `yaml:"port"`
+	APIKey           string `yaml:"api_key"`
+	UseTLS           bool   `yaml:"use_tls"`
+	CollectionPrefix string `yaml:"collection_prefix"`
+}
+
 // Config 应用配置
 type Config struct {
 	commonConfig.Config `yaml:",inline"`
 	Gulu                GuluConfig           `yaml:"gulu"`
 	WorkflowEngine      WorkflowEngineConfig `yaml:"workflow_engine"`
+	Qdrant              QdrantConfig         `yaml:"qdrant"`
 }
 
 var (

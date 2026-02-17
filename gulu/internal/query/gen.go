@@ -31,8 +31,10 @@ var (
 	TTeamMember        *tTeamMember
 	TWorkflow          *tWorkflow
 	TMcpServer         *tMcpServer
-	TSkill             *tSkill
-	TSkillResource     *tSkillResource
+	TSkill              *tSkill
+	TSkillResource      *tSkillResource
+	TKnowledgeBase      *tKnowledgeBase
+	TKnowledgeDocument  *tKnowledgeDocument
 )
 
 func SetDefault(db *gorm.DB, opts ...gen.DOOption) {
@@ -53,6 +55,8 @@ func SetDefault(db *gorm.DB, opts ...gen.DOOption) {
 	TMcpServer = &Q.TMcpServer
 	TSkill = &Q.TSkill
 	TSkillResource = &Q.TSkillResource
+	TKnowledgeBase = &Q.TKnowledgeBase
+	TKnowledgeDocument = &Q.TKnowledgeDocument
 }
 
 func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
@@ -72,8 +76,10 @@ func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 		TTeamMember:        newTTeamMember(db, opts...),
 		TWorkflow:          newTWorkflow(db, opts...),
 		TMcpServer:         newTMcpServer(db, opts...),
-		TSkill:             newTSkill(db, opts...),
-		TSkillResource:     newTSkillResource(db, opts...),
+		TSkill:              newTSkill(db, opts...),
+		TSkillResource:      newTSkillResource(db, opts...),
+		TKnowledgeBase:      newTKnowledgeBase(db, opts...),
+		TKnowledgeDocument:  newTKnowledgeDocument(db, opts...),
 	}
 }
 
@@ -94,8 +100,10 @@ type Query struct {
 	TTeamMember        tTeamMember
 	TWorkflow          tWorkflow
 	TMcpServer         tMcpServer
-	TSkill             tSkill
-	TSkillResource     tSkillResource
+	TSkill              tSkill
+	TSkillResource      tSkillResource
+	TKnowledgeBase      tKnowledgeBase
+	TKnowledgeDocument  tKnowledgeDocument
 }
 
 func (q *Query) Available() bool { return q.db != nil }
@@ -117,8 +125,10 @@ func (q *Query) clone(db *gorm.DB) *Query {
 		TTeamMember:        q.TTeamMember.clone(db),
 		TWorkflow:          q.TWorkflow.clone(db),
 		TMcpServer:         q.TMcpServer.clone(db),
-		TSkill:             q.TSkill.clone(db),
-		TSkillResource:     q.TSkillResource.clone(db),
+		TSkill:              q.TSkill.clone(db),
+		TSkillResource:      q.TSkillResource.clone(db),
+		TKnowledgeBase:      q.TKnowledgeBase.clone(db),
+		TKnowledgeDocument:  q.TKnowledgeDocument.clone(db),
 	}
 }
 
@@ -147,8 +157,10 @@ func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 		TTeamMember:        q.TTeamMember.replaceDB(db),
 		TWorkflow:          q.TWorkflow.replaceDB(db),
 		TMcpServer:         q.TMcpServer.replaceDB(db),
-		TSkill:             q.TSkill.replaceDB(db),
-		TSkillResource:     q.TSkillResource.replaceDB(db),
+		TSkill:              q.TSkill.replaceDB(db),
+		TSkillResource:      q.TSkillResource.replaceDB(db),
+		TKnowledgeBase:      q.TKnowledgeBase.replaceDB(db),
+		TKnowledgeDocument:  q.TKnowledgeDocument.replaceDB(db),
 	}
 }
 
@@ -167,8 +179,10 @@ type queryCtx struct {
 	TTeamMember        ITTeamMemberDo
 	TWorkflow          ITWorkflowDo
 	TMcpServer         ITMcpServerDo
-	TSkill             ITSkillDo
-	TSkillResource     ITSkillResourceDo
+	TSkill              ITSkillDo
+	TSkillResource      ITSkillResourceDo
+	TKnowledgeBase      ITKnowledgeBaseDo
+	TKnowledgeDocument  ITKnowledgeDocumentDo
 }
 
 func (q *Query) WithContext(ctx context.Context) *queryCtx {
@@ -187,8 +201,10 @@ func (q *Query) WithContext(ctx context.Context) *queryCtx {
 		TTeamMember:        q.TTeamMember.WithContext(ctx),
 		TWorkflow:          q.TWorkflow.WithContext(ctx),
 		TMcpServer:         q.TMcpServer.WithContext(ctx),
-		TSkill:             q.TSkill.WithContext(ctx),
-		TSkillResource:     q.TSkillResource.WithContext(ctx),
+		TSkill:              q.TSkill.WithContext(ctx),
+		TSkillResource:      q.TSkillResource.WithContext(ctx),
+		TKnowledgeBase:      q.TKnowledgeBase.WithContext(ctx),
+		TKnowledgeDocument:  q.TKnowledgeDocument.WithContext(ctx),
 	}
 }
 

@@ -171,6 +171,20 @@ func Setup(app *fiber.App) {
 	mcpServers.Delete("/:id", handler.McpServerDelete)
 	mcpServers.Put("/:id/status", handler.McpServerUpdateStatus)
 
+	// 知识库管理路由
+	kb := api.Group("/knowledge-bases")
+	kb.Post("", handler.KnowledgeBaseCreate)
+	kb.Get("", handler.KnowledgeBaseList)
+	kb.Get("/:id", handler.KnowledgeBaseGetByID)
+	kb.Put("/:id", handler.KnowledgeBaseUpdate)
+	kb.Delete("/:id", handler.KnowledgeBaseDelete)
+	kb.Put("/:id/status", handler.KnowledgeBaseUpdateStatus)
+	kb.Post("/:id/documents", handler.KnowledgeDocumentUpload)
+	kb.Get("/:id/documents", handler.KnowledgeDocumentList)
+	kb.Delete("/:id/documents/:docId", handler.KnowledgeDocumentDelete)
+	kb.Post("/:id/documents/:docId/reprocess", handler.KnowledgeDocumentReprocess)
+	kb.Post("/:id/search", handler.KnowledgeBaseSearch)
+
 	// MCP 代理服务路由
 	mcpProxyService := mcpproxy.NewMCPProxyService()
 	mcpProxyHandler := handler.NewMCPProxyHandler(mcpProxyService)

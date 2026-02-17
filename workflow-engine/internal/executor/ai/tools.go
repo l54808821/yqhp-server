@@ -18,7 +18,7 @@ import (
 
 // hasTools 检查配置中是否启用了工具
 func (e *AIExecutor) hasTools(config *AIConfig) bool {
-	return len(config.Tools) > 0 || len(config.MCPServerIDs) > 0 || config.Interactive || len(config.Skills) > 0
+	return len(config.Tools) > 0 || len(config.MCPServerIDs) > 0 || config.Interactive || len(config.Skills) > 0 || len(config.KnowledgeBases) > 0
 }
 
 // getMCPProxyBaseURL 获取 MCP 代理服务地址
@@ -66,6 +66,15 @@ func (e *AIExecutor) collectToolDefinitions(ctx context.Context, config *AIConfi
 	// 收集 Skill 工具定义
 	for _, skill := range config.Skills {
 		allDefs = append(allDefs, skillToToolDef(skill))
+	}
+
+	// 收集知识库检索工具定义
+	if len(config.KnowledgeBases) > 0 {
+		var kbNames []string
+		for _, kb := range config.KnowledgeBases {
+			kbNames = append(kbNames, kb.Name)
+		}
+		allDefs = append(allDefs, knowledgeSearchToolDef(kbNames))
 	}
 
 	return allDefs, nil
@@ -383,6 +392,13 @@ func (e *AIExecutor) executeSingleToolCall(
 			}
 		}
 		result := e.executeHumanInteraction(ctx, tc.Function.Arguments, stepID, config, aiCallback)
+		result.ToolCallID = tc.ID
+		return result
+	}
+
+	// 检查是否为知识库检索工具
+	if toolName == knowledgeSearchToolName && len(config.KnowledgeBases) > 0 {
+		result := e.executeKnowledgeSearch(ctx, tc.Function.Arguments, config.KnowledgeBases)
 		result.ToolCallID = tc.ID
 		return result
 	}

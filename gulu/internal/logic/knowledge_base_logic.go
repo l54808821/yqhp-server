@@ -2,6 +2,7 @@ package logic
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -91,6 +92,7 @@ type CreateKnowledgeDocumentReq struct {
 	Name            string  `json:"name"`
 	FileType        string  `json:"file_type"`
 	Content         *string `json:"content"`
+	ContentEncoding string  `json:"content_encoding"` // "base64" 表示内容已 Base64 编码
 	FileSize        int64   `json:"file_size"`
 }
 
@@ -623,4 +625,24 @@ func InferFileType(filename string) string {
 	default:
 		return "txt"
 	}
+}
+
+// IsTextFileType 判断文件类型是否为纯文本类
+func IsTextFileType(fileType string) bool {
+	switch fileType {
+	case "txt", "md", "csv", "json", "html":
+		return true
+	default:
+		return false
+	}
+}
+
+// Base64Encode 将字节数据编码为 Base64 字符串
+func Base64Encode(data []byte) string {
+	return base64.StdEncoding.EncodeToString(data)
+}
+
+// Base64Decode 将 Base64 字符串解码为字节数据
+func Base64Decode(encoded string) ([]byte, error) {
+	return base64.StdEncoding.DecodeString(encoded)
 }

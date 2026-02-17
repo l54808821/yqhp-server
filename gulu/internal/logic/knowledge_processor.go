@@ -1,8 +1,12 @@
 package logic
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
+	"encoding/xml"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -121,9 +125,8 @@ func (p *DocumentProcessor) Process(kb *model.TKnowledgeBase, doc *model.TKnowle
 
 // extractText 从文档中提取文本
 func (p *DocumentProcessor) extractText(doc *model.TKnowledgeDocument) (string, error) {
-	// 如果有直接存储的内容，优先使用
-	if doc.Content != nil && *doc.Content != "" {
-		return *doc.Content, nil
+	if doc.Content == nil || *doc.Content == "" {
+		return "", fmt.Errorf("文档内容为空")
 	}
 
 	fileType := ""
@@ -131,28 +134,253 @@ func (p *DocumentProcessor) extractText(doc *model.TKnowledgeDocument) (string, 
 		fileType = *doc.FileType
 	}
 
+	// 纯文本类型，内容直接以 UTF-8 字符串形式存储
+	if IsTextFileType(fileType) {
+		return *doc.Content, nil
+	}
+
+	// 二进制文件：Content 字段存储的是 Base64 编码后的原始数据
+	rawBytes, err := Base64Decode(*doc.Content)
+	if err != nil {
+		return "", fmt.Errorf("Base64 解码失败: %v", err)
+	}
+
 	switch fileType {
-	case "txt", "md", "csv", "json", "html":
-		// 纯文本类型，内容应该已经存储在 Content 中
-		return "", fmt.Errorf("文本类型文档但内容为空")
 	case "pdf":
-		// TODO: 接入 PDF 解析库 (如 pdftotext, unipdf)
-		return "", fmt.Errorf("PDF 解析功能待实现")
+		text, err := extractTextFromPDF(rawBytes)
+		if err != nil {
+			return "", fmt.Errorf("PDF 文本提取失败: %v", err)
+		}
+		return text, nil
 	case "docx":
-		// TODO: 接入 DOCX 解析库
-		return "", fmt.Errorf("DOCX 解析功能待实现")
+		text, err := extractTextFromDOCX(rawBytes)
+		if err != nil {
+			return "", fmt.Errorf("DOCX 文本提取失败: %v", err)
+		}
+		return text, nil
 	case "image":
 		// TODO: 接入 OCR 服务
-		return "", fmt.Errorf("图片 OCR 功能待实现")
+		return "", fmt.Errorf("图片 OCR 功能待实现（已保存原始数据 %d 字节）", len(rawBytes))
 	case "audio":
 		// TODO: 接入语音转文字 (Whisper)
-		return "", fmt.Errorf("音频转写功能待实现")
+		return "", fmt.Errorf("音频转写功能待实现（已保存原始数据 %d 字节）", len(rawBytes))
 	case "video":
 		// TODO: 提取音轨后转文字
-		return "", fmt.Errorf("视频转写功能待实现")
+		return "", fmt.Errorf("视频转写功能待实现（已保存原始数据 %d 字节）", len(rawBytes))
 	default:
 		return "", fmt.Errorf("不支持的文件类型: %s", fileType)
 	}
+}
+
+// -----------------------------------------------
+// DOCX 解析（纯标准库实现，无第三方依赖）
+// DOCX 是一个 ZIP 包，核心文本在 word/document.xml 中
+// -----------------------------------------------
+
+// extractTextFromDOCX 从 DOCX 二进制数据中提取纯文本
+func extractTextFromDOCX(data []byte) (string, error) {
+	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return "", fmt.Errorf("无法打开 DOCX 压缩包: %v", err)
+	}
+
+	var docXML *zip.File
+	for _, f := range reader.File {
+		if f.Name == "word/document.xml" {
+			docXML = f
+			break
+		}
+	}
+
+	if docXML == nil {
+		return "", fmt.Errorf("DOCX 中未找到 word/document.xml")
+	}
+
+	rc, err := docXML.Open()
+	if err != nil {
+		return "", fmt.Errorf("无法读取 document.xml: %v", err)
+	}
+	defer rc.Close()
+
+	xmlData, err := io.ReadAll(rc)
+	if err != nil {
+		return "", fmt.Errorf("读取 document.xml 失败: %v", err)
+	}
+
+	text := parseWordXML(xmlData)
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return "", fmt.Errorf("DOCX 文档内容为空")
+	}
+
+	return text, nil
+}
+
+// parseWordXML 解析 word/document.xml 提取文本内容
+// 遍历 XML token，遇到 <w:t> 标签提取文本，遇到 </w:p> 标签插入换行
+func parseWordXML(data []byte) string {
+	decoder := xml.NewDecoder(bytes.NewReader(data))
+	var sb strings.Builder
+	inText := false
+
+	for {
+		token, err := decoder.Token()
+		if err != nil {
+			break
+		}
+
+		switch t := token.(type) {
+		case xml.StartElement:
+			// <w:t> 或 <w:t xml:space="preserve"> 包含文本内容
+			if t.Name.Local == "t" && t.Name.Space == "http://schemas.openxmlformats.org/wordprocessingml/2006/main" {
+				inText = true
+			}
+		case xml.EndElement:
+			if t.Name.Local == "t" && t.Name.Space == "http://schemas.openxmlformats.org/wordprocessingml/2006/main" {
+				inText = false
+			}
+			// 段落结束，添加换行
+			if t.Name.Local == "p" && t.Name.Space == "http://schemas.openxmlformats.org/wordprocessingml/2006/main" {
+				sb.WriteString("\n")
+			}
+			// 表格行结束，添加换行
+			if t.Name.Local == "tr" && t.Name.Space == "http://schemas.openxmlformats.org/wordprocessingml/2006/main" {
+				sb.WriteString("\n")
+			}
+		case xml.CharData:
+			if inText {
+				sb.Write(t)
+			}
+		}
+	}
+
+	return sb.String()
+}
+
+// -----------------------------------------------
+// PDF 简易文本提取（从二进制流中提取可见文本）
+// 注：这是一个轻量级实现，适用于包含文本层的 PDF。
+// 扫描件 PDF（纯图片）需要 OCR，此处无法处理。
+// 后续可替换为 pdftotext 或 unipdf 等专业库。
+// -----------------------------------------------
+
+// extractTextFromPDF 从 PDF 二进制数据中提取文本
+func extractTextFromPDF(data []byte) (string, error) {
+	// 策略 1：查找 PDF 文本流中的文本对象
+	// PDF 文本通常在 BT ... ET 块中，用 Tj/TJ/' /" 操作符渲染
+	text := extractPDFTextStreams(data)
+	if text != "" {
+		return text, nil
+	}
+
+	// 策略 2：提取所有可打印 ASCII 字符（降级方案）
+	text = extractVisibleText(data)
+	if text != "" {
+		return text, nil
+	}
+
+	return "", fmt.Errorf("无法从 PDF 中提取文本，可能是扫描件（纯图片），需要 OCR 支持")
+}
+
+// extractPDFTextStreams 从 PDF 二进制中提取 BT...ET 文本块中的括号内文本
+func extractPDFTextStreams(data []byte) string {
+	var sb strings.Builder
+	dataStr := string(data)
+
+	// 查找所有 BT...ET 文本块
+	for {
+		btIdx := strings.Index(dataStr, "BT")
+		if btIdx < 0 {
+			break
+		}
+		etIdx := strings.Index(dataStr[btIdx:], "ET")
+		if etIdx < 0 {
+			break
+		}
+
+		block := dataStr[btIdx : btIdx+etIdx+2]
+		// 提取括号中的文本: (text) Tj 或 [(text)] TJ
+		texts := extractParenText(block)
+		for _, t := range texts {
+			sb.WriteString(t)
+		}
+		sb.WriteString(" ")
+
+		dataStr = dataStr[btIdx+etIdx+2:]
+	}
+
+	result := strings.TrimSpace(sb.String())
+	// 清理不可见字符和多余空格
+	result = strings.Join(strings.Fields(result), " ")
+
+	if len(result) < 20 {
+		return ""
+	}
+	return result
+}
+
+// extractParenText 从 PDF 文本块中提取括号内的字符串
+func extractParenText(block string) []string {
+	var results []string
+	depth := 0
+	var current strings.Builder
+
+	for i := 0; i < len(block); i++ {
+		ch := block[i]
+		if ch == '(' && (i == 0 || block[i-1] != '\\') {
+			depth++
+			if depth == 1 {
+				current.Reset()
+				continue
+			}
+		}
+		if ch == ')' && (i == 0 || block[i-1] != '\\') {
+			depth--
+			if depth == 0 {
+				text := current.String()
+				// 过滤掉纯控制字符序列
+				if len(text) > 0 && isPrintableText(text) {
+					results = append(results, text)
+				}
+				continue
+			}
+		}
+		if depth > 0 {
+			current.WriteByte(ch)
+		}
+	}
+
+	return results
+}
+
+// isPrintableText 检查字符串是否包含足够比例的可打印字符
+func isPrintableText(s string) bool {
+	printable := 0
+	total := len(s)
+	if total == 0 {
+		return false
+	}
+	for _, r := range s {
+		if r >= 32 && r < 127 || r >= 0x4e00 && r <= 0x9fff || r == '\n' || r == '\r' {
+			printable++
+		}
+	}
+	return float64(printable)/float64(total) > 0.5
+}
+
+// extractVisibleText 从二进制数据中提取可打印的 UTF-8 文本片段（降级方案）
+func extractVisibleText(data []byte) string {
+	var sb strings.Builder
+	for _, b := range data {
+		if b >= 32 && b < 127 || b == '\n' || b == '\r' || b == '\t' {
+			sb.WriteByte(b)
+		}
+	}
+	text := strings.TrimSpace(sb.String())
+	if len(text) < 50 {
+		return ""
+	}
+	return text
 }
 
 // splitText 文本分块（滑动窗口）

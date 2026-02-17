@@ -167,11 +167,19 @@ func KnowledgeDocumentUpload(c *fiber.Ctx) error {
 		if err != nil {
 			return response.Error(c, "读取文件内容失败")
 		}
-		content := string(buf[:n])
-		req.Content = &content
 
 		// 推断文件类型
 		req.FileType = logic.InferFileType(file.Filename)
+
+		// 文本类文件直接存为字符串，二进制文件做 Base64 编码
+		if logic.IsTextFileType(req.FileType) {
+			content := string(buf[:n])
+			req.Content = &content
+		} else {
+			encoded := logic.Base64Encode(buf[:n])
+			req.Content = &encoded
+			req.ContentEncoding = "base64"
+		}
 	} else {
 		// JSON 内容模式
 		if err := c.BodyParser(&req); err != nil {

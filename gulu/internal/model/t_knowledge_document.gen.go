@@ -5,32 +5,68 @@
 package model
 
 import (
+	"database/sql/driver"
+	"encoding/json"
+	"fmt"
 	"time"
 )
 
 const TableNameTKnowledgeDocument = "t_knowledge_document"
 
+// ChunkSetting 文档分段设置
+type ChunkSetting struct {
+	Separator       string `json:"separator"`
+	ChunkSize       int    `json:"chunk_size"`
+	ChunkOverlap    int    `json:"chunk_overlap"`
+	CleanWhitespace bool   `json:"clean_whitespace"`
+	RemoveURLs      bool   `json:"remove_urls"`
+}
+
+// Value 实现 driver.Valuer 接口，写入数据库时序列化为 JSON
+func (c ChunkSetting) Value() (driver.Value, error) {
+	return json.Marshal(c)
+}
+
+// Scan 实现 sql.Scanner 接口，从数据库读取时反序列化
+func (c *ChunkSetting) Scan(val interface{}) error {
+	if val == nil {
+		return nil
+	}
+	b, ok := val.([]byte)
+	if !ok {
+		return fmt.Errorf("ChunkSetting.Scan: unsupported type %T", val)
+	}
+	return json.Unmarshal(b, c)
+}
+
+// DefaultChunkSetting 返回默认分段设置
+func DefaultChunkSetting() *ChunkSetting {
+	return &ChunkSetting{
+		Separator:       "\\n\\n",
+		ChunkSize:       500,
+		ChunkOverlap:    50,
+		CleanWhitespace: true,
+		RemoveURLs:      false,
+	}
+}
+
 // TKnowledgeDocument 知识库文档表
 type TKnowledgeDocument struct {
-	ID              int64      `gorm:"column:id;type:bigint unsigned;primaryKey;autoIncrement:true" json:"id"`
-	CreatedAt       *time.Time `gorm:"column:created_at;type:datetime" json:"created_at"`
-	UpdatedAt       *time.Time `gorm:"column:updated_at;type:datetime" json:"updated_at"`
-	KnowledgeBaseID int64      `gorm:"column:knowledge_base_id;type:bigint unsigned;not null;index:idx_t_knowledge_document_kb_id,priority:1;comment:所属知识库ID" json:"knowledge_base_id"`
-	Name            string     `gorm:"column:name;type:varchar(255);not null;comment:文档名称" json:"name"`
-	FileType        *string    `gorm:"column:file_type;type:varchar(20);comment:文件类型" json:"file_type"`
-	FilePath        *string    `gorm:"column:file_path;type:varchar(500);comment:文件存储路径" json:"file_path"`
-	FileSize        *int64     `gorm:"column:file_size;type:bigint;default:0;comment:文件大小" json:"file_size"`
-	Content         *string    `gorm:"column:content;type:longtext;comment:文档原始文本内容" json:"content"`
-	Separator       *string    `gorm:"column:separator;type:varchar(50);default:\\n\\n;comment:分段标识符" json:"separator"`
-	DocChunkSize    *int32     `gorm:"column:chunk_size;type:int;comment:分段最大长度" json:"chunk_size"`
-	DocChunkOverlap *int32     `gorm:"column:chunk_overlap;type:int;comment:分段重叠长度" json:"chunk_overlap"`
-	CleanWhitespace *bool      `gorm:"column:clean_whitespace;type:tinyint(1);default:1;comment:替换连续空格" json:"clean_whitespace"`
-	RemoveURLs      *bool      `gorm:"column:remove_urls;type:tinyint(1);default:0;comment:删除URL" json:"remove_urls"`
-	Status          *string    `gorm:"column:status;type:varchar(20);default:pending;index:idx_t_knowledge_document_status,priority:1;comment:处理状态" json:"status"`
-	ErrorMessage    *string    `gorm:"column:error_message;type:text;comment:错误信息" json:"error_message"`
-	ChunkCount      *int32     `gorm:"column:chunk_count;type:int;default:0;comment:分块数量" json:"chunk_count"`
-	TokenCount      *int32     `gorm:"column:token_count;type:int;default:0;comment:Token数量" json:"token_count"`
-	Metadata        *string    `gorm:"column:metadata;type:json;comment:文档元数据" json:"metadata"`
+	ID              int64         `gorm:"column:id;type:bigint unsigned;primaryKey;autoIncrement:true" json:"id"`
+	CreatedAt       *time.Time    `gorm:"column:created_at;type:datetime" json:"created_at"`
+	UpdatedAt       *time.Time    `gorm:"column:updated_at;type:datetime" json:"updated_at"`
+	KnowledgeBaseID int64         `gorm:"column:knowledge_base_id;type:bigint unsigned;not null;index:idx_t_knowledge_document_kb_id,priority:1;comment:所属知识库ID" json:"knowledge_base_id"`
+	Name            string        `gorm:"column:name;type:varchar(255);not null;comment:文档名称" json:"name"`
+	FileType        *string       `gorm:"column:file_type;type:varchar(20);comment:文件类型" json:"file_type"`
+	FilePath        *string       `gorm:"column:file_path;type:varchar(500);comment:文件存储路径" json:"file_path"`
+	FileSize        *int64        `gorm:"column:file_size;type:bigint;default:0;comment:文件大小" json:"file_size"`
+	Content         *string       `gorm:"column:content;type:longtext;comment:文档原始文本内容" json:"content"`
+	ChunkSetting    *ChunkSetting `gorm:"column:chunk_setting;type:json;comment:分段设置" json:"chunk_setting"`
+	Status          *string       `gorm:"column:status;type:varchar(20);default:pending;index:idx_t_knowledge_document_status,priority:1;comment:处理状态" json:"status"`
+	ErrorMessage    *string       `gorm:"column:error_message;type:text;comment:错误信息" json:"error_message"`
+	ChunkCount      *int32        `gorm:"column:chunk_count;type:int;default:0;comment:分块数量" json:"chunk_count"`
+	TokenCount      *int32        `gorm:"column:token_count;type:int;default:0;comment:Token数量" json:"token_count"`
+	Metadata        *string       `gorm:"column:metadata;type:json;comment:文档元数据" json:"metadata"`
 }
 
 // TableName TKnowledgeDocument's table name

@@ -284,17 +284,25 @@ func KnowledgeDocumentReprocess(c *fiber.Ctx) error {
 // KnowledgeDocumentPreviewChunks 预览文档分块（不保存到 Qdrant）
 // POST /api/knowledge-bases/:id/documents/preview-chunks
 func KnowledgeDocumentPreviewChunks(c *fiber.Ctx) error {
+	kbID, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	if err != nil {
+		return response.Error(c, "无效的知识库ID")
+	}
+
 	var req logic.PreviewChunksReq
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
 	}
 
-	if req.Content == "" {
-		return response.Error(c, "文档内容不能为空")
+	if req.DocumentID == 0 && req.Content == "" {
+		return response.Error(c, "请提供文档ID或文档内容")
 	}
 
 	kbLogic := logic.NewKnowledgeBaseLogic(c.UserContext())
-	chunks := kbLogic.PreviewChunks(&req)
+	chunks, err := kbLogic.PreviewChunks(kbID, &req)
+	if err != nil {
+		return response.Error(c, err.Error())
+	}
 
 	return response.Success(c, chunks)
 }

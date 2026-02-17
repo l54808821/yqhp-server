@@ -542,12 +542,9 @@ func (l *KnowledgeBaseLogic) GetDocumentChunks(kbID, docID int64) ([]*DocumentCh
 
 // PreviewChunksReq 预览分块请求
 type PreviewChunksReq struct {
-	Content         string `json:"content"`
-	Separator       string `json:"separator"`
-	ChunkSize       int    `json:"chunk_size"`
-	ChunkOverlap    int    `json:"chunk_overlap"`
-	CleanWhitespace bool   `json:"clean_whitespace"`
-	RemoveURLs      bool   `json:"remove_urls"`
+	DocumentID   int64               `json:"document_id"`
+	Content      string              `json:"content"`
+	ChunkSetting *model.ChunkSetting `json:"chunk_setting"`
 }
 
 // PreviewChunkItem 预览分块项
@@ -559,44 +556,88 @@ type PreviewChunkItem struct {
 
 // ProcessDocumentReq 处理文档请求（Step 2 确认分段参数后触发）
 type ProcessDocumentReq struct {
-	Separator       string `json:"separator"`
-	ChunkSize       int    `json:"chunk_size"`
-	ChunkOverlap    int    `json:"chunk_overlap"`
-	CleanWhitespace bool   `json:"clean_whitespace"`
-	RemoveURLs      bool   `json:"remove_urls"`
+	ChunkSetting *model.ChunkSetting `json:"chunk_setting"`
 }
 
 // PreviewChunks 预览文档分块（不写入 Qdrant，仅用于前端展示）
-func (l *KnowledgeBaseLogic) PreviewChunks(req *PreviewChunksReq) []*PreviewChunkItem {
+func (l *KnowledgeBaseLogic) PreviewChunks(kbID int64, req *PreviewChunksReq) ([]*PreviewChunkItem, error) {
 	text := req.Content
 
-	// 文本预处理
-	if req.CleanWhitespace {
-		text = cleanWhitespace(text)
-	}
-	if req.RemoveURLs {
-		text = removeURLsAndEmails(text)
+	// 如果传了 document_id，从数据库读取文档并提取文本
+	if req.DocumentID > 0 {
+		q := query.Use(svc.Ctx.DB)
+		doc, err := q.TKnowledgeDocument.WithContext(l.ctx).Where(
+			q.TKnowledgeDocument.ID.Eq(req.DocumentID),
+			q.TKnowledgeDocument.KnowledgeBaseID.Eq(kbID),
+		).First()
+		if err != nil {
+			return nil, errors.New("文档不存在")
+		}
+		processor := NewDocumentProcessor()
+		extracted, err := processor.extractText(doc)
+		if err != nil {
+			return nil, fmt.Errorf("文本提取失败: %w", err)
+		}
+		text = extracted
+		// DEBUG: 临时日志，查看提取的文本内容
+		fmt.Printf("\n=== DEBUG extractText ===\nlen=%d\nfirst500=%q\n=== END DEBUG ===\n", len(text), func() string {
+			r := []rune(text)
+			if len(r) > 500 {
+				return string(r[:500])
+			}
+			return text
+		}())
 	}
 
-	chunkSize := req.ChunkSize
-	if chunkSize <= 0 {
-		chunkSize = 500
+	if text == "" {
+		return nil, errors.New("文档内容为空")
 	}
-	chunkOverlap := req.ChunkOverlap
-	if chunkOverlap < 0 {
-		chunkOverlap = 0
+
+	// 合并默认值
+	cs := model.DefaultChunkSetting()
+	if req.ChunkSetting != nil {
+		if req.ChunkSetting.Separator != "" {
+			cs.Separator = req.ChunkSetting.Separator
+		}
+		if req.ChunkSetting.ChunkSize > 0 {
+			cs.ChunkSize = req.ChunkSetting.ChunkSize
+		}
+		if req.ChunkSetting.ChunkOverlap >= 0 {
+			cs.ChunkOverlap = req.ChunkSetting.ChunkOverlap
+		}
+		cs.CleanWhitespace = req.ChunkSetting.CleanWhitespace
+		cs.RemoveURLs = req.ChunkSetting.RemoveURLs
+	}
+
+	// 文本预处理
+	if cs.CleanWhitespace {
+		text = cleanWhitespace(text)
+	}
+	if cs.RemoveURLs {
+		text = removeURLsAndEmails(text)
 	}
 
 	processor := NewDocumentProcessor()
 
 	// 使用分段标识符切分
-	separator := req.Separator
 	var chunks []string
-	if separator != "" && separator != "\\n\\n" {
-		chunks = splitBySeparator(text, separator, chunkSize, chunkOverlap)
+	fmt.Printf("\n=== DEBUG split ===\nseparator=%q chunkSize=%d overlap=%d cleanWS=%v\n", cs.Separator, cs.ChunkSize, cs.ChunkOverlap, cs.CleanWhitespace)
+	if cs.Separator != "" {
+		chunks = splitBySeparator(text, cs.Separator, cs.ChunkSize, cs.ChunkOverlap)
 	} else {
-		chunks = processor.splitText(text, chunkSize, chunkOverlap)
+		chunks = processor.splitText(text, cs.ChunkSize, cs.ChunkOverlap)
 	}
+	fmt.Printf("chunks count=%d\n", len(chunks))
+	for i, c := range chunks {
+		fmt.Printf("  chunk[%d] len=%d preview=%q\n", i, len([]rune(c)), func() string {
+			r := []rune(c)
+			if len(r) > 80 {
+				return string(r[:80]) + "..."
+			}
+			return c
+		}())
+	}
+	fmt.Println("=== END DEBUG split ===")
 
 	result := make([]*PreviewChunkItem, 0, len(chunks))
 	for i, chunk := range chunks {
@@ -607,7 +648,7 @@ func (l *KnowledgeBaseLogic) PreviewChunks(req *PreviewChunksReq) []*PreviewChun
 		})
 	}
 
-	return result
+	return result, nil
 }
 
 // ProcessDocument 确认分段参数并开始处理文档
@@ -630,26 +671,27 @@ func (l *KnowledgeBaseLogic) ProcessDocument(kbID, docID int64, req *ProcessDocu
 		return errors.New("文档不存在")
 	}
 
-	// 保存文档级别的分段参数
-	updates := map[string]interface{}{}
-	if req.Separator != "" {
-		updates["separator"] = req.Separator
+	// 保存文档级别的分段参数（整体写入 chunk_setting JSON）
+	cs := model.DefaultChunkSetting()
+	if req.ChunkSetting != nil {
+		if req.ChunkSetting.Separator != "" {
+			cs.Separator = req.ChunkSetting.Separator
+		}
+		if req.ChunkSetting.ChunkSize > 0 {
+			cs.ChunkSize = req.ChunkSetting.ChunkSize
+		}
+		if req.ChunkSetting.ChunkOverlap >= 0 {
+			cs.ChunkOverlap = req.ChunkSetting.ChunkOverlap
+		}
+		cs.CleanWhitespace = req.ChunkSetting.CleanWhitespace
+		cs.RemoveURLs = req.ChunkSetting.RemoveURLs
 	}
-	if req.ChunkSize > 0 {
-		updates["chunk_size"] = req.ChunkSize
-	}
-	if req.ChunkOverlap >= 0 {
-		updates["chunk_overlap"] = req.ChunkOverlap
-	}
-	cleanWS := req.CleanWhitespace
-	updates["clean_whitespace"] = cleanWS
-	removeURL := req.RemoveURLs
-	updates["remove_urls"] = removeURL
-	updates["status"] = "processing"
 
-	if len(updates) > 0 {
-		q.TKnowledgeDocument.WithContext(l.ctx).Where(q.TKnowledgeDocument.ID.Eq(docID)).Updates(updates)
+	updates := map[string]interface{}{
+		"chunk_setting": cs,
+		"status":        "processing",
 	}
+	q.TKnowledgeDocument.WithContext(l.ctx).Where(q.TKnowledgeDocument.ID.Eq(docID)).Updates(updates)
 
 	// 重新读取更新后的文档
 	doc, _ = q.TKnowledgeDocument.WithContext(l.ctx).Where(q.TKnowledgeDocument.ID.Eq(docID)).First()
@@ -700,46 +742,6 @@ func removeURLsAndEmails(text string) string {
 		result = append(result, strings.Join(cleaned, " "))
 	}
 	return strings.Join(result, "\n")
-}
-
-// splitBySeparator 按分段标识符切分文本
-func splitBySeparator(text, separator string, chunkSize, overlap int) []string {
-	// 处理转义的换行符
-	sep := strings.ReplaceAll(separator, "\\n", "\n")
-
-	parts := strings.Split(text, sep)
-	var chunks []string
-	var current strings.Builder
-
-	for _, part := range parts {
-		part = strings.TrimSpace(part)
-		if part == "" {
-			continue
-		}
-
-		if current.Len() > 0 && current.Len()+len([]rune(part)) > chunkSize {
-			chunk := strings.TrimSpace(current.String())
-			if chunk != "" {
-				chunks = append(chunks, chunk)
-			}
-			current.Reset()
-		}
-
-		if current.Len() > 0 {
-			current.WriteString("\n")
-		}
-		current.WriteString(part)
-	}
-
-	// 最后一个块
-	if current.Len() > 0 {
-		chunk := strings.TrimSpace(current.String())
-		if chunk != "" {
-			chunks = append(chunks, chunk)
-		}
-	}
-
-	return chunks
 }
 
 // Search 知识库检索

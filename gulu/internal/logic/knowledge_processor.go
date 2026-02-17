@@ -52,34 +52,34 @@ func (p *DocumentProcessor) Process(kb *model.TKnowledgeBase, doc *model.TKnowle
 	}
 
 	// 2. 文本预处理（使用文档级别参数）
-	if doc.CleanWhitespace != nil && *doc.CleanWhitespace {
+	cs := doc.ChunkSetting
+	if cs == nil {
+		cs = model.DefaultChunkSetting()
+	}
+	if cs.CleanWhitespace {
 		text = cleanWhitespace(text)
 	}
-	if doc.RemoveURLs != nil && *doc.RemoveURLs {
+	if cs.RemoveURLs {
 		text = removeURLsAndEmails(text)
 	}
 
 	// 3. 文本分块（优先使用文档级别参数，其次使用知识库级别参数）
-	chunkSize := 500
-	chunkOverlap := 50
-	if doc.DocChunkSize != nil && *doc.DocChunkSize > 0 {
-		chunkSize = int(*doc.DocChunkSize)
-	} else if kb.ChunkSize != nil {
+	chunkSize := cs.ChunkSize
+	chunkOverlap := cs.ChunkOverlap
+	if chunkSize <= 0 && kb.ChunkSize != nil {
 		chunkSize = int(*kb.ChunkSize)
 	}
-	if doc.DocChunkOverlap != nil && *doc.DocChunkOverlap >= 0 {
-		chunkOverlap = int(*doc.DocChunkOverlap)
-	} else if kb.ChunkOverlap != nil {
+	if chunkSize <= 0 {
+		chunkSize = 500
+	}
+	if chunkOverlap < 0 && kb.ChunkOverlap != nil {
 		chunkOverlap = int(*kb.ChunkOverlap)
 	}
 
 	// 使用分段标识符或默认滑动窗口
 	var chunks []string
-	separator := ""
-	if doc.Separator != nil && *doc.Separator != "" {
-		separator = *doc.Separator
-	}
-	if separator != "" && separator != "\\n\\n" {
+	separator := cs.Separator
+	if separator != "" {
 		chunks = splitBySeparator(text, separator, chunkSize, chunkOverlap)
 	} else {
 		chunks = p.splitText(text, chunkSize, chunkOverlap)
@@ -266,11 +266,15 @@ func parseWordXML(data []byte) string {
 			if t.Name.Local == "t" && t.Name.Space == "http://schemas.openxmlformats.org/wordprocessingml/2006/main" {
 				inText = true
 			}
+			// <w:br/> 行内换行（Shift+Enter）
+			if t.Name.Local == "br" && t.Name.Space == "http://schemas.openxmlformats.org/wordprocessingml/2006/main" {
+				sb.WriteString("\n")
+			}
 		case xml.EndElement:
 			if t.Name.Local == "t" && t.Name.Space == "http://schemas.openxmlformats.org/wordprocessingml/2006/main" {
 				inText = false
 			}
-			// 段落结束，添加换行
+			// 段落结束，添加单换行（空段落自然产生 \n\n，与 Dify 对齐）
 			if t.Name.Local == "p" && t.Name.Space == "http://schemas.openxmlformats.org/wordprocessingml/2006/main" {
 				sb.WriteString("\n")
 			}
@@ -458,6 +462,215 @@ func (p *DocumentProcessor) splitText(text string, chunkSize, overlap int) []str
 	}
 
 	return chunks
+}
+
+// 备选分隔符列表（与 Dify 一致），递归拆分超长段时逐级尝试
+var fallbackSeparators = []string{"\n\n", "。", ". ", " ", ""}
+
+// splitBySeparator 按分隔符分段（对齐 Dify FixedRecursiveCharacterTextSplitter）：
+//  1. 用用户指定的 separator 做硬切分
+//  2. 超过 chunkSize 的段递归用备选分隔符拆分
+//  3. 相邻小段贪心合并到接近 chunkSize + overlap
+func splitBySeparator(text, separator string, chunkSize, overlap int) []string {
+	if chunkSize <= 0 {
+		chunkSize = 500
+	}
+	if overlap < 0 {
+		overlap = 0
+	}
+	if overlap >= chunkSize {
+		overlap = chunkSize / 5
+	}
+
+	// 将转义的分隔符还原为实际字符
+	actualSep := strings.ReplaceAll(separator, `\n`, "\n")
+
+	// Phase 1: 按用户指定分隔符硬切分
+	segments := strings.Split(text, actualSep)
+
+	// Phase 2: 超长段递归拆分，小段独立保留
+	var chunks []string
+	for _, seg := range segments {
+		seg = strings.TrimSpace(seg)
+		if seg == "" {
+			continue
+		}
+		if runeLen(seg) > chunkSize {
+			chunks = append(chunks, recursiveSplit(seg, fallbackSeparators, chunkSize)...)
+		} else {
+			chunks = append(chunks, seg)
+		}
+	}
+
+	return chunks
+}
+
+// recursiveSplit 递归拆分超长文本，逐级尝试备选分隔符
+func recursiveSplit(text string, separators []string, chunkSize int) []string {
+	if runeLen(text) <= chunkSize {
+		t := strings.TrimSpace(text)
+		if t == "" {
+			return nil
+		}
+		return []string{t}
+	}
+
+	if len(separators) == 0 {
+		// 最后兜底：按字符数硬切
+		return charSplit(text, chunkSize)
+	}
+
+	sep := separators[0]
+	remaining := separators[1:]
+
+	// 空字符串分隔符 = 按字符切
+	if sep == "" {
+		return charSplit(text, chunkSize)
+	}
+
+	parts := strings.Split(text, sep)
+
+	var goodSplits []string // 小于 chunkSize 的段，待合并
+	var result []string
+
+	flushGood := func() {
+		if len(goodSplits) > 0 {
+			merged := mergeSplitsSimple(goodSplits, sep, chunkSize)
+			result = append(result, merged...)
+			goodSplits = nil
+		}
+	}
+
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if runeLen(part) <= chunkSize {
+			goodSplits = append(goodSplits, part)
+		} else {
+			flushGood()
+			// 递归用更细的分隔符拆
+			result = append(result, recursiveSplit(part, remaining, chunkSize)...)
+		}
+	}
+	flushGood()
+
+	return result
+}
+
+// mergeSplits 贪心合并小段，支持 overlap
+func mergeSplits(splits []string, chunkSize, overlap int) []string {
+	if len(splits) == 0 {
+		return nil
+	}
+
+	var chunks []string
+	var current []string
+	currentLen := 0
+
+	for _, s := range splits {
+		sLen := runeLen(s)
+
+		// 加入当前段后是否超过 chunkSize
+		joinLen := currentLen + sLen
+		if len(current) > 0 {
+			joinLen++ // 算一个空格/换行的连接开销
+		}
+
+		if joinLen > chunkSize && len(current) > 0 {
+			// 输出当前块
+			chunk := strings.TrimSpace(strings.Join(current, "\n"))
+			if chunk != "" {
+				chunks = append(chunks, chunk)
+			}
+
+			// overlap: 从尾部保留内容
+			for currentLen > overlap && len(current) > 0 {
+				currentLen -= runeLen(current[0])
+				if len(current) > 1 {
+					currentLen-- // 连接符
+				}
+				current = current[1:]
+			}
+		}
+
+		current = append(current, s)
+		currentLen = 0
+		for i, c := range current {
+			currentLen += runeLen(c)
+			if i > 0 {
+				currentLen++
+			}
+		}
+	}
+
+	// 输出最后一块
+	if len(current) > 0 {
+		chunk := strings.TrimSpace(strings.Join(current, "\n"))
+		if chunk != "" {
+			chunks = append(chunks, chunk)
+		}
+	}
+
+	return chunks
+}
+
+// mergeSplitsSimple 简单合并（递归拆分内部用，不带 overlap）
+func mergeSplitsSimple(splits []string, sep string, chunkSize int) []string {
+	var chunks []string
+	var current strings.Builder
+
+	for _, s := range splits {
+		newLen := runeLen(current.String()) + runeLen(s)
+		if current.Len() > 0 {
+			newLen += runeLen(sep)
+		}
+
+		if newLen > chunkSize && current.Len() > 0 {
+			chunk := strings.TrimSpace(current.String())
+			if chunk != "" {
+				chunks = append(chunks, chunk)
+			}
+			current.Reset()
+		}
+
+		if current.Len() > 0 {
+			current.WriteString(sep)
+		}
+		current.WriteString(s)
+	}
+
+	if current.Len() > 0 {
+		chunk := strings.TrimSpace(current.String())
+		if chunk != "" {
+			chunks = append(chunks, chunk)
+		}
+	}
+
+	return chunks
+}
+
+// charSplit 按字符数硬切
+func charSplit(text string, chunkSize int) []string {
+	runes := []rune(text)
+	var chunks []string
+	for i := 0; i < len(runes); i += chunkSize {
+		end := i + chunkSize
+		if end > len(runes) {
+			end = len(runes)
+		}
+		chunk := strings.TrimSpace(string(runes[i:end]))
+		if chunk != "" {
+			chunks = append(chunks, chunk)
+		}
+	}
+	return chunks
+}
+
+// runeLen 返回字符串的 rune 长度（中文友好）
+func runeLen(s string) int {
+	return len([]rune(s))
 }
 
 // generateEmbeddings 生成 Embedding 向量

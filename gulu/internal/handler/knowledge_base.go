@@ -9,14 +9,15 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
-// KnowledgeBaseCreate 创建知识库
-// POST /api/knowledge-bases
+// -----------------------------------------------
+// 知识库 CRUD
+// -----------------------------------------------
+
 func KnowledgeBaseCreate(c *fiber.Ctx) error {
 	var req logic.CreateKnowledgeBaseReq
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
 	}
-
 	if req.Name == "" {
 		return response.Error(c, "知识库名称不能为空")
 	}
@@ -32,18 +33,14 @@ func KnowledgeBaseCreate(c *fiber.Ctx) error {
 	if err != nil {
 		return response.Error(c, err.Error())
 	}
-
 	return response.Success(c, result)
 }
 
-// KnowledgeBaseList 获取知识库列表
-// GET /api/knowledge-bases
 func KnowledgeBaseList(c *fiber.Ctx) error {
 	var req logic.KnowledgeBaseListReq
 	if err := c.QueryParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
 	}
-
 	if req.Page <= 0 {
 		req.Page = 1
 	}
@@ -56,12 +53,9 @@ func KnowledgeBaseList(c *fiber.Ctx) error {
 	if err != nil {
 		return response.Error(c, err.Error())
 	}
-
 	return response.Page(c, list, total, req.Page, req.PageSize)
 }
 
-// KnowledgeBaseGetByID 获取知识库详情
-// GET /api/knowledge-bases/:id
 func KnowledgeBaseGetByID(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
@@ -73,12 +67,9 @@ func KnowledgeBaseGetByID(c *fiber.Ctx) error {
 	if err != nil {
 		return response.NotFound(c, "知识库不存在")
 	}
-
 	return response.Success(c, result)
 }
 
-// KnowledgeBaseUpdate 更新知识库
-// PUT /api/knowledge-bases/:id
 func KnowledgeBaseUpdate(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
@@ -94,12 +85,9 @@ func KnowledgeBaseUpdate(c *fiber.Ctx) error {
 	if err := kbLogic.Update(id, &req); err != nil {
 		return response.Error(c, err.Error())
 	}
-
 	return response.Success(c, nil)
 }
 
-// KnowledgeBaseDelete 删除知识库
-// DELETE /api/knowledge-bases/:id
 func KnowledgeBaseDelete(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
@@ -110,12 +98,9 @@ func KnowledgeBaseDelete(c *fiber.Ctx) error {
 	if err := kbLogic.Delete(id); err != nil {
 		return response.Error(c, err.Error())
 	}
-
 	return response.Success(c, nil)
 }
 
-// KnowledgeBaseUpdateStatus 更新知识库状态
-// PUT /api/knowledge-bases/:id/status
 func KnowledgeBaseUpdateStatus(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
@@ -133,75 +118,46 @@ func KnowledgeBaseUpdateStatus(c *fiber.Ctx) error {
 	if err := kbLogic.UpdateStatus(id, req.Status); err != nil {
 		return response.Error(c, err.Error())
 	}
-
 	return response.Success(c, nil)
 }
 
-// KnowledgeDocumentUpload 上传知识库文档
-// POST /api/knowledge-bases/:id/documents
+// -----------------------------------------------
+// 文档管理
+// -----------------------------------------------
+
 func KnowledgeDocumentUpload(c *fiber.Ctx) error {
 	kbID, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的知识库ID")
 	}
 
-	// 支持两种方式：文件上传或直接传文本内容
 	file, fileErr := c.FormFile("file")
-	var req logic.CreateKnowledgeDocumentReq
-	req.KnowledgeBaseID = kbID
-
-	if fileErr == nil && file != nil {
-		// 文件上传模式
-		req.Name = file.Filename
-		req.FileSize = file.Size
-
-		// 读取文件内容
-		f, err := file.Open()
-		if err != nil {
-			return response.Error(c, "读取文件失败")
-		}
-		defer f.Close()
-
-		buf := make([]byte, file.Size)
-		n, err := f.Read(buf)
-		if err != nil {
-			return response.Error(c, "读取文件内容失败")
-		}
-
-		// 推断文件类型
-		req.FileType = logic.InferFileType(file.Filename)
-
-		// 文本类文件直接存为字符串，二进制文件做 Base64 编码
-		if logic.IsTextFileType(req.FileType) {
-			content := string(buf[:n])
-			req.Content = &content
-		} else {
-			encoded := logic.Base64Encode(buf[:n])
-			req.Content = &encoded
-			req.ContentEncoding = "base64"
-		}
-	} else {
-		// JSON 内容模式
-		if err := c.BodyParser(&req); err != nil {
-			return response.Error(c, "参数解析失败: 请上传文件或提供JSON内容")
-		}
+	if fileErr != nil || file == nil {
+		return response.Error(c, "请上传文件")
 	}
 
-	if req.Name == "" {
-		return response.Error(c, "文档名称不能为空")
+	fileType := logic.InferFileType(file.Filename)
+
+	f, err := file.Open()
+	if err != nil {
+		return response.Error(c, "读取文件失败")
+	}
+	defer f.Close()
+
+	storage := logic.GetFileStorage()
+	relPath, err := storage.Save(kbID, file.Filename, f)
+	if err != nil {
+		return response.Error(c, "保存文件失败: "+err.Error())
 	}
 
 	kbLogic := logic.NewKnowledgeBaseLogic(c.UserContext())
-	result, err := kbLogic.CreateDocument(&req)
+	result, err := kbLogic.CreateDocument(kbID, file.Filename, fileType, relPath, file.Size)
 	if err != nil {
 		return response.Error(c, err.Error())
 	}
-
 	return response.Success(c, result)
 }
 
-// KnowledgeDocumentList 获取知识库文档列表
-// GET /api/knowledge-bases/:id/documents
 func KnowledgeDocumentList(c *fiber.Ctx) error {
 	kbID, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
@@ -213,18 +169,14 @@ func KnowledgeDocumentList(c *fiber.Ctx) error {
 	if err != nil {
 		return response.Error(c, err.Error())
 	}
-
 	return response.Success(c, list)
 }
 
-// KnowledgeDocumentDelete 删除知识库文档
-// DELETE /api/knowledge-bases/:id/documents/:docId
 func KnowledgeDocumentDelete(c *fiber.Ctx) error {
 	kbID, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的知识库ID")
 	}
-
 	docID, err := strconv.ParseInt(c.Params("docId"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的文档ID")
@@ -234,40 +186,14 @@ func KnowledgeDocumentDelete(c *fiber.Ctx) error {
 	if err := kbLogic.DeleteDocument(kbID, docID); err != nil {
 		return response.Error(c, err.Error())
 	}
-
 	return response.Success(c, nil)
 }
 
-// KnowledgeDocumentChunks 获取文档分块列表
-// GET /api/knowledge-bases/:id/documents/:docId/chunks
-func KnowledgeDocumentChunks(c *fiber.Ctx) error {
-	kbID, err := strconv.ParseInt(c.Params("id"), 10, 64)
-	if err != nil {
-		return response.Error(c, "无效的知识库ID")
-	}
-
-	docID, err := strconv.ParseInt(c.Params("docId"), 10, 64)
-	if err != nil {
-		return response.Error(c, "无效的文档ID")
-	}
-
-	kbLogic := logic.NewKnowledgeBaseLogic(c.UserContext())
-	chunks, err := kbLogic.GetDocumentChunks(kbID, docID)
-	if err != nil {
-		return response.Error(c, err.Error())
-	}
-
-	return response.Success(c, chunks)
-}
-
-// KnowledgeDocumentReprocess 重新处理文档
-// POST /api/knowledge-bases/:id/documents/:docId/reprocess
 func KnowledgeDocumentReprocess(c *fiber.Ctx) error {
 	kbID, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的知识库ID")
 	}
-
 	docID, err := strconv.ParseInt(c.Params("docId"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的文档ID")
@@ -277,12 +203,9 @@ func KnowledgeDocumentReprocess(c *fiber.Ctx) error {
 	if err := kbLogic.ReprocessDocument(kbID, docID); err != nil {
 		return response.Error(c, err.Error())
 	}
-
 	return response.Success(c, nil)
 }
 
-// KnowledgeDocumentPreviewChunks 预览文档分块（不保存到 Qdrant）
-// POST /api/knowledge-bases/:id/documents/preview-chunks
 func KnowledgeDocumentPreviewChunks(c *fiber.Ctx) error {
 	kbID, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
@@ -293,7 +216,6 @@ func KnowledgeDocumentPreviewChunks(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
 	}
-
 	if req.DocumentID == 0 && req.Content == "" {
 		return response.Error(c, "请提供文档ID或文档内容")
 	}
@@ -303,18 +225,14 @@ func KnowledgeDocumentPreviewChunks(c *fiber.Ctx) error {
 	if err != nil {
 		return response.Error(c, err.Error())
 	}
-
 	return response.Success(c, chunks)
 }
 
-// KnowledgeDocumentProcess 确认分段设置并开始处理文档
-// PUT /api/knowledge-bases/:id/documents/:docId/process
 func KnowledgeDocumentProcess(c *fiber.Ctx) error {
 	kbID, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的知识库ID")
 	}
-
 	docID, err := strconv.ParseInt(c.Params("docId"), 10, 64)
 	if err != nil {
 		return response.Error(c, "无效的文档ID")
@@ -329,12 +247,126 @@ func KnowledgeDocumentProcess(c *fiber.Ctx) error {
 	if err := kbLogic.ProcessDocument(kbID, docID, &req); err != nil {
 		return response.Error(c, err.Error())
 	}
-
 	return response.Success(c, nil)
 }
 
-// KnowledgeBaseSearch 知识库检索测试
-// POST /api/knowledge-bases/:id/search
+// -----------------------------------------------
+// 批量操作
+// -----------------------------------------------
+
+func KnowledgeDocumentBatchDelete(c *fiber.Ctx) error {
+	kbID, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	if err != nil {
+		return response.Error(c, "无效的知识库ID")
+	}
+
+	var req logic.BatchDocIDsReq
+	if err := c.BodyParser(&req); err != nil {
+		return response.Error(c, "参数解析失败")
+	}
+	if len(req.DocumentIDs) == 0 {
+		return response.Error(c, "请选择要删除的文档")
+	}
+
+	kbLogic := logic.NewKnowledgeBaseLogic(c.UserContext())
+	if err := kbLogic.BatchDeleteDocuments(kbID, req.DocumentIDs); err != nil {
+		return response.Error(c, err.Error())
+	}
+	return response.Success(c, nil)
+}
+
+func KnowledgeDocumentBatchReprocess(c *fiber.Ctx) error {
+	kbID, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	if err != nil {
+		return response.Error(c, "无效的知识库ID")
+	}
+
+	var req logic.BatchDocIDsReq
+	if err := c.BodyParser(&req); err != nil {
+		return response.Error(c, "参数解析失败")
+	}
+	if len(req.DocumentIDs) == 0 {
+		return response.Error(c, "请选择要重处理的文档")
+	}
+
+	kbLogic := logic.NewKnowledgeBaseLogic(c.UserContext())
+	if err := kbLogic.BatchReprocessDocuments(kbID, req.DocumentIDs); err != nil {
+		return response.Error(c, err.Error())
+	}
+	return response.Success(c, nil)
+}
+
+func KnowledgeIndexingStatus(c *fiber.Ctx) error {
+	kbID, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	if err != nil {
+		return response.Error(c, "无效的知识库ID")
+	}
+
+	kbLogic := logic.NewKnowledgeBaseLogic(c.UserContext())
+	status, err := kbLogic.GetIndexingStatus(kbID)
+	if err != nil {
+		return response.Error(c, err.Error())
+	}
+	return response.Success(c, status)
+}
+
+// -----------------------------------------------
+// 分块管理
+// -----------------------------------------------
+
+func KnowledgeDocumentSegments(c *fiber.Ctx) error {
+	kbID, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	if err != nil {
+		return response.Error(c, "无效的知识库ID")
+	}
+	docID, err := strconv.ParseInt(c.Params("docId"), 10, 64)
+	if err != nil {
+		return response.Error(c, "无效的文档ID")
+	}
+
+	page, _ := strconv.Atoi(c.Query("page", "1"))
+	pageSize, _ := strconv.Atoi(c.Query("pageSize", "20"))
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 20
+	}
+
+	kbLogic := logic.NewKnowledgeBaseLogic(c.UserContext())
+	segments, total, err := kbLogic.GetDocumentSegments(kbID, docID, page, pageSize)
+	if err != nil {
+		return response.Error(c, err.Error())
+	}
+	return response.Page(c, segments, total, page, pageSize)
+}
+
+func KnowledgeSegmentUpdate(c *fiber.Ctx) error {
+	kbID, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	if err != nil {
+		return response.Error(c, "无效的知识库ID")
+	}
+	segID, err := strconv.ParseInt(c.Params("segId"), 10, 64)
+	if err != nil {
+		return response.Error(c, "无效的分块ID")
+	}
+
+	var req logic.UpdateSegmentReq
+	if err := c.BodyParser(&req); err != nil {
+		return response.Error(c, "参数解析失败")
+	}
+
+	kbLogic := logic.NewKnowledgeBaseLogic(c.UserContext())
+	if err := kbLogic.UpdateSegment(kbID, segID, &req); err != nil {
+		return response.Error(c, err.Error())
+	}
+	return response.Success(c, nil)
+}
+
+// -----------------------------------------------
+// 检索与查询历史
+// -----------------------------------------------
+
 func KnowledgeBaseSearch(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
@@ -345,7 +377,6 @@ func KnowledgeBaseSearch(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
 	}
-
 	if req.Query == "" {
 		return response.Error(c, "检索内容不能为空")
 	}
@@ -355,6 +386,21 @@ func KnowledgeBaseSearch(c *fiber.Ctx) error {
 	if err != nil {
 		return response.Error(c, err.Error())
 	}
-
 	return response.Success(c, results)
+}
+
+func KnowledgeQueryHistory(c *fiber.Ctx) error {
+	kbID, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	if err != nil {
+		return response.Error(c, "无效的知识库ID")
+	}
+
+	limit, _ := strconv.Atoi(c.Query("limit", "20"))
+
+	kbLogic := logic.NewKnowledgeBaseLogic(c.UserContext())
+	history, err := kbLogic.GetQueryHistory(kbID, limit)
+	if err != nil {
+		return response.Error(c, err.Error())
+	}
+	return response.Success(c, history)
 }

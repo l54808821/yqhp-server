@@ -69,6 +69,12 @@ workflow_engine:
   debug: false # 是否启用调试日志
 
 
+# 文件存储配置
+storage:
+  type: local
+  local:
+    base_path: ./data/knowledge
+
 # Qdrant 向量数据库配置
 qdrant:
   host: 127.0.0.1

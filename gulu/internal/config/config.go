@@ -44,12 +44,24 @@ type QdrantConfig struct {
 	CollectionPrefix string `yaml:"collection_prefix"`
 }
 
+// StorageConfig 文件存储配置
+type StorageConfig struct {
+	Type  string            `yaml:"type"`  // local 或 s3
+	Local LocalStorageConfig `yaml:"local"`
+}
+
+// LocalStorageConfig 本地存储配置
+type LocalStorageConfig struct {
+	BasePath string `yaml:"base_path"`
+}
+
 // Config 应用配置
 type Config struct {
 	commonConfig.Config `yaml:",inline"`
 	Gulu                GuluConfig           `yaml:"gulu"`
 	WorkflowEngine      WorkflowEngineConfig `yaml:"workflow_engine"`
 	Qdrant              QdrantConfig         `yaml:"qdrant"`
+	Storage             StorageConfig        `yaml:"storage"`
 }
 
 var (

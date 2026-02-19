@@ -179,14 +179,23 @@ func Setup(app *fiber.App) {
 	kb.Put("/:id", handler.KnowledgeBaseUpdate)
 	kb.Delete("/:id", handler.KnowledgeBaseDelete)
 	kb.Put("/:id/status", handler.KnowledgeBaseUpdateStatus)
+	// 文档管理
 	kb.Post("/:id/documents", handler.KnowledgeDocumentUpload)
 	kb.Get("/:id/documents", handler.KnowledgeDocumentList)
 	kb.Delete("/:id/documents/:docId", handler.KnowledgeDocumentDelete)
 	kb.Post("/:id/documents/:docId/reprocess", handler.KnowledgeDocumentReprocess)
-	kb.Get("/:id/documents/:docId/chunks", handler.KnowledgeDocumentChunks)
 	kb.Post("/:id/documents/preview-chunks", handler.KnowledgeDocumentPreviewChunks)
 	kb.Put("/:id/documents/:docId/process", handler.KnowledgeDocumentProcess)
+	// 批量操作
+	kb.Post("/:id/documents/batch-delete", handler.KnowledgeDocumentBatchDelete)
+	kb.Post("/:id/documents/batch-reprocess", handler.KnowledgeDocumentBatchReprocess)
+	kb.Get("/:id/indexing-status", handler.KnowledgeIndexingStatus)
+	// 分块管理
+	kb.Get("/:id/documents/:docId/segments", handler.KnowledgeDocumentSegments)
+	kb.Patch("/:id/segments/:segId", handler.KnowledgeSegmentUpdate)
+	// 检索与查询历史
 	kb.Post("/:id/search", handler.KnowledgeBaseSearch)
+	kb.Get("/:id/queries", handler.KnowledgeQueryHistory)
 
 	// MCP 代理服务路由
 	mcpProxyService := mcpproxy.NewMCPProxyService()

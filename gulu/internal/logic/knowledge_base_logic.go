@@ -2,15 +2,15 @@ package logic
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
+	"log"
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"yqhp/gulu/internal/model"
-	"yqhp/gulu/internal/query"
 	"yqhp/gulu/internal/svc"
 )
 
@@ -19,7 +19,6 @@ type KnowledgeBaseLogic struct {
 	ctx context.Context
 }
 
-// NewKnowledgeBaseLogic 创建知识库逻辑
 func NewKnowledgeBaseLogic(ctx context.Context) *KnowledgeBaseLogic {
 	return &KnowledgeBaseLogic{ctx: ctx}
 }
@@ -28,34 +27,35 @@ func NewKnowledgeBaseLogic(ctx context.Context) *KnowledgeBaseLogic {
 // Request / Response 结构体
 // -----------------------------------------------
 
-// CreateKnowledgeBaseReq 创建知识库请求
 type CreateKnowledgeBaseReq struct {
-	Name               string  `json:"name"`
-	Description        string  `json:"description"`
-	Type               string  `json:"type"`
-	EmbeddingModelID   *int64  `json:"embedding_model_id"`
-	EmbeddingModelName string  `json:"embedding_model_name"`
-	EmbeddingDimension int32   `json:"embedding_dimension"`
-	ChunkSize          int32   `json:"chunk_size"`
-	ChunkOverlap       int32   `json:"chunk_overlap"`
+	Name                string  `json:"name"`
+	Description         string  `json:"description"`
+	Type                string  `json:"type"`
+	EmbeddingModelID    *int64  `json:"embedding_model_id"`
+	EmbeddingModelName  string  `json:"embedding_model_name"`
+	EmbeddingDimension  int32   `json:"embedding_dimension"`
+	ChunkSize           int32   `json:"chunk_size"`
+	ChunkOverlap        int32   `json:"chunk_overlap"`
 	SimilarityThreshold float64 `json:"similarity_threshold"`
-	TopK               int32   `json:"top_k"`
+	TopK                int32   `json:"top_k"`
+	RetrievalMode       string  `json:"retrieval_mode"`
 }
 
-// UpdateKnowledgeBaseReq 更新知识库请求
 type UpdateKnowledgeBaseReq struct {
-	Name               string  `json:"name"`
-	Description        string  `json:"description"`
-	EmbeddingModelID   *int64  `json:"embedding_model_id"`
-	EmbeddingModelName string  `json:"embedding_model_name"`
-	EmbeddingDimension int32   `json:"embedding_dimension"`
-	ChunkSize          int32   `json:"chunk_size"`
-	ChunkOverlap       int32   `json:"chunk_overlap"`
+	Name                string  `json:"name"`
+	Description         string  `json:"description"`
+	EmbeddingModelID    *int64  `json:"embedding_model_id"`
+	EmbeddingModelName  string  `json:"embedding_model_name"`
+	EmbeddingDimension  int32   `json:"embedding_dimension"`
+	ChunkSize           int32   `json:"chunk_size"`
+	ChunkOverlap        int32   `json:"chunk_overlap"`
 	SimilarityThreshold float64 `json:"similarity_threshold"`
-	TopK               int32   `json:"top_k"`
+	TopK                int32   `json:"top_k"`
+	RetrievalMode       string  `json:"retrieval_mode"`
+	RerankModelID       *int64  `json:"rerank_model_id"`
+	RerankEnabled       *bool   `json:"rerank_enabled"`
 }
 
-// KnowledgeBaseListReq 知识库列表请求
 type KnowledgeBaseListReq struct {
 	Page     int    `query:"page"`
 	PageSize int    `query:"pageSize"`
@@ -64,89 +64,122 @@ type KnowledgeBaseListReq struct {
 	Status   *int32 `query:"status"`
 }
 
-// KnowledgeBaseInfo 知识库返回信息
 type KnowledgeBaseInfo struct {
-	ID                 int64      `json:"id"`
-	CreatedAt          *time.Time `json:"created_at"`
-	UpdatedAt          *time.Time `json:"updated_at"`
-	CreatedBy          *int64     `json:"created_by"`
-	Name               string     `json:"name"`
-	Description        string     `json:"description"`
-	Type               string     `json:"type"`
-	Status             int32      `json:"status"`
-	EmbeddingModelID   *int64     `json:"embedding_model_id"`
-	EmbeddingModelName string     `json:"embedding_model_name"`
-	EmbeddingDimension int32      `json:"embedding_dimension"`
-	ChunkSize          int32      `json:"chunk_size"`
-	ChunkOverlap       int32      `json:"chunk_overlap"`
-	SimilarityThreshold float64   `json:"similarity_threshold"`
-	TopK               int32      `json:"top_k"`
-	QdrantCollection   string     `json:"qdrant_collection"`
-	DocumentCount      int32      `json:"document_count"`
-	ChunkCount         int32      `json:"chunk_count"`
+	ID                  int64      `json:"id"`
+	CreatedAt           *time.Time `json:"created_at"`
+	UpdatedAt           *time.Time `json:"updated_at"`
+	CreatedBy           *int64     `json:"created_by"`
+	Name                string     `json:"name"`
+	Description         string     `json:"description"`
+	Type                string     `json:"type"`
+	Status              int32      `json:"status"`
+	EmbeddingModelID    *int64     `json:"embedding_model_id"`
+	EmbeddingModelName  string     `json:"embedding_model_name"`
+	EmbeddingDimension  int32      `json:"embedding_dimension"`
+	ChunkSize           int32      `json:"chunk_size"`
+	ChunkOverlap        int32      `json:"chunk_overlap"`
+	SimilarityThreshold float64    `json:"similarity_threshold"`
+	TopK                int32      `json:"top_k"`
+	RetrievalMode       string     `json:"retrieval_mode"`
+	RerankModelID       *int64     `json:"rerank_model_id"`
+	RerankEnabled       bool       `json:"rerank_enabled"`
+	QdrantCollection    string     `json:"qdrant_collection"`
+	DocumentCount       int32      `json:"document_count"`
+	ChunkCount          int32      `json:"chunk_count"`
 }
 
-// CreateKnowledgeDocumentReq 创建知识库文档请求
-type CreateKnowledgeDocumentReq struct {
-	KnowledgeBaseID int64   `json:"knowledge_base_id"`
-	Name            string  `json:"name"`
-	FileType        string  `json:"file_type"`
-	Content         *string `json:"content"`
-	ContentEncoding string  `json:"content_encoding"` // "base64" 表示内容已 Base64 编码
-	FileSize        int64   `json:"file_size"`
-}
-
-// KnowledgeDocumentInfo 知识库文档返回信息
 type KnowledgeDocumentInfo struct {
-	ID              int64      `json:"id"`
-	CreatedAt       *time.Time `json:"created_at"`
-	UpdatedAt       *time.Time `json:"updated_at"`
-	KnowledgeBaseID int64      `json:"knowledge_base_id"`
-	Name            string     `json:"name"`
-	FileType        string     `json:"file_type"`
-	FileSize        int64      `json:"file_size"`
-	Status          string     `json:"status"`
-	ErrorMessage    string     `json:"error_message"`
-	ChunkCount      int32      `json:"chunk_count"`
-	TokenCount      int32      `json:"token_count"`
+	ID                  int64      `json:"id"`
+	CreatedAt           *time.Time `json:"created_at"`
+	UpdatedAt           *time.Time `json:"updated_at"`
+	KnowledgeBaseID     int64      `json:"knowledge_base_id"`
+	Name                string     `json:"name"`
+	FileType            string     `json:"file_type"`
+	FileSize            int64      `json:"file_size"`
+	WordCount           int32      `json:"word_count"`
+	IndexingStatus      string     `json:"indexing_status"`
+	ErrorMessage        string     `json:"error_message"`
+	ChunkCount          int32      `json:"chunk_count"`
+	TokenCount          int32      `json:"token_count"`
+	ParsingCompletedAt  *time.Time `json:"parsing_completed_at"`
+	IndexingCompletedAt *time.Time `json:"indexing_completed_at"`
 }
 
-// KnowledgeSearchReq 知识库检索请求
 type KnowledgeSearchReq struct {
-	Query  string  `json:"query"`
-	TopK   int     `json:"top_k"`
-	Score  float64 `json:"score"`
+	Query         string  `json:"query"`
+	TopK          int     `json:"top_k"`
+	Score         float64 `json:"score"`
+	RetrievalMode string  `json:"retrieval_mode"`
 }
 
-// KnowledgeSearchResult 知识库检索结果
 type KnowledgeSearchResult struct {
+	SegmentID    int64                  `json:"segment_id"`
 	Content      string                 `json:"content"`
 	Score        float64                `json:"score"`
 	DocumentID   int64                  `json:"document_id"`
 	DocumentName string                 `json:"document_name"`
 	ChunkIndex   int                    `json:"chunk_index"`
+	WordCount    int                    `json:"word_count"`
+	HitCount     int                    `json:"hit_count"`
 	Metadata     map[string]interface{} `json:"metadata,omitempty"`
 }
 
-// DocumentChunkInfo 文档分块信息
-type DocumentChunkInfo struct {
-	ChunkIndex int    `json:"chunk_index"`
-	Content    string `json:"content"`
-	CharCount  int    `json:"char_count"`
-	Enabled    bool   `json:"enabled"`
+type SegmentInfo struct {
+	ID              int64      `json:"id"`
+	DocumentID      int64      `json:"document_id"`
+	DocumentName    string     `json:"document_name"`
+	Content         string     `json:"content"`
+	Position        int        `json:"position"`
+	WordCount       int        `json:"word_count"`
+	Enabled         bool       `json:"enabled"`
+	HitCount        int        `json:"hit_count"`
+	Status          string     `json:"status"`
+	CreatedAt       *time.Time `json:"created_at"`
+}
+
+type PreviewChunksReq struct {
+	DocumentID   int64               `json:"document_id"`
+	Content      string              `json:"content"`
+	ChunkSetting *model.ChunkSetting `json:"chunk_setting"`
+}
+
+type PreviewChunkItem struct {
+	Index     int    `json:"index"`
+	Content   string `json:"content"`
+	CharCount int    `json:"char_count"`
+}
+
+type ProcessDocumentReq struct {
+	ChunkSetting *model.ChunkSetting `json:"chunk_setting"`
+}
+
+type BatchDocIDsReq struct {
+	DocumentIDs []int64 `json:"document_ids"`
+}
+
+type UpdateSegmentReq struct {
+	Content *string `json:"content"`
+	Enabled *bool   `json:"enabled"`
+}
+
+type QueryHistoryItem struct {
+	ID            int64      `json:"id"`
+	QueryText     string     `json:"query_text"`
+	RetrievalMode string     `json:"retrieval_mode"`
+	ResultCount   int        `json:"result_count"`
+	CreatedAt     *time.Time `json:"created_at"`
 }
 
 // -----------------------------------------------
-// CRUD 方法
+// 知识库 CRUD
 // -----------------------------------------------
 
-// Create 创建知识库
 func (l *KnowledgeBaseLogic) Create(req *CreateKnowledgeBaseReq) (*KnowledgeBaseInfo, error) {
+	db := svc.Ctx.DB
 	now := time.Now()
 	isDelete := false
 	status := int32(1)
 
-	// 设置默认值
 	embeddingDimension := req.EmbeddingDimension
 	if embeddingDimension == 0 {
 		embeddingDimension = 1536
@@ -167,64 +200,57 @@ func (l *KnowledgeBaseLogic) Create(req *CreateKnowledgeBaseReq) (*KnowledgeBase
 	if topK == 0 {
 		topK = 5
 	}
-
-	kb := &model.TKnowledgeBase{
-		CreatedAt:          &now,
-		UpdatedAt:          &now,
-		IsDelete:           &isDelete,
-		Name:               req.Name,
-		Description:        strPtr(req.Description),
-		Type:               req.Type,
-		Status:             &status,
-		EmbeddingModelID:   req.EmbeddingModelID,
-		EmbeddingModelName: strPtr(req.EmbeddingModelName),
-		EmbeddingDimension: &embeddingDimension,
-		ChunkSize:          &chunkSize,
-		ChunkOverlap:       &chunkOverlap,
-		SimilarityThreshold: &similarityThreshold,
-		TopK:               &topK,
+	retrievalMode := req.RetrievalMode
+	if retrievalMode == "" {
+		retrievalMode = "vector"
 	}
 
-	// 创建数据库记录
-	q := query.Use(svc.Ctx.DB)
-	err := q.TKnowledgeBase.WithContext(l.ctx).Create(kb)
-	if err != nil {
+	kb := &model.TKnowledgeBase{
+		CreatedAt:           &now,
+		UpdatedAt:           &now,
+		IsDelete:            &isDelete,
+		Name:                req.Name,
+		Description:         strPtr(req.Description),
+		Type:                req.Type,
+		Status:              &status,
+		EmbeddingModelID:    req.EmbeddingModelID,
+		EmbeddingModelName:  strPtr(req.EmbeddingModelName),
+		EmbeddingDimension:  &embeddingDimension,
+		ChunkSize:           &chunkSize,
+		ChunkOverlap:        &chunkOverlap,
+		SimilarityThreshold: &similarityThreshold,
+		TopK:                &topK,
+		RetrievalMode:       &retrievalMode,
+	}
+
+	if err := db.Create(kb).Error; err != nil {
 		return nil, err
 	}
 
-	// 生成 Qdrant Collection 名称
 	collectionName := fmt.Sprintf("kb_%d", kb.ID)
+	db.Model(kb).Update("qdrant_collection", collectionName)
 	kb.QdrantCollection = &collectionName
-	_, err = q.TKnowledgeBase.WithContext(l.ctx).Where(q.TKnowledgeBase.ID.Eq(kb.ID)).Update(q.TKnowledgeBase.QdrantCollection, collectionName)
-	if err != nil {
-		return nil, fmt.Errorf("更新 Collection 名称失败: %w", err)
-	}
 
-	// 同步创建 Qdrant Collection（确保写入前 Collection 已就绪）
 	if req.Type == "normal" {
 		if err := CreateQdrantCollection(collectionName, int(embeddingDimension)); err != nil {
-			fmt.Printf("[WARN] 创建 Qdrant Collection 失败: %v\n", err)
+			log.Printf("[WARN] 创建 Qdrant Collection 失败: %v", err)
 		}
 	}
 
 	return l.toKnowledgeBaseInfo(kb), nil
 }
 
-// Update 更新知识库
 func (l *KnowledgeBaseLogic) Update(id int64, req *UpdateKnowledgeBaseReq) error {
-	q := query.Use(svc.Ctx.DB)
-	m := q.TKnowledgeBase
+	db := svc.Ctx.DB
 
-	_, err := m.WithContext(l.ctx).Where(m.ID.Eq(id), m.IsDelete.Is(false)).First()
-	if err != nil {
+	var kb model.TKnowledgeBase
+	if err := db.Where("id = ? AND is_delete = 0", id).First(&kb).Error; err != nil {
 		return errors.New("知识库不存在")
 	}
 
-	now := time.Now()
 	updates := map[string]interface{}{
-		"updated_at": now,
+		"updated_at": time.Now(),
 	}
-
 	if req.Name != "" {
 		updates["name"] = req.Name
 	}
@@ -250,350 +276,414 @@ func (l *KnowledgeBaseLogic) Update(id int64, req *UpdateKnowledgeBaseReq) error
 	if req.TopK > 0 {
 		updates["top_k"] = req.TopK
 	}
+	if req.RetrievalMode != "" {
+		updates["retrieval_mode"] = req.RetrievalMode
+	}
+	if req.RerankModelID != nil {
+		updates["rerank_model_id"] = *req.RerankModelID
+	}
+	if req.RerankEnabled != nil {
+		updates["rerank_enabled"] = *req.RerankEnabled
+	}
 
-	_, err = m.WithContext(l.ctx).Where(m.ID.Eq(id)).Updates(updates)
-	return err
+	return db.Model(&model.TKnowledgeBase{}).Where("id = ?", id).Updates(updates).Error
 }
 
-// Delete 删除知识库（软删除）
 func (l *KnowledgeBaseLogic) Delete(id int64) error {
-	q := query.Use(svc.Ctx.DB)
-	m := q.TKnowledgeBase
+	db := svc.Ctx.DB
 
-	kb, err := m.WithContext(l.ctx).Where(m.ID.Eq(id), m.IsDelete.Is(false)).First()
-	if err != nil {
+	var kb model.TKnowledgeBase
+	if err := db.Where("id = ? AND is_delete = 0", id).First(&kb).Error; err != nil {
 		return errors.New("知识库不存在")
 	}
 
-	isDelete := true
-	_, err = m.WithContext(l.ctx).Where(m.ID.Eq(id)).Update(m.IsDelete, isDelete)
-	if err != nil {
-		return err
-	}
+	db.Model(&model.TKnowledgeBase{}).Where("id = ?", id).Update("is_delete", true)
 
-	// 异步清理 Qdrant Collection
-	if kb.QdrantCollection != nil && *kb.QdrantCollection != "" {
-		go func() {
+	go func() {
+		if kb.QdrantCollection != nil && *kb.QdrantCollection != "" {
 			if err := DeleteQdrantCollection(*kb.QdrantCollection); err != nil {
-				fmt.Printf("[WARN] 删除 Qdrant Collection 失败: %v\n", err)
+				log.Printf("[WARN] 删除 Qdrant Collection 失败: %v", err)
 			}
-		}()
-	}
+		}
+		db.Where("knowledge_base_id = ?", id).Delete(&model.TKnowledgeSegment{})
+		db.Where("knowledge_base_id = ?", id).Delete(&model.TKnowledgeDocument{})
+		db.Where("knowledge_base_id = ?", id).Delete(&model.TKnowledgeQuery{})
+		GetFileStorage().DeleteDir(id)
+	}()
 
 	return nil
 }
 
-// GetByID 根据 ID 获取知识库
 func (l *KnowledgeBaseLogic) GetByID(id int64) (*KnowledgeBaseInfo, error) {
-	q := query.Use(svc.Ctx.DB)
-	m := q.TKnowledgeBase
-
-	kb, err := m.WithContext(l.ctx).Where(m.ID.Eq(id), m.IsDelete.Is(false)).First()
-	if err != nil {
+	db := svc.Ctx.DB
+	var kb model.TKnowledgeBase
+	if err := db.Where("id = ? AND is_delete = 0", id).First(&kb).Error; err != nil {
 		return nil, err
 	}
-
-	return l.toKnowledgeBaseInfo(kb), nil
+	return l.toKnowledgeBaseInfo(&kb), nil
 }
 
-// List 获取知识库列表
 func (l *KnowledgeBaseLogic) List(req *KnowledgeBaseListReq) ([]*KnowledgeBaseInfo, int64, error) {
-	q := query.Use(svc.Ctx.DB)
-	m := q.TKnowledgeBase
-
-	qb := m.WithContext(l.ctx).Where(m.IsDelete.Is(false))
+	db := svc.Ctx.DB
+	q := db.Model(&model.TKnowledgeBase{}).Where("is_delete = 0")
 
 	if req.Name != "" {
-		qb = qb.Where(m.Name.Like("%" + req.Name + "%"))
+		q = q.Where("name LIKE ?", "%"+req.Name+"%")
 	}
 	if req.Type != "" {
-		qb = qb.Where(m.Type.Eq(req.Type))
+		q = q.Where("type = ?", req.Type)
 	}
 	if req.Status != nil {
-		qb = qb.Where(m.Status.Eq(*req.Status))
+		q = q.Where("status = ?", *req.Status)
 	}
 
-	total, err := qb.Count()
-	if err != nil {
-		return nil, 0, err
-	}
+	var total int64
+	q.Count(&total)
 
+	var list []model.TKnowledgeBase
 	offset := (req.Page - 1) * req.PageSize
-	list, err := qb.Order(m.ID.Desc()).Offset(offset).Limit(req.PageSize).Find()
-	if err != nil {
+	if err := q.Order("id DESC").Offset(offset).Limit(req.PageSize).Find(&list).Error; err != nil {
 		return nil, 0, err
 	}
 
 	result := make([]*KnowledgeBaseInfo, 0, len(list))
-	for _, item := range list {
-		result = append(result, l.toKnowledgeBaseInfo(item))
+	for i := range list {
+		result = append(result, l.toKnowledgeBaseInfo(&list[i]))
 	}
-
 	return result, total, nil
 }
 
-// UpdateStatus 更新知识库状态
 func (l *KnowledgeBaseLogic) UpdateStatus(id int64, status int32) error {
-	q := query.Use(svc.Ctx.DB)
-	m := q.TKnowledgeBase
-
-	now := time.Now()
-	_, err := m.WithContext(l.ctx).Where(m.ID.Eq(id), m.IsDelete.Is(false)).Updates(map[string]interface{}{
+	db := svc.Ctx.DB
+	return db.Model(&model.TKnowledgeBase{}).Where("id = ? AND is_delete = 0", id).Updates(map[string]interface{}{
 		"status":     status,
-		"updated_at": now,
-	})
-	return err
+		"updated_at": time.Now(),
+	}).Error
 }
 
 // -----------------------------------------------
-// 文档管理方法
+// 文档管理
 // -----------------------------------------------
 
-// CreateDocument 创建文档
-func (l *KnowledgeBaseLogic) CreateDocument(req *CreateKnowledgeDocumentReq) (*KnowledgeDocumentInfo, error) {
-	// 验证知识库存在
-	q := query.Use(svc.Ctx.DB)
-	_, err := q.TKnowledgeBase.WithContext(l.ctx).Where(
-		q.TKnowledgeBase.ID.Eq(req.KnowledgeBaseID),
-		q.TKnowledgeBase.IsDelete.Is(false),
-	).First()
-	if err != nil {
+func (l *KnowledgeBaseLogic) CreateDocument(kbID int64, name, fileType, filePath string, fileSize int64) (*KnowledgeDocumentInfo, error) {
+	db := svc.Ctx.DB
+
+	var kb model.TKnowledgeBase
+	if err := db.Where("id = ? AND is_delete = 0", kbID).First(&kb).Error; err != nil {
 		return nil, errors.New("知识库不存在")
 	}
 
 	now := time.Now()
-	status := "pending"
+	status := "waiting"
 
 	doc := &model.TKnowledgeDocument{
 		CreatedAt:       &now,
 		UpdatedAt:       &now,
-		KnowledgeBaseID: req.KnowledgeBaseID,
-		Name:            req.Name,
-		FileType:        strPtr(req.FileType),
-		FileSize:        &req.FileSize,
-		Content:         req.Content,
-		Status:          &status,
+		KnowledgeBaseID: kbID,
+		Name:            name,
+		FileType:        &fileType,
+		FilePath:        &filePath,
+		FileSize:        &fileSize,
+		IndexingStatus:  &status,
 	}
 
-	err = q.TKnowledgeDocument.WithContext(l.ctx).Create(doc)
-	if err != nil {
+	if err := db.Create(doc).Error; err != nil {
 		return nil, err
 	}
 
-	// 更新知识库文档计数
-	go func() {
-		l.updateDocumentCount(req.KnowledgeBaseID)
-	}()
-
-	// 不再自动处理，等待用户在 Step 2 配置分段参数后手动触发
+	go l.updateDocumentCount(kbID)
 	return l.toDocumentInfo(doc), nil
 }
 
-// ListDocuments 获取文档列表
 func (l *KnowledgeBaseLogic) ListDocuments(kbID int64) ([]*KnowledgeDocumentInfo, error) {
-	q := query.Use(svc.Ctx.DB)
-	m := q.TKnowledgeDocument
-
-	list, err := m.WithContext(l.ctx).Where(m.KnowledgeBaseID.Eq(kbID)).Order(m.ID.Desc()).Find()
-	if err != nil {
+	db := svc.Ctx.DB
+	var list []model.TKnowledgeDocument
+	if err := db.Where("knowledge_base_id = ?", kbID).Order("id DESC").Find(&list).Error; err != nil {
 		return nil, err
 	}
 
 	result := make([]*KnowledgeDocumentInfo, 0, len(list))
-	for _, item := range list {
-		result = append(result, l.toDocumentInfo(item))
+	for i := range list {
+		result = append(result, l.toDocumentInfo(&list[i]))
 	}
 	return result, nil
 }
 
-// DeleteDocument 删除文档
 func (l *KnowledgeBaseLogic) DeleteDocument(kbID, docID int64) error {
-	q := query.Use(svc.Ctx.DB)
+	db := svc.Ctx.DB
 
-	// 获取知识库信息（用于清理 Qdrant 数据）
-	kb, err := q.TKnowledgeBase.WithContext(l.ctx).Where(
-		q.TKnowledgeBase.ID.Eq(kbID),
-		q.TKnowledgeBase.IsDelete.Is(false),
-	).First()
-	if err != nil {
+	var kb model.TKnowledgeBase
+	if err := db.Where("id = ? AND is_delete = 0", kbID).First(&kb).Error; err != nil {
 		return errors.New("知识库不存在")
 	}
 
-	// 删除数据库记录
-	_, err = q.TKnowledgeDocument.WithContext(l.ctx).Where(
-		q.TKnowledgeDocument.ID.Eq(docID),
-		q.TKnowledgeDocument.KnowledgeBaseID.Eq(kbID),
-	).Delete()
-	if err != nil {
-		return err
-	}
-
-	// 更新文档计数
-	go func() {
-		l.updateDocumentCount(kbID)
-	}()
-
-	// 异步清理 Qdrant 中该文档的向量
-	if kb.QdrantCollection != nil && *kb.QdrantCollection != "" {
-		go func() {
-			if err := DeleteDocumentVectors(*kb.QdrantCollection, docID); err != nil {
-				fmt.Printf("[WARN] 清理文档向量失败: docID=%d, err=%v\n", docID, err)
-			}
-		}()
-	}
-
-	return nil
-}
-
-// ReprocessDocument 重新处理文档
-func (l *KnowledgeBaseLogic) ReprocessDocument(kbID, docID int64) error {
-	q := query.Use(svc.Ctx.DB)
-
-	kb, err := q.TKnowledgeBase.WithContext(l.ctx).Where(
-		q.TKnowledgeBase.ID.Eq(kbID),
-		q.TKnowledgeBase.IsDelete.Is(false),
-	).First()
-	if err != nil {
-		return errors.New("知识库不存在")
-	}
-
-	doc, err := q.TKnowledgeDocument.WithContext(l.ctx).Where(
-		q.TKnowledgeDocument.ID.Eq(docID),
-		q.TKnowledgeDocument.KnowledgeBaseID.Eq(kbID),
-	).First()
-	if err != nil {
+	var doc model.TKnowledgeDocument
+	if err := db.Where("id = ? AND knowledge_base_id = ?", docID, kbID).First(&doc).Error; err != nil {
 		return errors.New("文档不存在")
 	}
 
-	// 更新状态为处理中
-	status := "processing"
-	_, _ = q.TKnowledgeDocument.WithContext(l.ctx).Where(q.TKnowledgeDocument.ID.Eq(docID)).Update(q.TKnowledgeDocument.Status, status)
+	db.Where("id = ?", docID).Delete(&model.TKnowledgeDocument{})
+	db.Where("document_id = ?", docID).Delete(&model.TKnowledgeSegment{})
 
-	// 异步重新处理
 	go func() {
-		processor := NewDocumentProcessor()
-		if err := processor.Process(kb, doc); err != nil {
-			fmt.Printf("[ERROR] 文档重处理失败: docID=%d, err=%v\n", doc.ID, err)
+		l.updateDocumentCount(kbID)
+		if kb.QdrantCollection != nil && *kb.QdrantCollection != "" {
+			if err := DeleteDocumentVectors(*kb.QdrantCollection, docID); err != nil {
+				log.Printf("[WARN] 清理文档向量失败: docID=%d, err=%v", docID, err)
+			}
+		}
+		if doc.FilePath != nil && *doc.FilePath != "" {
+			GetFileStorage().Delete(*doc.FilePath)
 		}
 	}()
 
 	return nil
 }
 
-// GetDocumentChunks 获取文档的分块列表（从 Qdrant 读取）
-func (l *KnowledgeBaseLogic) GetDocumentChunks(kbID, docID int64) ([]*DocumentChunkInfo, error) {
-	q := query.Use(svc.Ctx.DB)
+func (l *KnowledgeBaseLogic) BatchDeleteDocuments(kbID int64, docIDs []int64) error {
+	db := svc.Ctx.DB
 
-	// 获取知识库信息
-	kb, err := q.TKnowledgeBase.WithContext(l.ctx).Where(
-		q.TKnowledgeBase.ID.Eq(kbID),
-		q.TKnowledgeBase.IsDelete.Is(false),
-	).First()
-	if err != nil {
-		return nil, errors.New("知识库不存在")
+	var kb model.TKnowledgeBase
+	if err := db.Where("id = ? AND is_delete = 0", kbID).First(&kb).Error; err != nil {
+		return errors.New("知识库不存在")
 	}
 
-	if kb.QdrantCollection == nil || *kb.QdrantCollection == "" {
-		return nil, errors.New("知识库尚未初始化向量存储")
+	var docs []model.TKnowledgeDocument
+	db.Where("id IN ? AND knowledge_base_id = ?", docIDs, kbID).Find(&docs)
+
+	db.Where("id IN ? AND knowledge_base_id = ?", docIDs, kbID).Delete(&model.TKnowledgeDocument{})
+	db.Where("document_id IN ? AND knowledge_base_id = ?", docIDs, kbID).Delete(&model.TKnowledgeSegment{})
+
+	go func() {
+		l.updateDocumentCount(kbID)
+		for _, doc := range docs {
+			if kb.QdrantCollection != nil && *kb.QdrantCollection != "" {
+				DeleteDocumentVectors(*kb.QdrantCollection, doc.ID)
+			}
+			if doc.FilePath != nil && *doc.FilePath != "" {
+				GetFileStorage().Delete(*doc.FilePath)
+			}
+		}
+	}()
+
+	return nil
+}
+
+func (l *KnowledgeBaseLogic) ReprocessDocument(kbID, docID int64) error {
+	db := svc.Ctx.DB
+
+	var kb model.TKnowledgeBase
+	if err := db.Where("id = ? AND is_delete = 0", kbID).First(&kb).Error; err != nil {
+		return errors.New("知识库不存在")
 	}
 
-	// 验证文档存在
-	_, err = q.TKnowledgeDocument.WithContext(l.ctx).Where(
-		q.TKnowledgeDocument.ID.Eq(docID),
-		q.TKnowledgeDocument.KnowledgeBaseID.Eq(kbID),
-	).First()
-	if err != nil {
-		return nil, errors.New("文档不存在")
+	var doc model.TKnowledgeDocument
+	if err := db.Where("id = ? AND knowledge_base_id = ?", docID, kbID).First(&doc).Error; err != nil {
+		return errors.New("文档不存在")
 	}
 
-	// 从 Qdrant 获取该文档的所有分块
-	hits, err := ScrollDocumentVectors(*kb.QdrantCollection, docID)
-	if err != nil {
-		return nil, fmt.Errorf("获取分块失败: %w", err)
+	db.Model(&model.TKnowledgeDocument{}).Where("id = ?", docID).Updates(map[string]interface{}{
+		"indexing_status": "waiting",
+		"error_message":   nil,
+	})
+
+	go func() {
+		processor := NewDocumentProcessor()
+		if err := processor.Process(&kb, &doc); err != nil {
+			log.Printf("[ERROR] 文档重处理失败: docID=%d, err=%v", doc.ID, err)
+		}
+	}()
+
+	return nil
+}
+
+func (l *KnowledgeBaseLogic) BatchReprocessDocuments(kbID int64, docIDs []int64) error {
+	db := svc.Ctx.DB
+
+	var kb model.TKnowledgeBase
+	if err := db.Where("id = ? AND is_delete = 0", kbID).First(&kb).Error; err != nil {
+		return errors.New("知识库不存在")
 	}
 
-	// 按 chunk_index 排序
-	chunks := make([]*DocumentChunkInfo, 0, len(hits))
-	for _, hit := range hits {
-		content := hit.Content
-		chunks = append(chunks, &DocumentChunkInfo{
-			ChunkIndex: hit.ChunkIndex,
-			Content:    content,
-			CharCount:  len([]rune(content)),
-			Enabled:    true,
+	var docs []model.TKnowledgeDocument
+	db.Where("id IN ? AND knowledge_base_id = ?", docIDs, kbID).Find(&docs)
+
+	for _, doc := range docs {
+		db.Model(&model.TKnowledgeDocument{}).Where("id = ?", doc.ID).Updates(map[string]interface{}{
+			"indexing_status": "waiting",
+			"error_message":   nil,
 		})
 	}
 
-	// 按 chunk_index 排序
-	for i := 0; i < len(chunks); i++ {
-		for j := i + 1; j < len(chunks); j++ {
-			if chunks[i].ChunkIndex > chunks[j].ChunkIndex {
-				chunks[i], chunks[j] = chunks[j], chunks[i]
+	go func() {
+		processor := NewDocumentProcessor()
+		for _, doc := range docs {
+			d := doc
+			if err := processor.Process(&kb, &d); err != nil {
+				log.Printf("[ERROR] 批量重处理失败: docID=%d, err=%v", d.ID, err)
 			}
 		}
+	}()
+
+	return nil
+}
+
+// GetIndexingStatus 获取知识库下所有文档的索引状态
+func (l *KnowledgeBaseLogic) GetIndexingStatus(kbID int64) ([]*KnowledgeDocumentInfo, error) {
+	db := svc.Ctx.DB
+	var docs []model.TKnowledgeDocument
+	if err := db.Where("knowledge_base_id = ?", kbID).
+		Select("id, name, file_type, indexing_status, error_message, chunk_count, updated_at").
+		Find(&docs).Error; err != nil {
+		return nil, err
 	}
 
-	return chunks, nil
+	result := make([]*KnowledgeDocumentInfo, 0, len(docs))
+	for i := range docs {
+		result = append(result, l.toDocumentInfo(&docs[i]))
+	}
+	return result, nil
+}
+
+// -----------------------------------------------
+// 分块管理
+// -----------------------------------------------
+
+func (l *KnowledgeBaseLogic) GetDocumentSegments(kbID, docID int64, page, pageSize int) ([]*SegmentInfo, int64, error) {
+	db := svc.Ctx.DB
+
+	q := db.Model(&model.TKnowledgeSegment{}).Where("knowledge_base_id = ? AND document_id = ?", kbID, docID)
+
+	var total int64
+	q.Count(&total)
+
+	var segments []model.TKnowledgeSegment
+	offset := (page - 1) * pageSize
+	if err := q.Order("position ASC").Offset(offset).Limit(pageSize).Find(&segments).Error; err != nil {
+		return nil, 0, err
+	}
+
+	var doc model.TKnowledgeDocument
+	db.Where("id = ?", docID).First(&doc)
+
+	result := make([]*SegmentInfo, 0, len(segments))
+	for _, seg := range segments {
+		result = append(result, &SegmentInfo{
+			ID:           seg.ID,
+			DocumentID:   seg.DocumentID,
+			DocumentName: doc.Name,
+			Content:      seg.Content,
+			Position:     seg.Position,
+			WordCount:    seg.WordCount,
+			Enabled:      seg.Enabled,
+			HitCount:     seg.HitCount,
+			Status:       seg.Status,
+			CreatedAt:    seg.CreatedAt,
+		})
+	}
+	return result, total, nil
+}
+
+func (l *KnowledgeBaseLogic) UpdateSegment(kbID, segID int64, req *UpdateSegmentReq) error {
+	db := svc.Ctx.DB
+
+	var seg model.TKnowledgeSegment
+	if err := db.Where("id = ? AND knowledge_base_id = ?", segID, kbID).First(&seg).Error; err != nil {
+		return errors.New("分块不存在")
+	}
+
+	updates := map[string]interface{}{"updated_at": time.Now()}
+	needReEmbed := false
+
+	if req.Enabled != nil {
+		updates["enabled"] = *req.Enabled
+		if *req.Enabled {
+			updates["status"] = "active"
+		} else {
+			updates["status"] = "disabled"
+		}
+	}
+	if req.Content != nil && *req.Content != seg.Content {
+		updates["content"] = *req.Content
+		updates["word_count"] = utf8.RuneCountInString(*req.Content)
+		needReEmbed = true
+	}
+
+	if err := db.Model(&model.TKnowledgeSegment{}).Where("id = ?", segID).Updates(updates).Error; err != nil {
+		return err
+	}
+
+	// 内容变更需要重新生成向量
+	if needReEmbed {
+		go l.reEmbedSegment(kbID, segID, *req.Content)
+	}
+
+	return nil
+}
+
+func (l *KnowledgeBaseLogic) reEmbedSegment(kbID, segID int64, content string) {
+	db := svc.Ctx.DB
+
+	var kb model.TKnowledgeBase
+	if err := db.Where("id = ?", kbID).First(&kb).Error; err != nil {
+		return
+	}
+
+	processor := NewDocumentProcessor()
+	embClient, err := processor.getEmbeddingClient(&kb)
+	if err != nil {
+		log.Printf("[ERROR] 重新生成向量失败: %v", err)
+		return
+	}
+
+	vector, err := embClient.EmbedText(context.Background(), content)
+	if err != nil {
+		log.Printf("[ERROR] 重新生成向量失败: %v", err)
+		return
+	}
+
+	var seg model.TKnowledgeSegment
+	if err := db.Where("id = ?", segID).First(&seg).Error; err != nil {
+		return
+	}
+
+	if kb.QdrantCollection != nil && seg.IndexNodeID != nil {
+		point := VectorPoint{
+			ID:         *seg.IndexNodeID,
+			Vector:     vector,
+			DocumentID: seg.DocumentID,
+			ChunkIndex: seg.Position,
+			Content:    content,
+		}
+		UpsertVectors(*kb.QdrantCollection, []VectorPoint{point})
+	}
 }
 
 // -----------------------------------------------
 // 分块预览 + 文档处理
 // -----------------------------------------------
 
-// PreviewChunksReq 预览分块请求
-type PreviewChunksReq struct {
-	DocumentID   int64               `json:"document_id"`
-	Content      string              `json:"content"`
-	ChunkSetting *model.ChunkSetting `json:"chunk_setting"`
-}
-
-// PreviewChunkItem 预览分块项
-type PreviewChunkItem struct {
-	Index     int    `json:"index"`
-	Content   string `json:"content"`
-	CharCount int    `json:"char_count"`
-}
-
-// ProcessDocumentReq 处理文档请求（Step 2 确认分段参数后触发）
-type ProcessDocumentReq struct {
-	ChunkSetting *model.ChunkSetting `json:"chunk_setting"`
-}
-
-// PreviewChunks 预览文档分块（不写入 Qdrant，仅用于前端展示）
 func (l *KnowledgeBaseLogic) PreviewChunks(kbID int64, req *PreviewChunksReq) ([]*PreviewChunkItem, error) {
 	text := req.Content
 
-	// 如果传了 document_id，从数据库读取文档并提取文本
 	if req.DocumentID > 0 {
-		q := query.Use(svc.Ctx.DB)
-		doc, err := q.TKnowledgeDocument.WithContext(l.ctx).Where(
-			q.TKnowledgeDocument.ID.Eq(req.DocumentID),
-			q.TKnowledgeDocument.KnowledgeBaseID.Eq(kbID),
-		).First()
-		if err != nil {
+		db := svc.Ctx.DB
+		var doc model.TKnowledgeDocument
+		if err := db.Where("id = ? AND knowledge_base_id = ?", req.DocumentID, kbID).First(&doc).Error; err != nil {
 			return nil, errors.New("文档不存在")
 		}
 		processor := NewDocumentProcessor()
-		extracted, err := processor.extractText(doc)
+		extracted, err := processor.extractText(&doc)
 		if err != nil {
 			return nil, fmt.Errorf("文本提取失败: %w", err)
 		}
 		text = extracted
-		// DEBUG: 临时日志，查看提取的文本内容
-		fmt.Printf("\n=== DEBUG extractText ===\nlen=%d\nfirst500=%q\n=== END DEBUG ===\n", len(text), func() string {
-			r := []rune(text)
-			if len(r) > 500 {
-				return string(r[:500])
-			}
-			return text
-		}())
 	}
 
 	if text == "" {
 		return nil, errors.New("文档内容为空")
 	}
 
-	// 合并默认值
 	cs := model.DefaultChunkSetting()
 	if req.ChunkSetting != nil {
 		if req.ChunkSetting.Separator != "" {
@@ -609,7 +699,6 @@ func (l *KnowledgeBaseLogic) PreviewChunks(kbID int64, req *PreviewChunksReq) ([
 		cs.RemoveURLs = req.ChunkSetting.RemoveURLs
 	}
 
-	// 文本预处理
 	if cs.CleanWhitespace {
 		text = cleanWhitespace(text)
 	}
@@ -617,61 +706,37 @@ func (l *KnowledgeBaseLogic) PreviewChunks(kbID int64, req *PreviewChunksReq) ([
 		text = removeURLsAndEmails(text)
 	}
 
-	processor := NewDocumentProcessor()
-
-	// 使用分段标识符切分
 	var chunks []string
-	fmt.Printf("\n=== DEBUG split ===\nseparator=%q chunkSize=%d overlap=%d cleanWS=%v\n", cs.Separator, cs.ChunkSize, cs.ChunkOverlap, cs.CleanWhitespace)
 	if cs.Separator != "" {
 		chunks = splitBySeparator(text, cs.Separator, cs.ChunkSize, cs.ChunkOverlap)
 	} else {
-		chunks = processor.splitText(text, cs.ChunkSize, cs.ChunkOverlap)
+		chunks = splitText(text, cs.ChunkSize, cs.ChunkOverlap)
 	}
-	fmt.Printf("chunks count=%d\n", len(chunks))
-	for i, c := range chunks {
-		fmt.Printf("  chunk[%d] len=%d preview=%q\n", i, len([]rune(c)), func() string {
-			r := []rune(c)
-			if len(r) > 80 {
-				return string(r[:80]) + "..."
-			}
-			return c
-		}())
-	}
-	fmt.Println("=== END DEBUG split ===")
 
 	result := make([]*PreviewChunkItem, 0, len(chunks))
 	for i, chunk := range chunks {
 		result = append(result, &PreviewChunkItem{
 			Index:     i,
 			Content:   chunk,
-			CharCount: len([]rune(chunk)),
+			CharCount: utf8.RuneCountInString(chunk),
 		})
 	}
-
 	return result, nil
 }
 
-// ProcessDocument 确认分段参数并开始处理文档
 func (l *KnowledgeBaseLogic) ProcessDocument(kbID, docID int64, req *ProcessDocumentReq) error {
-	q := query.Use(svc.Ctx.DB)
+	db := svc.Ctx.DB
 
-	kb, err := q.TKnowledgeBase.WithContext(l.ctx).Where(
-		q.TKnowledgeBase.ID.Eq(kbID),
-		q.TKnowledgeBase.IsDelete.Is(false),
-	).First()
-	if err != nil {
+	var kb model.TKnowledgeBase
+	if err := db.Where("id = ? AND is_delete = 0", kbID).First(&kb).Error; err != nil {
 		return errors.New("知识库不存在")
 	}
 
-	doc, err := q.TKnowledgeDocument.WithContext(l.ctx).Where(
-		q.TKnowledgeDocument.ID.Eq(docID),
-		q.TKnowledgeDocument.KnowledgeBaseID.Eq(kbID),
-	).First()
-	if err != nil {
+	var doc model.TKnowledgeDocument
+	if err := db.Where("id = ? AND knowledge_base_id = ?", docID, kbID).First(&doc).Error; err != nil {
 		return errors.New("文档不存在")
 	}
 
-	// 保存文档级别的分段参数（整体写入 chunk_setting JSON）
 	cs := model.DefaultChunkSetting()
 	if req.ChunkSetting != nil {
 		if req.ChunkSetting.Separator != "" {
@@ -687,179 +752,275 @@ func (l *KnowledgeBaseLogic) ProcessDocument(kbID, docID int64, req *ProcessDocu
 		cs.RemoveURLs = req.ChunkSetting.RemoveURLs
 	}
 
-	updates := map[string]interface{}{
-		"chunk_setting": cs,
-		"status":        "processing",
-	}
-	q.TKnowledgeDocument.WithContext(l.ctx).Where(q.TKnowledgeDocument.ID.Eq(docID)).Updates(updates)
+	db.Model(&model.TKnowledgeDocument{}).Where("id = ?", docID).Updates(map[string]interface{}{
+		"chunk_setting":   cs,
+		"indexing_status": "waiting",
+	})
 
-	// 重新读取更新后的文档
-	doc, _ = q.TKnowledgeDocument.WithContext(l.ctx).Where(q.TKnowledgeDocument.ID.Eq(docID)).First()
+	db.Where("id = ?", docID).First(&doc)
 
-	// 异步处理
 	go func() {
 		processor := NewDocumentProcessor()
-		if err := processor.Process(kb, doc); err != nil {
-			fmt.Printf("[ERROR] 文档处理失败: docID=%d, err=%v\n", doc.ID, err)
+		if err := processor.Process(&kb, &doc); err != nil {
+			log.Printf("[ERROR] 文档处理失败: docID=%d, err=%v", doc.ID, err)
 		}
 	}()
 
 	return nil
 }
 
-// cleanWhitespace 替换连续空格、换行符、制表符
-func cleanWhitespace(text string) string {
-	// 将制表符替换为空格
-	text = strings.ReplaceAll(text, "\t", " ")
-	// 合并连续空格
-	for strings.Contains(text, "  ") {
-		text = strings.ReplaceAll(text, "  ", " ")
-	}
-	// 合并连续换行
-	for strings.Contains(text, "\n\n\n") {
-		text = strings.ReplaceAll(text, "\n\n\n", "\n\n")
-	}
-	return strings.TrimSpace(text)
-}
+// -----------------------------------------------
+// 知识库检索
+// -----------------------------------------------
 
-// removeURLsAndEmails 删除 URL 和邮件地址
-func removeURLsAndEmails(text string) string {
-	// 简单的 URL 移除（http/https）
-	lines := strings.Split(text, "\n")
-	var result []string
-	for _, line := range lines {
-		words := strings.Fields(line)
-		var cleaned []string
-		for _, w := range words {
-			if strings.HasPrefix(w, "http://") || strings.HasPrefix(w, "https://") {
-				continue
-			}
-			if strings.Contains(w, "@") && strings.Contains(w, ".") {
-				continue
-			}
-			cleaned = append(cleaned, w)
-		}
-		result = append(result, strings.Join(cleaned, " "))
-	}
-	return strings.Join(result, "\n")
-}
-
-// Search 知识库检索
 func (l *KnowledgeBaseLogic) Search(kbID int64, req *KnowledgeSearchReq) ([]*KnowledgeSearchResult, error) {
-	// 获取知识库信息
-	q := query.Use(svc.Ctx.DB)
-	kbModel, err := q.TKnowledgeBase.WithContext(l.ctx).Where(
-		q.TKnowledgeBase.ID.Eq(kbID),
-		q.TKnowledgeBase.IsDelete.Is(false),
-	).First()
-	if err != nil {
+	db := svc.Ctx.DB
+
+	var kb model.TKnowledgeBase
+	if err := db.Where("id = ? AND is_delete = 0", kbID).First(&kb).Error; err != nil {
 		return nil, errors.New("知识库不存在")
 	}
 
-	if kbModel.QdrantCollection == nil || *kbModel.QdrantCollection == "" {
+	if kb.QdrantCollection == nil || *kb.QdrantCollection == "" {
 		return nil, errors.New("知识库尚未初始化向量存储")
 	}
 
 	topK := req.TopK
-	if topK <= 0 && kbModel.TopK != nil {
-		topK = int(*kbModel.TopK)
+	if topK <= 0 && kb.TopK != nil {
+		topK = int(*kb.TopK)
 	}
 	if topK <= 0 {
 		topK = 5
 	}
 	score := req.Score
-	if score <= 0 && kbModel.SimilarityThreshold != nil {
-		score = *kbModel.SimilarityThreshold
+	if score <= 0 && kb.SimilarityThreshold != nil {
+		score = *kb.SimilarityThreshold
 	}
 
-	// 1. 获取 Embedding 客户端
-	if kbModel.EmbeddingModelID == nil || *kbModel.EmbeddingModelID == 0 {
-		return nil, errors.New("知识库未配置嵌入模型")
+	retrievalMode := req.RetrievalMode
+	if retrievalMode == "" && kb.RetrievalMode != nil {
+		retrievalMode = *kb.RetrievalMode
+	}
+	if retrievalMode == "" {
+		retrievalMode = "vector"
+	}
+
+	var results []*KnowledgeSearchResult
+
+	switch retrievalMode {
+	case "keyword":
+		results = l.keywordSearch(kbID, req.Query, topK)
+	case "hybrid":
+		vectorResults := l.vectorSearch(&kb, req.Query, topK, score)
+		keywordResults := l.keywordSearch(kbID, req.Query, topK)
+		results = l.mergeResults(vectorResults, keywordResults, topK)
+	default:
+		results = l.vectorSearch(&kb, req.Query, topK, score)
+	}
+
+	// 保存查询历史
+	go l.saveQueryHistory(kbID, req.Query, retrievalMode, topK, score, len(results))
+
+	// 更新命中计数
+	go l.updateHitCounts(results)
+
+	return results, nil
+}
+
+func (l *KnowledgeBaseLogic) vectorSearch(kb *model.TKnowledgeBase, query string, topK int, score float64) []*KnowledgeSearchResult {
+	if kb.EmbeddingModelID == nil || *kb.EmbeddingModelID == 0 {
+		return nil
 	}
 
 	aiModelLogic := NewAiModelLogic(l.ctx)
-	aiModel, err := aiModelLogic.GetByIDWithKey(*kbModel.EmbeddingModelID)
+	aiModel, err := aiModelLogic.GetByIDWithKey(*kb.EmbeddingModelID)
 	if err != nil {
-		return nil, fmt.Errorf("获取嵌入模型配置失败: %w", err)
+		log.Printf("[ERROR] 获取嵌入模型失败: %v", err)
+		return nil
 	}
 
 	embClient := NewEmbeddingClient(aiModel.APIBaseURL, aiModel.APIKey, aiModel.ModelID)
-
-	// 2. 将查询文本转为向量
-	queryVector, err := embClient.EmbedText(l.ctx, req.Query)
+	queryVector, err := embClient.EmbedText(l.ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("查询文本向量化失败: %w", err)
+		log.Printf("[ERROR] 查询向量化失败: %v", err)
+		return nil
 	}
 
-	// 3. 在 Qdrant 中搜索
-	hits, err := SearchVectors(*kbModel.QdrantCollection, queryVector, topK, float32(score))
+	hits, err := SearchVectors(*kb.QdrantCollection, queryVector, topK, float32(score))
 	if err != nil {
-		return nil, fmt.Errorf("向量搜索失败: %w", err)
+		log.Printf("[ERROR] 向量搜索失败: %v", err)
+		return nil
 	}
 
-	// 4. 补充文档名称
 	docNameCache := make(map[int64]string)
 	results := make([]*KnowledgeSearchResult, 0, len(hits))
 	for _, hit := range hits {
-		docName := ""
-		if hit.DocumentID > 0 {
-			if name, ok := docNameCache[hit.DocumentID]; ok {
-				docName = name
-			} else {
-				doc, err := q.TKnowledgeDocument.WithContext(l.ctx).Where(
-					q.TKnowledgeDocument.ID.Eq(hit.DocumentID),
-				).First()
-				if err == nil {
-					docName = doc.Name
-				}
-				docNameCache[hit.DocumentID] = docName
-			}
-		}
-
+		docName := getDocNameCached(hit.DocumentID, docNameCache)
 		results = append(results, &KnowledgeSearchResult{
 			Content:      hit.Content,
 			Score:        hit.Score,
 			DocumentID:   hit.DocumentID,
 			DocumentName: docName,
 			ChunkIndex:   hit.ChunkIndex,
+			WordCount:    utf8.RuneCountInString(hit.Content),
 			Metadata:     hit.Metadata,
 		})
 	}
+	return results
+}
 
-	return results, nil
+func (l *KnowledgeBaseLogic) keywordSearch(kbID int64, query string, topK int) []*KnowledgeSearchResult {
+	db := svc.Ctx.DB
+	var segments []model.TKnowledgeSegment
+
+	err := db.Where("knowledge_base_id = ? AND enabled = 1 AND MATCH(content) AGAINST(? IN NATURAL LANGUAGE MODE)", kbID, query).
+		Limit(topK).Find(&segments).Error
+	if err != nil {
+		log.Printf("[WARN] 全文检索失败，降级到 LIKE: %v", err)
+		db.Where("knowledge_base_id = ? AND enabled = 1 AND content LIKE ?", kbID, "%"+query+"%").
+			Limit(topK).Find(&segments)
+	}
+
+	docNameCache := make(map[int64]string)
+	results := make([]*KnowledgeSearchResult, 0, len(segments))
+	for _, seg := range segments {
+		docName := getDocNameCached(seg.DocumentID, docNameCache)
+		results = append(results, &KnowledgeSearchResult{
+			SegmentID:    seg.ID,
+			Content:      seg.Content,
+			Score:        0.5,
+			DocumentID:   seg.DocumentID,
+			DocumentName: docName,
+			ChunkIndex:   seg.Position,
+			WordCount:    seg.WordCount,
+			HitCount:     seg.HitCount,
+		})
+	}
+	return results
+}
+
+func (l *KnowledgeBaseLogic) mergeResults(vectorResults, keywordResults []*KnowledgeSearchResult, topK int) []*KnowledgeSearchResult {
+	seen := make(map[string]bool)
+	var merged []*KnowledgeSearchResult
+
+	for _, r := range vectorResults {
+		key := fmt.Sprintf("%d_%d", r.DocumentID, r.ChunkIndex)
+		if !seen[key] {
+			seen[key] = true
+			merged = append(merged, r)
+		}
+	}
+	for _, r := range keywordResults {
+		key := fmt.Sprintf("%d_%d", r.DocumentID, r.ChunkIndex)
+		if !seen[key] {
+			seen[key] = true
+			r.Score = r.Score * 0.8
+			merged = append(merged, r)
+		}
+	}
+
+	if len(merged) > topK {
+		merged = merged[:topK]
+	}
+	return merged
 }
 
 // -----------------------------------------------
-// 内部辅助方法
+// 查询历史
 // -----------------------------------------------
 
-func (l *KnowledgeBaseLogic) updateDocumentCount(kbID int64) {
-	q := query.Use(svc.Ctx.DB)
-	count, err := q.TKnowledgeDocument.WithContext(l.ctx).Where(q.TKnowledgeDocument.KnowledgeBaseID.Eq(kbID)).Count()
-	if err != nil {
-		return
+func (l *KnowledgeBaseLogic) GetQueryHistory(kbID int64, limit int) ([]*QueryHistoryItem, error) {
+	db := svc.Ctx.DB
+	if limit <= 0 {
+		limit = 20
 	}
-	cnt := int32(count)
-	q.TKnowledgeBase.WithContext(l.ctx).Where(q.TKnowledgeBase.ID.Eq(kbID)).Update(q.TKnowledgeBase.DocumentCount, cnt)
+
+	var queries []model.TKnowledgeQuery
+	if err := db.Where("knowledge_base_id = ?", kbID).
+		Order("id DESC").Limit(limit).Find(&queries).Error; err != nil {
+		return nil, err
+	}
+
+	result := make([]*QueryHistoryItem, 0, len(queries))
+	for _, q := range queries {
+		result = append(result, &QueryHistoryItem{
+			ID:            q.ID,
+			QueryText:     q.QueryText,
+			RetrievalMode: q.RetrievalMode,
+			ResultCount:   q.ResultCount,
+			CreatedAt:     q.CreatedAt,
+		})
+	}
+	return result, nil
+}
+
+func (l *KnowledgeBaseLogic) saveQueryHistory(kbID int64, query, mode string, topK int, score float64, resultCount int) {
+	db := svc.Ctx.DB
+	now := time.Now()
+	q := &model.TKnowledgeQuery{
+		CreatedAt:       &now,
+		KnowledgeBaseID: kbID,
+		QueryText:       query,
+		RetrievalMode:   mode,
+		TopK:            topK,
+		ScoreThreshold:  score,
+		ResultCount:     resultCount,
+		Source:          "hit_testing",
+	}
+	db.Create(q)
+}
+
+func (l *KnowledgeBaseLogic) updateHitCounts(results []*KnowledgeSearchResult) {
+	db := svc.Ctx.DB
+	for _, r := range results {
+		if r.SegmentID > 0 {
+			db.Exec("UPDATE t_knowledge_segment SET hit_count = hit_count + 1 WHERE id = ?", r.SegmentID)
+		}
+	}
+}
+
+// -----------------------------------------------
+// 工具方法
+// -----------------------------------------------
+
+func getDocNameCached(docID int64, cache map[int64]string) string {
+	if name, ok := cache[docID]; ok {
+		return name
+	}
+	db := svc.Ctx.DB
+	var doc model.TKnowledgeDocument
+	if err := db.Where("id = ?", docID).Select("name").First(&doc).Error; err == nil {
+		cache[docID] = doc.Name
+		return doc.Name
+	}
+	cache[docID] = ""
+	return ""
+}
+
+func (l *KnowledgeBaseLogic) updateDocumentCount(kbID int64) {
+	db := svc.Ctx.DB
+	var count int64
+	db.Model(&model.TKnowledgeDocument{}).Where("knowledge_base_id = ?", kbID).Count(&count)
+	db.Model(&model.TKnowledgeBase{}).Where("id = ?", kbID).Update("document_count", int32(count))
 }
 
 func (l *KnowledgeBaseLogic) toKnowledgeBaseInfo(m *model.TKnowledgeBase) *KnowledgeBaseInfo {
 	info := &KnowledgeBaseInfo{
-		ID:        m.ID,
-		CreatedAt: m.CreatedAt,
-		UpdatedAt: m.UpdatedAt,
-		CreatedBy: m.CreatedBy,
-		Name:      m.Name,
-		Type:      m.Type,
+		ID:               m.ID,
+		CreatedAt:        m.CreatedAt,
+		UpdatedAt:        m.UpdatedAt,
+		CreatedBy:        m.CreatedBy,
+		Name:             m.Name,
+		Type:             m.Type,
+		EmbeddingModelID: m.EmbeddingModelID,
+		RerankModelID:    m.RerankModelID,
 	}
-
 	if m.Description != nil {
 		info.Description = *m.Description
 	}
 	if m.Status != nil {
 		info.Status = *m.Status
 	}
-	info.EmbeddingModelID = m.EmbeddingModelID
 	if m.EmbeddingModelName != nil {
 		info.EmbeddingModelName = *m.EmbeddingModelName
 	}
@@ -878,6 +1039,12 @@ func (l *KnowledgeBaseLogic) toKnowledgeBaseInfo(m *model.TKnowledgeBase) *Knowl
 	if m.TopK != nil {
 		info.TopK = *m.TopK
 	}
+	if m.RetrievalMode != nil {
+		info.RetrievalMode = *m.RetrievalMode
+	}
+	if m.RerankEnabled != nil {
+		info.RerankEnabled = *m.RerankEnabled
+	}
 	if m.QdrantCollection != nil {
 		info.QdrantCollection = *m.QdrantCollection
 	}
@@ -887,27 +1054,30 @@ func (l *KnowledgeBaseLogic) toKnowledgeBaseInfo(m *model.TKnowledgeBase) *Knowl
 	if m.ChunkCount != nil {
 		info.ChunkCount = *m.ChunkCount
 	}
-
 	return info
 }
 
 func (l *KnowledgeBaseLogic) toDocumentInfo(m *model.TKnowledgeDocument) *KnowledgeDocumentInfo {
 	info := &KnowledgeDocumentInfo{
-		ID:              m.ID,
-		CreatedAt:       m.CreatedAt,
-		UpdatedAt:       m.UpdatedAt,
-		KnowledgeBaseID: m.KnowledgeBaseID,
-		Name:            m.Name,
+		ID:                  m.ID,
+		CreatedAt:           m.CreatedAt,
+		UpdatedAt:           m.UpdatedAt,
+		KnowledgeBaseID:     m.KnowledgeBaseID,
+		Name:                m.Name,
+		ParsingCompletedAt:  m.ParsingCompletedAt,
+		IndexingCompletedAt: m.IndexingCompletedAt,
 	}
-
 	if m.FileType != nil {
 		info.FileType = *m.FileType
 	}
 	if m.FileSize != nil {
 		info.FileSize = *m.FileSize
 	}
-	if m.Status != nil {
-		info.Status = *m.Status
+	if m.WordCount != nil {
+		info.WordCount = *m.WordCount
+	}
+	if m.IndexingStatus != nil {
+		info.IndexingStatus = *m.IndexingStatus
 	}
 	if m.ErrorMessage != nil {
 		info.ErrorMessage = *m.ErrorMessage
@@ -918,7 +1088,6 @@ func (l *KnowledgeBaseLogic) toDocumentInfo(m *model.TKnowledgeDocument) *Knowle
 	if m.TokenCount != nil {
 		info.TokenCount = *m.TokenCount
 	}
-
 	return info
 }
 
@@ -942,16 +1111,11 @@ func InferFileType(filename string) string {
 		return "json"
 	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp":
 		return "image"
-	case ".mp3", ".wav", ".m4a", ".ogg", ".flac":
-		return "audio"
-	case ".mp4", ".avi", ".mov", ".webm", ".mkv":
-		return "video"
 	default:
 		return "txt"
 	}
 }
 
-// IsTextFileType 判断文件类型是否为纯文本类
 func IsTextFileType(fileType string) bool {
 	switch fileType {
 	case "txt", "md", "csv", "json", "html":
@@ -959,14 +1123,4 @@ func IsTextFileType(fileType string) bool {
 	default:
 		return false
 	}
-}
-
-// Base64Encode 将字节数据编码为 Base64 字符串
-func Base64Encode(data []byte) string {
-	return base64.StdEncoding.EncodeToString(data)
-}
-
-// Base64Decode 将 Base64 字符串解码为字节数据
-func Base64Decode(encoded string) ([]byte, error) {
-	return base64.StdEncoding.DecodeString(encoded)
 }

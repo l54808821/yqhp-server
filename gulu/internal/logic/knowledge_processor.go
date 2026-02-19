@@ -7,51 +7,53 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"log"
+	"os/exec"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	"golang.org/x/net/html"
+
 	"yqhp/gulu/internal/model"
-	"yqhp/gulu/internal/query"
 	"yqhp/gulu/internal/svc"
 )
 
 // DocumentProcessor 文档处理器
-// 负责文档解析、分块、Embedding 生成和向量写入
 type DocumentProcessor struct{}
 
-// NewDocumentProcessor 创建文档处理器
 func NewDocumentProcessor() *DocumentProcessor {
 	return &DocumentProcessor{}
 }
 
-// Process 处理文档（异步调用）
+// Process 处理文档（完整 ETL 流水线）
 func (p *DocumentProcessor) Process(kb *model.TKnowledgeBase, doc *model.TKnowledgeDocument) error {
 	ctx := context.Background()
-	q := query.Use(svc.Ctx.DB)
-	docQuery := q.TKnowledgeDocument
+	db := svc.Ctx.DB
 
-	// 更新状态为处理中
-	status := "processing"
-	now := time.Now()
-	docQuery.WithContext(ctx).Where(docQuery.ID.Eq(doc.ID)).Updates(map[string]interface{}{
-		"status":     status,
-		"updated_at": now,
-	})
+	// ── Stage 1: Parsing ──
+	p.updateIndexingStatus(ctx, doc.ID, "parsing")
 
-	// 1. 提取文本内容
 	text, err := p.extractText(doc)
 	if err != nil {
 		p.markFailed(ctx, doc.ID, fmt.Sprintf("文本提取失败: %v", err))
 		return err
 	}
-
-	if text == "" {
+	if strings.TrimSpace(text) == "" {
 		p.markFailed(ctx, doc.ID, "文档内容为空")
 		return fmt.Errorf("文档内容为空")
 	}
 
-	// 2. 文本预处理（使用文档级别参数）
+	wordCount := int32(utf8.RuneCountInString(text))
+	now := time.Now()
+	db.Model(&model.TKnowledgeDocument{}).Where("id = ?", doc.ID).Updates(map[string]interface{}{
+		"word_count":            wordCount,
+		"parsing_completed_at":  now,
+	})
+
+	// ── Stage 2: Cleaning ──
+	p.updateIndexingStatus(ctx, doc.ID, "cleaning")
+
 	cs := doc.ChunkSetting
 	if cs == nil {
 		cs = model.DefaultChunkSetting()
@@ -63,7 +65,9 @@ func (p *DocumentProcessor) Process(kb *model.TKnowledgeBase, doc *model.TKnowle
 		text = removeURLsAndEmails(text)
 	}
 
-	// 3. 文本分块（优先使用文档级别参数，其次使用知识库级别参数）
+	// ── Stage 3: Splitting ──
+	p.updateIndexingStatus(ctx, doc.ID, "splitting")
+
 	chunkSize := cs.ChunkSize
 	chunkOverlap := cs.ChunkOverlap
 	if chunkSize <= 0 && kb.ChunkSize != nil {
@@ -75,28 +79,31 @@ func (p *DocumentProcessor) Process(kb *model.TKnowledgeBase, doc *model.TKnowle
 	if chunkOverlap < 0 && kb.ChunkOverlap != nil {
 		chunkOverlap = int(*kb.ChunkOverlap)
 	}
+	if chunkOverlap >= chunkSize {
+		chunkOverlap = chunkSize / 5
+	}
 
-	// 使用分段标识符或默认滑动窗口
 	var chunks []string
 	separator := cs.Separator
 	if separator != "" {
 		chunks = splitBySeparator(text, separator, chunkSize, chunkOverlap)
 	} else {
-		chunks = p.splitText(text, chunkSize, chunkOverlap)
+		chunks = splitText(text, chunkSize, chunkOverlap)
 	}
 	if len(chunks) == 0 {
 		p.markFailed(ctx, doc.ID, "分块结果为空")
 		return fmt.Errorf("分块结果为空")
 	}
 
-	// 3. 生成 Embedding 向量
+	// ── Stage 4: Indexing (Embedding + Qdrant + MySQL segments) ──
+	p.updateIndexingStatus(ctx, doc.ID, "indexing")
+
 	vectors, err := p.generateEmbeddings(kb, chunks)
 	if err != nil {
 		p.markFailed(ctx, doc.ID, fmt.Sprintf("Embedding 生成失败: %v", err))
 		return err
 	}
 
-	// 4. 构建向量点并写入 Qdrant
 	collectionName := ""
 	if kb.QdrantCollection != nil {
 		collectionName = *kb.QdrantCollection
@@ -106,15 +113,21 @@ func (p *DocumentProcessor) Process(kb *model.TKnowledgeBase, doc *model.TKnowle
 		return fmt.Errorf("qdrant collection 未配置")
 	}
 
-	// 确保 Collection 存在（兼容旧数据、重试等场景）
 	dimension := 1536
 	if kb.EmbeddingDimension != nil {
 		dimension = int(*kb.EmbeddingDimension)
 	}
 	if err := CreateQdrantCollection(collectionName, dimension); err != nil {
-		fmt.Printf("[WARN] 确保 Qdrant Collection 存在失败: %v\n", err)
+		log.Printf("[WARN] 确保 Qdrant Collection 存在失败: %v", err)
 	}
 
+	// 先删除旧的分块（MySQL + Qdrant）
+	if err := DeleteDocumentVectors(collectionName, doc.ID); err != nil {
+		log.Printf("[WARN] 删除旧向量失败: %v", err)
+	}
+	db.Where("document_id = ?", doc.ID).Delete(&model.TKnowledgeSegment{})
+
+	// 写入 Qdrant
 	points := make([]VectorPoint, len(chunks))
 	for i, chunk := range chunks {
 		points[i] = VectorPoint{
@@ -130,85 +143,202 @@ func (p *DocumentProcessor) Process(kb *model.TKnowledgeBase, doc *model.TKnowle
 			},
 		}
 	}
-
 	if err := UpsertVectors(collectionName, points); err != nil {
 		p.markFailed(ctx, doc.ID, fmt.Sprintf("向量写入失败: %v", err))
 		return err
 	}
 
-	// 5. 更新文档状态为就绪
+	// 写入 MySQL segments
+	segments := make([]*model.TKnowledgeSegment, len(chunks))
+	nowT := time.Now()
+	for i, chunk := range chunks {
+		pointID := fmt.Sprintf("%d", uint64(doc.ID)*100000+uint64(i))
+		wc := utf8.RuneCountInString(chunk)
+		segments[i] = &model.TKnowledgeSegment{
+			CreatedAt:       &nowT,
+			UpdatedAt:       &nowT,
+			KnowledgeBaseID: doc.KnowledgeBaseID,
+			DocumentID:      doc.ID,
+			Content:         chunk,
+			Position:        i,
+			WordCount:       wc,
+			Tokens:          wc,
+			IndexNodeID:     &pointID,
+			Status:          "active",
+			Enabled:         true,
+		}
+	}
+	if err := db.CreateInBatches(segments, 100).Error; err != nil {
+		log.Printf("[WARN] MySQL 分块写入失败: %v", err)
+	}
+
+	// ── Stage 5: Completed ──
 	chunkCount := int32(len(chunks))
 	tokenCount := int32(utf8.RuneCountInString(text))
-	readyStatus := "ready"
-	docQuery.WithContext(ctx).Where(docQuery.ID.Eq(doc.ID)).Updates(map[string]interface{}{
-		"status":      readyStatus,
-		"chunk_count": chunkCount,
-		"token_count": tokenCount,
-		"updated_at":  time.Now(),
+	completedAt := time.Now()
+	db.Model(&model.TKnowledgeDocument{}).Where("id = ?", doc.ID).Updates(map[string]interface{}{
+		"indexing_status":       "completed",
+		"chunk_count":           chunkCount,
+		"token_count":           tokenCount,
+		"indexing_completed_at": completedAt,
+		"error_message":         nil,
+		"updated_at":            completedAt,
 	})
 
-	// 更新知识库的分块计数
-	p.updateKBChunkCount(ctx, doc.KnowledgeBaseID)
-
-	fmt.Printf("[INFO] 文档处理完成: docID=%d, chunks=%d, tokens=%d\n", doc.ID, chunkCount, tokenCount)
+	p.updateKBCounts(ctx, doc.KnowledgeBaseID)
+	log.Printf("[INFO] 文档处理完成: docID=%d, chunks=%d, words=%d", doc.ID, chunkCount, wordCount)
 	return nil
 }
 
-// extractText 从文档中提取文本
-func (p *DocumentProcessor) extractText(doc *model.TKnowledgeDocument) (string, error) {
-	if doc.Content == nil || *doc.Content == "" {
-		return "", fmt.Errorf("文档内容为空")
-	}
+// -----------------------------------------------
+// 文本提取器
+// -----------------------------------------------
 
+func (p *DocumentProcessor) extractText(doc *model.TKnowledgeDocument) (string, error) {
 	fileType := ""
 	if doc.FileType != nil {
 		fileType = *doc.FileType
 	}
 
-	// 纯文本类型，内容直接以 UTF-8 字符串形式存储
-	if IsTextFileType(fileType) {
-		return *doc.Content, nil
+	if doc.FilePath == nil || *doc.FilePath == "" {
+		return "", fmt.Errorf("文件路径为空")
 	}
 
-	// 二进制文件：Content 字段存储的是 Base64 编码后的原始数据
-	rawBytes, err := Base64Decode(*doc.Content)
+	storage := GetFileStorage()
+	data, err := storage.Read(*doc.FilePath)
 	if err != nil {
-		return "", fmt.Errorf("Base64 解码失败: %v", err)
+		return "", fmt.Errorf("读取文件失败: %w", err)
 	}
 
 	switch fileType {
+	case "txt", "md", "csv", "json":
+		return string(data), nil
+	case "html":
+		return extractTextFromHTML(data), nil
 	case "pdf":
-		text, err := extractTextFromPDF(rawBytes)
-		if err != nil {
-			return "", fmt.Errorf("PDF 文本提取失败: %v", err)
-		}
-		return text, nil
+		return extractTextFromPDF(data, storage.FullPath(*doc.FilePath))
 	case "docx":
-		text, err := extractTextFromDOCX(rawBytes)
-		if err != nil {
-			return "", fmt.Errorf("DOCX 文本提取失败: %v", err)
-		}
-		return text, nil
+		return extractTextFromDOCX(data)
 	case "image":
-		// TODO: 接入 OCR 服务
-		return "", fmt.Errorf("图片 OCR 功能待实现（已保存原始数据 %d 字节）", len(rawBytes))
-	case "audio":
-		// TODO: 接入语音转文字 (Whisper)
-		return "", fmt.Errorf("音频转写功能待实现（已保存原始数据 %d 字节）", len(rawBytes))
-	case "video":
-		// TODO: 提取音轨后转文字
-		return "", fmt.Errorf("视频转写功能待实现（已保存原始数据 %d 字节）", len(rawBytes))
+		return "", fmt.Errorf("图片类型暂不支持文本提取，请接入 OCR 服务")
 	default:
-		return "", fmt.Errorf("不支持的文件类型: %s", fileType)
+		return string(data), nil
 	}
 }
 
 // -----------------------------------------------
-// DOCX 解析（纯标准库实现，无第三方依赖）
-// DOCX 是一个 ZIP 包，核心文本在 word/document.xml 中
+// PDF 提取（优先用 pdftotext，降级到内置解析）
 // -----------------------------------------------
 
-// extractTextFromDOCX 从 DOCX 二进制数据中提取纯文本
+func extractTextFromPDF(data []byte, filePath string) (string, error) {
+	// 优先尝试 pdftotext（poppler-utils），解析质量最好
+	text, err := extractPDFWithPdftotext(filePath)
+	if err == nil && strings.TrimSpace(text) != "" {
+		return text, nil
+	}
+
+	// 降级到内置 BT/ET 解析
+	text = extractPDFTextStreams(data)
+	if strings.TrimSpace(text) != "" {
+		return text, nil
+	}
+
+	return "", fmt.Errorf("无法从 PDF 中提取文本，可能是扫描件（纯图片），需要 OCR 支持")
+}
+
+func extractPDFWithPdftotext(filePath string) (string, error) {
+	cmd := exec.Command("pdftotext", "-enc", "UTF-8", "-layout", filePath, "-")
+	var out bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("pdftotext 执行失败: %w (%s)", err, stderr.String())
+	}
+	return out.String(), nil
+}
+
+func extractPDFTextStreams(data []byte) string {
+	var sb strings.Builder
+	dataStr := string(data)
+
+	for {
+		btIdx := strings.Index(dataStr, "BT")
+		if btIdx < 0 {
+			break
+		}
+		etIdx := strings.Index(dataStr[btIdx:], "ET")
+		if etIdx < 0 {
+			break
+		}
+
+		block := dataStr[btIdx : btIdx+etIdx+2]
+		texts := extractParenText(block)
+		for _, t := range texts {
+			sb.WriteString(t)
+		}
+		sb.WriteString(" ")
+		dataStr = dataStr[btIdx+etIdx+2:]
+	}
+
+	result := strings.TrimSpace(sb.String())
+	result = strings.Join(strings.Fields(result), " ")
+
+	if len(result) < 20 {
+		return ""
+	}
+	return result
+}
+
+func extractParenText(block string) []string {
+	var results []string
+	depth := 0
+	var current strings.Builder
+
+	for i := 0; i < len(block); i++ {
+		ch := block[i]
+		if ch == '(' && (i == 0 || block[i-1] != '\\') {
+			depth++
+			if depth == 1 {
+				current.Reset()
+				continue
+			}
+		}
+		if ch == ')' && (i == 0 || block[i-1] != '\\') {
+			depth--
+			if depth == 0 {
+				text := current.String()
+				if len(text) > 0 && isPrintableText(text) {
+					results = append(results, text)
+				}
+				continue
+			}
+		}
+		if depth > 0 {
+			current.WriteByte(ch)
+		}
+	}
+	return results
+}
+
+func isPrintableText(s string) bool {
+	printable := 0
+	total := len(s)
+	if total == 0 {
+		return false
+	}
+	for _, r := range s {
+		if (r >= 32 && r < 127) || (r >= 0x4e00 && r <= 0x9fff) || r == '\n' || r == '\r' {
+			printable++
+		}
+	}
+	return float64(printable)/float64(total) > 0.5
+}
+
+// -----------------------------------------------
+// DOCX 提取（增强版：支持表格、列表）
+// -----------------------------------------------
+
 func extractTextFromDOCX(data []byte) (string, error) {
 	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
@@ -222,7 +352,6 @@ func extractTextFromDOCX(data []byte) (string, error) {
 			break
 		}
 	}
-
 	if docXML == nil {
 		return "", fmt.Errorf("DOCX 中未找到 word/document.xml")
 	}
@@ -243,16 +372,18 @@ func extractTextFromDOCX(data []byte) (string, error) {
 	if text == "" {
 		return "", fmt.Errorf("DOCX 文档内容为空")
 	}
-
 	return text, nil
 }
 
-// parseWordXML 解析 word/document.xml 提取文本内容
-// 遍历 XML token，遇到 <w:t> 标签提取文本，遇到 </w:p> 标签插入换行
 func parseWordXML(data []byte) string {
+	const wNS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+
 	decoder := xml.NewDecoder(bytes.NewReader(data))
 	var sb strings.Builder
 	inText := false
+	inTable := false
+	cellIdx := 0
+	listLevel := -1
 
 	for {
 		token, err := decoder.Token()
@@ -262,28 +393,55 @@ func parseWordXML(data []byte) string {
 
 		switch t := token.(type) {
 		case xml.StartElement:
-			// <w:t> 或 <w:t xml:space="preserve"> 包含文本内容
-			if t.Name.Local == "t" && t.Name.Space == "http://schemas.openxmlformats.org/wordprocessingml/2006/main" {
+			switch {
+			case t.Name.Local == "t" && t.Name.Space == wNS:
 				inText = true
-			}
-			// <w:br/> 行内换行（Shift+Enter）
-			if t.Name.Local == "br" && t.Name.Space == "http://schemas.openxmlformats.org/wordprocessingml/2006/main" {
+			case t.Name.Local == "br" && t.Name.Space == wNS:
 				sb.WriteString("\n")
+			case t.Name.Local == "tbl" && t.Name.Space == wNS:
+				inTable = true
+			case t.Name.Local == "tc" && t.Name.Space == wNS:
+				if cellIdx > 0 {
+					sb.WriteString("\t| ")
+				}
+			case t.Name.Local == "numPr" && t.Name.Space == wNS:
+				listLevel = 0
+			case t.Name.Local == "ilvl" && t.Name.Space == wNS:
+				for _, attr := range t.Attr {
+					if attr.Name.Local == "val" {
+						if v := attr.Value; v != "" {
+							lvl := 0
+							for _, c := range v {
+								lvl = lvl*10 + int(c-'0')
+							}
+							listLevel = lvl
+						}
+					}
+				}
 			}
+
 		case xml.EndElement:
-			if t.Name.Local == "t" && t.Name.Space == "http://schemas.openxmlformats.org/wordprocessingml/2006/main" {
+			switch {
+			case t.Name.Local == "t" && t.Name.Space == wNS:
 				inText = false
-			}
-			// 段落结束，添加单换行（空段落自然产生 \n\n，与 Dify 对齐）
-			if t.Name.Local == "p" && t.Name.Space == "http://schemas.openxmlformats.org/wordprocessingml/2006/main" {
+			case t.Name.Local == "p" && t.Name.Space == wNS:
+				if listLevel >= 0 {
+					listLevel = -1
+				}
+				sb.WriteString("\n")
+			case t.Name.Local == "tr" && t.Name.Space == wNS:
+				sb.WriteString("\n")
+				cellIdx = 0
+			case t.Name.Local == "tc" && t.Name.Space == wNS:
+				cellIdx++
+			case t.Name.Local == "tbl" && t.Name.Space == wNS:
+				inTable = false
 				sb.WriteString("\n")
 			}
-			// 表格行结束，添加换行
-			if t.Name.Local == "tr" && t.Name.Space == "http://schemas.openxmlformats.org/wordprocessingml/2006/main" {
-				sb.WriteString("\n")
-			}
+
 		case xml.CharData:
 			if inText {
+				_ = inTable
 				sb.Write(t)
 			}
 		}
@@ -293,133 +451,65 @@ func parseWordXML(data []byte) string {
 }
 
 // -----------------------------------------------
-// PDF 简易文本提取（从二进制流中提取可见文本）
-// 注：这是一个轻量级实现，适用于包含文本层的 PDF。
-// 扫描件 PDF（纯图片）需要 OCR，此处无法处理。
-// 后续可替换为 pdftotext 或 unipdf 等专业库。
+// HTML 提取（使用 golang.org/x/net/html）
 // -----------------------------------------------
 
-// extractTextFromPDF 从 PDF 二进制数据中提取文本
-func extractTextFromPDF(data []byte) (string, error) {
-	// 策略 1：查找 PDF 文本流中的文本对象
-	// PDF 文本通常在 BT ... ET 块中，用 Tj/TJ/' /" 操作符渲染
-	text := extractPDFTextStreams(data)
-	if text != "" {
-		return text, nil
+func extractTextFromHTML(data []byte) string {
+	doc, err := html.Parse(bytes.NewReader(data))
+	if err != nil {
+		return string(data)
 	}
 
-	// 策略 2：提取所有可打印 ASCII 字符（降级方案）
-	text = extractVisibleText(data)
-	if text != "" {
-		return text, nil
-	}
-
-	return "", fmt.Errorf("无法从 PDF 中提取文本，可能是扫描件（纯图片），需要 OCR 支持")
-}
-
-// extractPDFTextStreams 从 PDF 二进制中提取 BT...ET 文本块中的括号内文本
-func extractPDFTextStreams(data []byte) string {
 	var sb strings.Builder
-	dataStr := string(data)
+	var extractNode func(*html.Node)
 
-	// 查找所有 BT...ET 文本块
-	for {
-		btIdx := strings.Index(dataStr, "BT")
-		if btIdx < 0 {
-			break
-		}
-		etIdx := strings.Index(dataStr[btIdx:], "ET")
-		if etIdx < 0 {
-			break
-		}
-
-		block := dataStr[btIdx : btIdx+etIdx+2]
-		// 提取括号中的文本: (text) Tj 或 [(text)] TJ
-		texts := extractParenText(block)
-		for _, t := range texts {
-			sb.WriteString(t)
-		}
-		sb.WriteString(" ")
-
-		dataStr = dataStr[btIdx+etIdx+2:]
+	skipTags := map[string]bool{
+		"script": true, "style": true, "noscript": true, "head": true,
+	}
+	blockTags := map[string]bool{
+		"p": true, "div": true, "br": true, "h1": true, "h2": true,
+		"h3": true, "h4": true, "h5": true, "h6": true, "li": true,
+		"tr": true, "blockquote": true, "pre": true, "section": true,
+		"article": true, "header": true, "footer": true,
 	}
 
-	result := strings.TrimSpace(sb.String())
-	// 清理不可见字符和多余空格
-	result = strings.Join(strings.Fields(result), " ")
-
-	if len(result) < 20 {
-		return ""
-	}
-	return result
-}
-
-// extractParenText 从 PDF 文本块中提取括号内的字符串
-func extractParenText(block string) []string {
-	var results []string
-	depth := 0
-	var current strings.Builder
-
-	for i := 0; i < len(block); i++ {
-		ch := block[i]
-		if ch == '(' && (i == 0 || block[i-1] != '\\') {
-			depth++
-			if depth == 1 {
-				current.Reset()
-				continue
+	extractNode = func(n *html.Node) {
+		if n.Type == html.ElementNode && skipTags[n.Data] {
+			return
+		}
+		if n.Type == html.TextNode {
+			text := strings.TrimSpace(n.Data)
+			if text != "" {
+				sb.WriteString(text)
+				sb.WriteString(" ")
 			}
 		}
-		if ch == ')' && (i == 0 || block[i-1] != '\\') {
-			depth--
-			if depth == 0 {
-				text := current.String()
-				// 过滤掉纯控制字符序列
-				if len(text) > 0 && isPrintableText(text) {
-					results = append(results, text)
-				}
-				continue
-			}
+		if n.Type == html.ElementNode && blockTags[n.Data] {
+			sb.WriteString("\n")
 		}
-		if depth > 0 {
-			current.WriteByte(ch)
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			extractNode(c)
+		}
+		if n.Type == html.ElementNode && blockTags[n.Data] {
+			sb.WriteString("\n")
 		}
 	}
+	extractNode(doc)
 
-	return results
+	text := sb.String()
+	for strings.Contains(text, "\n\n\n") {
+		text = strings.ReplaceAll(text, "\n\n\n", "\n\n")
+	}
+	return strings.TrimSpace(text)
 }
 
-// isPrintableText 检查字符串是否包含足够比例的可打印字符
-func isPrintableText(s string) bool {
-	printable := 0
-	total := len(s)
-	if total == 0 {
-		return false
-	}
-	for _, r := range s {
-		if r >= 32 && r < 127 || r >= 0x4e00 && r <= 0x9fff || r == '\n' || r == '\r' {
-			printable++
-		}
-	}
-	return float64(printable)/float64(total) > 0.5
-}
+// -----------------------------------------------
+// 文本分块
+// -----------------------------------------------
 
-// extractVisibleText 从二进制数据中提取可打印的 UTF-8 文本片段（降级方案）
-func extractVisibleText(data []byte) string {
-	var sb strings.Builder
-	for _, b := range data {
-		if b >= 32 && b < 127 || b == '\n' || b == '\r' || b == '\t' {
-			sb.WriteByte(b)
-		}
-	}
-	text := strings.TrimSpace(sb.String())
-	if len(text) < 50 {
-		return ""
-	}
-	return text
-}
+var fallbackSeparators = []string{"\n\n", "。", ". ", " ", ""}
 
-// splitText 文本分块（滑动窗口）
-func (p *DocumentProcessor) splitText(text string, chunkSize, overlap int) []string {
+func splitText(text string, chunkSize, overlap int) []string {
 	if chunkSize <= 0 {
 		chunkSize = 500
 	}
@@ -435,8 +525,6 @@ func (p *DocumentProcessor) splitText(text string, chunkSize, overlap int) []str
 	if totalLen == 0 {
 		return nil
 	}
-
-	// 如果文本长度小于分块大小，直接返回
 	if totalLen <= chunkSize {
 		return []string{strings.TrimSpace(text)}
 	}
@@ -460,52 +548,42 @@ func (p *DocumentProcessor) splitText(text string, chunkSize, overlap int) []str
 			break
 		}
 	}
-
 	return chunks
 }
 
-// 备选分隔符列表（与 Dify 一致），递归拆分超长段时逐级尝试
-var fallbackSeparators = []string{"\n\n", "。", ". ", " ", ""}
-
-// splitBySeparator 按分隔符分段（对齐 Dify FixedRecursiveCharacterTextSplitter）：
-//  1. 用用户指定的 separator 做硬切分
-//  2. 超过 chunkSize 的段递归用备选分隔符拆分
-//  3. 相邻小段贪心合并到接近 chunkSize + overlap
-func splitBySeparator(text, separator string, chunkSize, overlap int) []string {
+func splitBySeparator(text, separator string, chunkSize, chunkOverlap int) []string {
 	if chunkSize <= 0 {
 		chunkSize = 500
 	}
-	if overlap < 0 {
-		overlap = 0
+	if chunkOverlap < 0 {
+		chunkOverlap = 0
 	}
-	if overlap >= chunkSize {
-		overlap = chunkSize / 5
+	if chunkOverlap >= chunkSize {
+		chunkOverlap = chunkSize / 5
 	}
 
-	// 将转义的分隔符还原为实际字符
 	actualSep := strings.ReplaceAll(separator, `\n`, "\n")
-
-	// Phase 1: 按用户指定分隔符硬切分
 	segments := strings.Split(text, actualSep)
 
-	// Phase 2: 超长段递归拆分，小段独立保留
-	var chunks []string
+	var flatChunks []string
 	for _, seg := range segments {
 		seg = strings.TrimSpace(seg)
 		if seg == "" {
 			continue
 		}
 		if runeLen(seg) > chunkSize {
-			chunks = append(chunks, recursiveSplit(seg, fallbackSeparators, chunkSize)...)
+			flatChunks = append(flatChunks, recursiveSplit(seg, fallbackSeparators, chunkSize)...)
 		} else {
-			chunks = append(chunks, seg)
+			flatChunks = append(flatChunks, seg)
 		}
 	}
 
-	return chunks
+	if chunkOverlap <= 0 || len(flatChunks) <= 1 {
+		return flatChunks
+	}
+	return mergeSplits(flatChunks, chunkSize, chunkOverlap)
 }
 
-// recursiveSplit 递归拆分超长文本，逐级尝试备选分隔符
 func recursiveSplit(text string, separators []string, chunkSize int) []string {
 	if runeLen(text) <= chunkSize {
 		t := strings.TrimSpace(text)
@@ -514,23 +592,18 @@ func recursiveSplit(text string, separators []string, chunkSize int) []string {
 		}
 		return []string{t}
 	}
-
 	if len(separators) == 0 {
-		// 最后兜底：按字符数硬切
 		return charSplit(text, chunkSize)
 	}
 
 	sep := separators[0]
 	remaining := separators[1:]
-
-	// 空字符串分隔符 = 按字符切
 	if sep == "" {
 		return charSplit(text, chunkSize)
 	}
 
 	parts := strings.Split(text, sep)
-
-	var goodSplits []string // 小于 chunkSize 的段，待合并
+	var goodSplits []string
 	var result []string
 
 	flushGood := func() {
@@ -550,16 +623,13 @@ func recursiveSplit(text string, separators []string, chunkSize int) []string {
 			goodSplits = append(goodSplits, part)
 		} else {
 			flushGood()
-			// 递归用更细的分隔符拆
 			result = append(result, recursiveSplit(part, remaining, chunkSize)...)
 		}
 	}
 	flushGood()
-
 	return result
 }
 
-// mergeSplits 贪心合并小段，支持 overlap
 func mergeSplits(splits []string, chunkSize, overlap int) []string {
 	if len(splits) == 0 {
 		return nil
@@ -571,25 +641,20 @@ func mergeSplits(splits []string, chunkSize, overlap int) []string {
 
 	for _, s := range splits {
 		sLen := runeLen(s)
-
-		// 加入当前段后是否超过 chunkSize
 		joinLen := currentLen + sLen
 		if len(current) > 0 {
-			joinLen++ // 算一个空格/换行的连接开销
+			joinLen++
 		}
 
 		if joinLen > chunkSize && len(current) > 0 {
-			// 输出当前块
 			chunk := strings.TrimSpace(strings.Join(current, "\n"))
 			if chunk != "" {
 				chunks = append(chunks, chunk)
 			}
-
-			// overlap: 从尾部保留内容
 			for currentLen > overlap && len(current) > 0 {
 				currentLen -= runeLen(current[0])
 				if len(current) > 1 {
-					currentLen-- // 连接符
+					currentLen--
 				}
 				current = current[1:]
 			}
@@ -605,18 +670,15 @@ func mergeSplits(splits []string, chunkSize, overlap int) []string {
 		}
 	}
 
-	// 输出最后一块
 	if len(current) > 0 {
 		chunk := strings.TrimSpace(strings.Join(current, "\n"))
 		if chunk != "" {
 			chunks = append(chunks, chunk)
 		}
 	}
-
 	return chunks
 }
 
-// mergeSplitsSimple 简单合并（递归拆分内部用，不带 overlap）
 func mergeSplitsSimple(splits []string, sep string, chunkSize int) []string {
 	var chunks []string
 	var current strings.Builder
@@ -626,7 +688,6 @@ func mergeSplitsSimple(splits []string, sep string, chunkSize int) []string {
 		if current.Len() > 0 {
 			newLen += runeLen(sep)
 		}
-
 		if newLen > chunkSize && current.Len() > 0 {
 			chunk := strings.TrimSpace(current.String())
 			if chunk != "" {
@@ -634,7 +695,6 @@ func mergeSplitsSimple(splits []string, sep string, chunkSize int) []string {
 			}
 			current.Reset()
 		}
-
 		if current.Len() > 0 {
 			current.WriteString(sep)
 		}
@@ -647,11 +707,9 @@ func mergeSplitsSimple(splits []string, sep string, chunkSize int) []string {
 			chunks = append(chunks, chunk)
 		}
 	}
-
 	return chunks
 }
 
-// charSplit 按字符数硬切
 func charSplit(text string, chunkSize int) []string {
 	runes := []rune(text)
 	var chunks []string
@@ -668,75 +726,106 @@ func charSplit(text string, chunkSize int) []string {
 	return chunks
 }
 
-// runeLen 返回字符串的 rune 长度（中文友好）
 func runeLen(s string) int {
 	return len([]rune(s))
 }
 
-// generateEmbeddings 生成 Embedding 向量
+// -----------------------------------------------
+// Embedding 生成
+// -----------------------------------------------
+
 func (p *DocumentProcessor) generateEmbeddings(kb *model.TKnowledgeBase, chunks []string) ([][]float32, error) {
-	// 获取嵌入模型配置
 	embClient, err := p.getEmbeddingClient(kb)
 	if err != nil {
 		return nil, err
 	}
-
 	ctx := context.Background()
 	vectors, err := embClient.EmbedTexts(ctx, chunks)
 	if err != nil {
 		return nil, fmt.Errorf("Embedding 生成失败: %w", err)
 	}
-
-	fmt.Printf("[INFO] Embedding: 成功生成 %d 个向量 (模型: %s)\n", len(vectors), embClient.Model)
+	log.Printf("[INFO] Embedding: 成功生成 %d 个向量 (模型: %s)", len(vectors), embClient.Model)
 	return vectors, nil
 }
 
-// getEmbeddingClient 根据知识库配置获取 Embedding 客户端
 func (p *DocumentProcessor) getEmbeddingClient(kb *model.TKnowledgeBase) (*EmbeddingClient, error) {
 	if kb.EmbeddingModelID == nil || *kb.EmbeddingModelID == 0 {
-		return nil, fmt.Errorf("知识库未配置嵌入模型，请在知识库设置中选择嵌入模型")
+		return nil, fmt.Errorf("知识库未配置嵌入模型")
 	}
-
-	// 从数据库获取模型完整配置（含 API Key）
 	aiModelLogic := NewAiModelLogic(context.Background())
 	aiModel, err := aiModelLogic.GetByIDWithKey(*kb.EmbeddingModelID)
 	if err != nil {
-		return nil, fmt.Errorf("嵌入模型不存在或已删除 (ID=%d): %w", *kb.EmbeddingModelID, err)
+		return nil, fmt.Errorf("嵌入模型不存在 (ID=%d): %w", *kb.EmbeddingModelID, err)
 	}
-
 	return NewEmbeddingClient(aiModel.APIBaseURL, aiModel.APIKey, aiModel.ModelID), nil
 }
 
-// markFailed 标记文档处理失败
-func (p *DocumentProcessor) markFailed(ctx context.Context, docID int64, errMsg string) {
-	q := query.Use(svc.Ctx.DB)
-	m := q.TKnowledgeDocument
-	failedStatus := "failed"
-	m.WithContext(ctx).Where(m.ID.Eq(docID)).Updates(map[string]interface{}{
-		"status":        failedStatus,
-		"error_message": errMsg,
-		"updated_at":    time.Now(),
+// -----------------------------------------------
+// 状态管理
+// -----------------------------------------------
+
+func (p *DocumentProcessor) updateIndexingStatus(ctx context.Context, docID int64, status string) {
+	db := svc.Ctx.DB
+	db.Model(&model.TKnowledgeDocument{}).Where("id = ?", docID).Updates(map[string]interface{}{
+		"indexing_status": status,
+		"updated_at":     time.Now(),
 	})
 }
 
-// updateKBChunkCount 更新知识库的分块总数
-func (p *DocumentProcessor) updateKBChunkCount(ctx context.Context, kbID int64) {
-	q := query.Use(svc.Ctx.DB)
+func (p *DocumentProcessor) markFailed(ctx context.Context, docID int64, errMsg string) {
+	db := svc.Ctx.DB
+	db.Model(&model.TKnowledgeDocument{}).Where("id = ?", docID).Updates(map[string]interface{}{
+		"indexing_status": "error",
+		"error_message":   errMsg,
+		"updated_at":      time.Now(),
+	})
+}
 
-	// 统计所有 ready 文档的分块总数
-	var totalChunks int64
-	docs, err := q.TKnowledgeDocument.WithContext(ctx).Where(
-		q.TKnowledgeDocument.KnowledgeBaseID.Eq(kbID),
-	).Find()
-	if err != nil {
-		return
+func (p *DocumentProcessor) updateKBCounts(ctx context.Context, kbID int64) {
+	db := svc.Ctx.DB
+	var docCount int64
+	db.Model(&model.TKnowledgeDocument{}).Where("knowledge_base_id = ?", kbID).Count(&docCount)
+
+	var chunkCount int64
+	db.Model(&model.TKnowledgeSegment{}).Where("knowledge_base_id = ? AND status = 'active'", kbID).Count(&chunkCount)
+
+	db.Model(&model.TKnowledgeBase{}).Where("id = ?", kbID).Updates(map[string]interface{}{
+		"document_count": int32(docCount),
+		"chunk_count":    int32(chunkCount),
+	})
+}
+
+// -----------------------------------------------
+// 文本预处理工具
+// -----------------------------------------------
+
+func cleanWhitespace(text string) string {
+	text = strings.ReplaceAll(text, "\t", " ")
+	for strings.Contains(text, "  ") {
+		text = strings.ReplaceAll(text, "  ", " ")
 	}
-	for _, doc := range docs {
-		if doc.ChunkCount != nil {
-			totalChunks += int64(*doc.ChunkCount)
+	for strings.Contains(text, "\n\n\n") {
+		text = strings.ReplaceAll(text, "\n\n\n", "\n\n")
+	}
+	return strings.TrimSpace(text)
+}
+
+func removeURLsAndEmails(text string) string {
+	lines := strings.Split(text, "\n")
+	var result []string
+	for _, line := range lines {
+		words := strings.Fields(line)
+		var cleaned []string
+		for _, w := range words {
+			if strings.HasPrefix(w, "http://") || strings.HasPrefix(w, "https://") {
+				continue
+			}
+			if strings.Contains(w, "@") && strings.Contains(w, ".") {
+				continue
+			}
+			cleaned = append(cleaned, w)
 		}
+		result = append(result, strings.Join(cleaned, " "))
 	}
-
-	cnt := int32(totalChunks)
-	q.TKnowledgeBase.WithContext(ctx).Where(q.TKnowledgeBase.ID.Eq(kbID)).Update(q.TKnowledgeBase.ChunkCount, cnt)
+	return strings.Join(result, "\n")
 }

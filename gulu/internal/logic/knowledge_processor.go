@@ -165,62 +165,41 @@ func (p *DocumentProcessor) Process(kb *model.TKnowledgeBase, doc *model.TKnowle
 		return fmt.Errorf("qdrant collection 未配置")
 	}
 
-	// ── 自动检测并修正 Embedding 维度 ──
-	// 原因：知识库创建时默认维度（1536）可能与实际模型输出不符
-	// 在正式索引前用一条文本试算真实维度，如有偏差则自动更新并重建 Collection
-	dimension := 1536
-	if kb.EmbeddingDimension != nil {
-		dimension = int(*kb.EmbeddingDimension)
-	}
-	if len(chunks) > 0 {
-		probeRunes := []rune(chunks[0])
-		probeText := chunks[0]
-		if len(probeRunes) > 100 {
-			probeText = string(probeRunes[:100])
-		}
-		probeTexts := []string{probeText}
-		probeVectors, probeErr := p.generateEmbeddings(kb, probeTexts)
-		if probeErr == nil && len(probeVectors) > 0 && len(probeVectors[0]) > 0 {
-			actualDim := len(probeVectors[0])
-			if actualDim != dimension {
-				log.Printf("[INFO] Embedding 维度自动修正: 配置=%d, 实际=%d, 将重建 Qdrant Collection", dimension, actualDim)
-				dimension = actualDim
-				// 更新数据库中的维度配置
-				dim32 := int32(actualDim)
-				db.Model(&model.TKnowledgeBase{}).Where("id = ?", kb.ID).Update("embedding_dimension", dim32)
-				kb.EmbeddingDimension = &dim32
-				// 强制删除旧 Collection（维度错误的），稍后重建
-				_ = DeleteQdrantCollection(collectionName)
-			}
-		}
-	}
-
-	// 根据是否启用多模态决定 Collection 配置
-	imageDimension := 0
-	if multimodalEnabled && kb.MultimodalDimension != nil {
-		imageDimension = int(*kb.MultimodalDimension)
-	}
-	if err := CreateQdrantCollectionMultiVector(collectionName, CollectionVectorConfig{
-		TextDimension:  dimension,
-		ImageDimension: imageDimension,
-	}); err != nil {
-		log.Printf("[WARN] 确保 Qdrant Collection 存在失败: %v", err)
-	}
-
-	// 清理旧数据
-	if err := DeleteDocumentVectors(collectionName, doc.ID); err != nil {
-		log.Printf("[WARN] 删除旧向量失败: %v", err)
-	}
-	db.Where("document_id = ?", doc.ID).Delete(&model.TKnowledgeSegment{})
-
-	// 4a. 文本向量化和写入
+	// ── 4a. 文本向量化（先生成，从结果获取真实维度，对齐 Dify 的做法）──
+	// Dify: vector_size = len(embeddings[0])，不依赖任何存储的维度配置
 	totalChunks := 0
+	var textDimension int
 	if len(chunks) > 0 {
 		vectors, err := p.generateEmbeddings(kb, chunks)
 		if err != nil {
 			p.markFailed(ctx, doc.ID, fmt.Sprintf("Embedding 生成失败: %v", err))
 			return err
 		}
+
+		// 从实际输出拿维度，然后创建/验证 Qdrant Collection
+		textDimension = len(vectors[0])
+		// 如果 Collection 里的维度不匹配，删掉重建（含多模态字段）
+		imageDimension := 0
+		if multimodalEnabled && kb.MultimodalDimension != nil {
+			imageDimension = int(*kb.MultimodalDimension)
+		}
+		if err := ensureCollectionDimension(collectionName, textDimension, imageDimension); err != nil {
+			p.markFailed(ctx, doc.ID, fmt.Sprintf("Qdrant Collection 初始化失败: %v", err))
+			return err
+		}
+
+		// 将实际维度回写 DB（作为缓存，方便查阅），不影响索引逻辑
+		if kb.EmbeddingDimension == nil || int(*kb.EmbeddingDimension) != textDimension {
+			dim32 := int32(textDimension)
+			db.Model(&model.TKnowledgeBase{}).Where("id = ?", kb.ID).Update("embedding_dimension", dim32)
+			kb.EmbeddingDimension = &dim32
+		}
+
+		// 清理旧数据
+		if err := DeleteDocumentVectors(collectionName, doc.ID); err != nil {
+			log.Printf("[WARN] 删除旧向量失败: %v", err)
+		}
+		db.Where("document_id = ?", doc.ID).Delete(&model.TKnowledgeSegment{})
 
 		points := make([]VectorPoint, len(chunks))
 		for i, chunk := range chunks {
@@ -272,6 +251,13 @@ func (p *DocumentProcessor) Process(kb *model.TKnowledgeBase, doc *model.TKnowle
 	}
 
 	// 4b. 图片向量化和写入（多模态）
+	// 纯图片文档（无文本分块）也需要清理旧数据
+	if len(chunks) == 0 && multimodalEnabled && len(images) > 0 {
+		if err := DeleteDocumentVectors(collectionName, doc.ID); err != nil {
+			log.Printf("[WARN] 删除旧向量失败: %v", err)
+		}
+		db.Where("document_id = ?", doc.ID).Delete(&model.TKnowledgeSegment{})
+	}
 	if multimodalEnabled && len(images) > 0 {
 		imgErr := p.indexImages(kb, doc, images, collectionName, len(chunks))
 		if imgErr != nil {
@@ -338,6 +324,23 @@ func (p *DocumentProcessor) indexImages(kb *model.TKnowledgeBase, doc *model.TKn
 	vectors, err := embClient.EmbedImages(ctx, imageDataList)
 	if err != nil {
 		return fmt.Errorf("图片 Embedding 生成失败: %w", err)
+	}
+
+	// 从实际输出拿图片向量维度，确保 Collection 的 image 字段维度正确
+	imageDimension := len(vectors[0])
+	textDimension := 0
+	if kb.EmbeddingDimension != nil {
+		textDimension = int(*kb.EmbeddingDimension)
+	}
+	if err := ensureCollectionDimension(collectionName, textDimension, imageDimension); err != nil {
+		return fmt.Errorf("Qdrant Collection image 字段初始化失败: %w", err)
+	}
+	// 回写实际图片维度
+	if kb.MultimodalDimension == nil || int(*kb.MultimodalDimension) != imageDimension {
+		dim32 := int32(imageDimension)
+		db := svc.Ctx.DB
+		db.Model(&model.TKnowledgeBase{}).Where("id = ?", kb.ID).Update("multimodal_dimension", dim32)
+		kb.MultimodalDimension = &dim32
 	}
 
 	points := make([]VectorPoint, len(validImages))

@@ -81,6 +81,58 @@ func CreateQdrantCollection(collectionName string, dimension int) error {
 	})
 }
 
+// ensureCollectionDimension 确保 Collection 的向量字段维度与实际 Embedding 输出一致
+// 对齐 Dify 的做法：vector_size = len(embeddings[0])，不存配置、不让用户填
+// - textDimension > 0 时确保 text 字段维度正确
+// - imageDimension > 0 时确保 image 字段维度正确
+// 如果 Collection 不存在则创建；如果维度不匹配则删除重建
+func ensureCollectionDimension(collectionName string, textDimension, imageDimension int) error {
+	client, err := getQdrantClient()
+	if err != nil {
+		return err
+	}
+	ctx := context.Background()
+
+	exists, _ := client.CollectionExists(ctx, collectionName)
+	if exists {
+		// 检查现有维度是否匹配
+		info, err := client.GetCollectionInfo(ctx, collectionName)
+		if err == nil && info != nil {
+			needRecreate := false
+			if params := info.GetConfig().GetParams(); params != nil {
+				if vc := params.GetVectorsConfig(); vc != nil {
+					if m := vc.GetParamsMap(); m != nil {
+						fields := m.GetMap()
+						if textDimension > 0 {
+							if tp, ok := fields["text"]; ok && int(tp.GetSize()) != textDimension {
+								needRecreate = true
+							}
+						}
+						if imageDimension > 0 {
+							if ip, ok := fields["image"]; ok && int(ip.GetSize()) != imageDimension {
+								needRecreate = true
+							}
+						}
+					}
+				}
+			}
+			if !needRecreate {
+				// 已存在且维度匹配，无需操作
+				return nil
+			}
+			log.Printf("[INFO] Qdrant Collection %s 维度不匹配，删除重建 (text=%d, image=%d)",
+				collectionName, textDimension, imageDimension)
+			_ = client.DeleteCollection(ctx, collectionName)
+		}
+	}
+
+	// 创建 Collection
+	return CreateQdrantCollectionMultiVector(collectionName, CollectionVectorConfig{
+		TextDimension:  textDimension,
+		ImageDimension: imageDimension,
+	})
+}
+
 // CreateQdrantCollectionMultiVector 创建支持多向量字段的 Qdrant Collection
 func CreateQdrantCollectionMultiVector(collectionName string, cfg CollectionVectorConfig) error {
 	client, err := getQdrantClient()

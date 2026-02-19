@@ -34,11 +34,19 @@ type CreateKnowledgeBaseReq struct {
 	EmbeddingModelID    *int64  `json:"embedding_model_id"`
 	EmbeddingModelName  string  `json:"embedding_model_name"`
 	EmbeddingDimension  int32   `json:"embedding_dimension"`
+	// 多模态配置（Phase 2）
+	MultimodalEnabled   bool    `json:"multimodal_enabled"`
+	MultimodalModelID   *int64  `json:"multimodal_model_id"`
+	MultimodalModelName string  `json:"multimodal_model_name"`
+	MultimodalDimension int32   `json:"multimodal_dimension"`
+	// 分块配置
 	ChunkSize           int32   `json:"chunk_size"`
 	ChunkOverlap        int32   `json:"chunk_overlap"`
 	SimilarityThreshold float64 `json:"similarity_threshold"`
 	TopK                int32   `json:"top_k"`
 	RetrievalMode       string  `json:"retrieval_mode"`
+	// 图知识库配置（Phase 3）
+	GraphExtractModelID *int64  `json:"graph_extract_model_id"`
 }
 
 type UpdateKnowledgeBaseReq struct {
@@ -47,6 +55,10 @@ type UpdateKnowledgeBaseReq struct {
 	EmbeddingModelID    *int64  `json:"embedding_model_id"`
 	EmbeddingModelName  string  `json:"embedding_model_name"`
 	EmbeddingDimension  int32   `json:"embedding_dimension"`
+	MultimodalEnabled   *bool   `json:"multimodal_enabled"`
+	MultimodalModelID   *int64  `json:"multimodal_model_id"`
+	MultimodalModelName string  `json:"multimodal_model_name"`
+	MultimodalDimension int32   `json:"multimodal_dimension"`
 	ChunkSize           int32   `json:"chunk_size"`
 	ChunkOverlap        int32   `json:"chunk_overlap"`
 	SimilarityThreshold float64 `json:"similarity_threshold"`
@@ -54,6 +66,7 @@ type UpdateKnowledgeBaseReq struct {
 	RetrievalMode       string  `json:"retrieval_mode"`
 	RerankModelID       *int64  `json:"rerank_model_id"`
 	RerankEnabled       *bool   `json:"rerank_enabled"`
+	GraphExtractModelID *int64  `json:"graph_extract_model_id"`
 }
 
 type KnowledgeBaseListReq struct {
@@ -76,6 +89,10 @@ type KnowledgeBaseInfo struct {
 	EmbeddingModelID    *int64     `json:"embedding_model_id"`
 	EmbeddingModelName  string     `json:"embedding_model_name"`
 	EmbeddingDimension  int32      `json:"embedding_dimension"`
+	MultimodalEnabled   bool       `json:"multimodal_enabled"`
+	MultimodalModelID   *int64     `json:"multimodal_model_id"`
+	MultimodalModelName string     `json:"multimodal_model_name"`
+	MultimodalDimension int32      `json:"multimodal_dimension"`
 	ChunkSize           int32      `json:"chunk_size"`
 	ChunkOverlap        int32      `json:"chunk_overlap"`
 	SimilarityThreshold float64    `json:"similarity_threshold"`
@@ -84,8 +101,11 @@ type KnowledgeBaseInfo struct {
 	RerankModelID       *int64     `json:"rerank_model_id"`
 	RerankEnabled       bool       `json:"rerank_enabled"`
 	QdrantCollection    string     `json:"qdrant_collection"`
+	GraphExtractModelID *int64     `json:"graph_extract_model_id"`
 	DocumentCount       int32      `json:"document_count"`
 	ChunkCount          int32      `json:"chunk_count"`
+	EntityCount         int32      `json:"entity_count"`
+	RelationCount       int32      `json:"relation_count"`
 }
 
 type KnowledgeDocumentInfo struct {
@@ -97,6 +117,7 @@ type KnowledgeDocumentInfo struct {
 	FileType            string     `json:"file_type"`
 	FileSize            int64      `json:"file_size"`
 	WordCount           int32      `json:"word_count"`
+	ImageCount          int32      `json:"image_count"`
 	IndexingStatus      string     `json:"indexing_status"`
 	ErrorMessage        string     `json:"error_message"`
 	ChunkCount          int32      `json:"chunk_count"`
@@ -107,14 +128,18 @@ type KnowledgeDocumentInfo struct {
 
 type KnowledgeSearchReq struct {
 	Query         string  `json:"query"`
+	QueryType     string  `json:"query_type"`     // text / image (default: text)
 	TopK          int     `json:"top_k"`
 	Score         float64 `json:"score"`
 	RetrievalMode string  `json:"retrieval_mode"`
+	SearchFields  string  `json:"search_fields"`  // text / image / all (default: all)
 }
 
 type KnowledgeSearchResult struct {
 	SegmentID    int64                  `json:"segment_id"`
 	Content      string                 `json:"content"`
+	ContentType  string                 `json:"content_type"` // text / image
+	ImagePath    string                 `json:"image_path,omitempty"`
 	Score        float64                `json:"score"`
 	DocumentID   int64                  `json:"document_id"`
 	DocumentName string                 `json:"document_name"`
@@ -125,16 +150,18 @@ type KnowledgeSearchResult struct {
 }
 
 type SegmentInfo struct {
-	ID              int64      `json:"id"`
-	DocumentID      int64      `json:"document_id"`
-	DocumentName    string     `json:"document_name"`
-	Content         string     `json:"content"`
-	Position        int        `json:"position"`
-	WordCount       int        `json:"word_count"`
-	Enabled         bool       `json:"enabled"`
-	HitCount        int        `json:"hit_count"`
-	Status          string     `json:"status"`
-	CreatedAt       *time.Time `json:"created_at"`
+	ID           int64      `json:"id"`
+	DocumentID   int64      `json:"document_id"`
+	DocumentName string     `json:"document_name"`
+	Content      string     `json:"content"`
+	ContentType  string     `json:"content_type"` // text / image
+	ImagePath    string     `json:"image_path,omitempty"`
+	Position     int        `json:"position"`
+	WordCount    int        `json:"word_count"`
+	Enabled      bool       `json:"enabled"`
+	HitCount     int        `json:"hit_count"`
+	Status       string     `json:"status"`
+	CreatedAt    *time.Time `json:"created_at"`
 }
 
 type PreviewChunksReq struct {
@@ -205,6 +232,12 @@ func (l *KnowledgeBaseLogic) Create(req *CreateKnowledgeBaseReq) (*KnowledgeBase
 		retrievalMode = "vector"
 	}
 
+	multimodalEnabled := req.MultimodalEnabled
+	var multimodalDimension *int32
+	if req.MultimodalDimension > 0 {
+		multimodalDimension = &req.MultimodalDimension
+	}
+
 	kb := &model.TKnowledgeBase{
 		CreatedAt:           &now,
 		UpdatedAt:           &now,
@@ -216,11 +249,16 @@ func (l *KnowledgeBaseLogic) Create(req *CreateKnowledgeBaseReq) (*KnowledgeBase
 		EmbeddingModelID:    req.EmbeddingModelID,
 		EmbeddingModelName:  strPtr(req.EmbeddingModelName),
 		EmbeddingDimension:  &embeddingDimension,
+		MultimodalEnabled:   &multimodalEnabled,
+		MultimodalModelID:   req.MultimodalModelID,
+		MultimodalModelName: strPtr(req.MultimodalModelName),
+		MultimodalDimension: multimodalDimension,
 		ChunkSize:           &chunkSize,
 		ChunkOverlap:        &chunkOverlap,
 		SimilarityThreshold: &similarityThreshold,
 		TopK:                &topK,
 		RetrievalMode:       &retrievalMode,
+		GraphExtractModelID: req.GraphExtractModelID,
 	}
 
 	if err := db.Create(kb).Error; err != nil {
@@ -231,10 +269,24 @@ func (l *KnowledgeBaseLogic) Create(req *CreateKnowledgeBaseReq) (*KnowledgeBase
 	db.Model(kb).Update("qdrant_collection", collectionName)
 	kb.QdrantCollection = &collectionName
 
-	if req.Type == "normal" {
-		if err := CreateQdrantCollection(collectionName, int(embeddingDimension)); err != nil {
+	if req.Type == "normal" || req.Type == "graph" {
+		imageDim := 0
+		if multimodalEnabled && multimodalDimension != nil {
+			imageDim = int(*multimodalDimension)
+		}
+		if err := CreateQdrantCollectionMultiVector(collectionName, CollectionVectorConfig{
+			TextDimension:  int(embeddingDimension),
+			ImageDimension: imageDim,
+		}); err != nil {
 			log.Printf("[WARN] 创建 Qdrant Collection 失败: %v", err)
 		}
+	}
+
+	// 图知识库设置 Neo4j database 名
+	if req.Type == "graph" {
+		neo4jDB := fmt.Sprintf("kb_%d", kb.ID)
+		db.Model(kb).Update("neo4j_database", neo4jDB)
+		kb.Neo4jDatabase = &neo4jDB
 	}
 
 	return l.toKnowledgeBaseInfo(kb), nil
@@ -285,6 +337,21 @@ func (l *KnowledgeBaseLogic) Update(id int64, req *UpdateKnowledgeBaseReq) error
 	if req.RerankEnabled != nil {
 		updates["rerank_enabled"] = *req.RerankEnabled
 	}
+	if req.MultimodalEnabled != nil {
+		updates["multimodal_enabled"] = *req.MultimodalEnabled
+	}
+	if req.MultimodalModelID != nil {
+		updates["multimodal_model_id"] = *req.MultimodalModelID
+	}
+	if req.MultimodalModelName != "" {
+		updates["multimodal_model_name"] = req.MultimodalModelName
+	}
+	if req.MultimodalDimension > 0 {
+		updates["multimodal_dimension"] = req.MultimodalDimension
+	}
+	if req.GraphExtractModelID != nil {
+		updates["graph_extract_model_id"] = *req.GraphExtractModelID
+	}
 
 	return db.Model(&model.TKnowledgeBase{}).Where("id = ?", id).Updates(updates).Error
 }
@@ -305,9 +372,17 @@ func (l *KnowledgeBaseLogic) Delete(id int64) error {
 				log.Printf("[WARN] 删除 Qdrant Collection 失败: %v", err)
 			}
 		}
+		// 清理图谱数据
+		if kb.Type == "graph" && IsNeo4jEnabled() {
+			if err := DeleteKnowledgeBaseGraph(context.Background(), id); err != nil {
+				log.Printf("[WARN] 删除图谱数据失败: %v", err)
+			}
+		}
 		db.Where("knowledge_base_id = ?", id).Delete(&model.TKnowledgeSegment{})
 		db.Where("knowledge_base_id = ?", id).Delete(&model.TKnowledgeDocument{})
 		db.Where("knowledge_base_id = ?", id).Delete(&model.TKnowledgeQuery{})
+		db.Where("knowledge_base_id = ?", id).Delete(&model.TKnowledgeEntity{})
+		db.Where("knowledge_base_id = ?", id).Delete(&model.TKnowledgeRelation{})
 		GetFileStorage().DeleteDir(id)
 	}()
 
@@ -568,18 +643,23 @@ func (l *KnowledgeBaseLogic) GetDocumentSegments(kbID, docID int64, page, pageSi
 
 	result := make([]*SegmentInfo, 0, len(segments))
 	for _, seg := range segments {
-		result = append(result, &SegmentInfo{
+		si := &SegmentInfo{
 			ID:           seg.ID,
 			DocumentID:   seg.DocumentID,
 			DocumentName: doc.Name,
 			Content:      seg.Content,
+			ContentType:  seg.ContentType,
 			Position:     seg.Position,
 			WordCount:    seg.WordCount,
 			Enabled:      seg.Enabled,
 			HitCount:     seg.HitCount,
 			Status:       seg.Status,
 			CreatedAt:    seg.CreatedAt,
-		})
+		}
+		if seg.ImagePath != nil {
+			si.ImagePath = *seg.ImagePath
+		}
+		result = append(result, si)
 	}
 	return result, total, nil
 }
@@ -805,59 +885,107 @@ func (l *KnowledgeBaseLogic) Search(kbID int64, req *KnowledgeSearchReq) ([]*Kno
 		retrievalMode = "vector"
 	}
 
+	searchFields := req.SearchFields
+	if searchFields == "" {
+		searchFields = "all"
+	}
+
 	var results []*KnowledgeSearchResult
 
 	switch retrievalMode {
 	case "keyword":
 		results = l.keywordSearch(kbID, req.Query, topK)
 	case "hybrid":
-		vectorResults := l.vectorSearch(&kb, req.Query, topK, score)
+		vectorResults := l.vectorSearch(&kb, req.Query, topK, score, searchFields)
 		keywordResults := l.keywordSearch(kbID, req.Query, topK)
 		results = l.mergeResults(vectorResults, keywordResults, topK)
+	case "graph":
+		results = l.graphSearch(&kb, req.Query, topK)
+	case "hybrid_graph":
+		vectorResults := l.vectorSearch(&kb, req.Query, topK, score, searchFields)
+		graphResults := l.graphSearch(&kb, req.Query, topK)
+		results = l.mergeResults(vectorResults, graphResults, topK)
 	default:
-		results = l.vectorSearch(&kb, req.Query, topK, score)
+		results = l.vectorSearch(&kb, req.Query, topK, score, searchFields)
 	}
 
-	// 保存查询历史
 	go l.saveQueryHistory(kbID, req.Query, retrievalMode, topK, score, len(results))
-
-	// 更新命中计数
 	go l.updateHitCounts(results)
 
 	return results, nil
 }
 
-func (l *KnowledgeBaseLogic) vectorSearch(kb *model.TKnowledgeBase, query string, topK int, score float64) []*KnowledgeSearchResult {
+func (l *KnowledgeBaseLogic) vectorSearch(kb *model.TKnowledgeBase, query string, topK int, score float64, searchFields string) []*KnowledgeSearchResult {
 	if kb.EmbeddingModelID == nil || *kb.EmbeddingModelID == 0 {
 		return nil
 	}
 
 	aiModelLogic := NewAiModelLogic(l.ctx)
-	aiModel, err := aiModelLogic.GetByIDWithKey(*kb.EmbeddingModelID)
-	if err != nil {
-		log.Printf("[ERROR] 获取嵌入模型失败: %v", err)
-		return nil
+
+	var allHits []SearchHit
+
+	// 文本向量搜索
+	if searchFields == "all" || searchFields == "text" || searchFields == "" {
+		aiModel, err := aiModelLogic.GetByIDWithKey(*kb.EmbeddingModelID)
+		if err != nil {
+			log.Printf("[ERROR] 获取嵌入模型失败: %v", err)
+			return nil
+		}
+
+		embClient := NewEmbeddingClient(aiModel.APIBaseURL, aiModel.APIKey, aiModel.ModelID)
+		queryVector, err := embClient.EmbedText(l.ctx, query)
+		if err != nil {
+			log.Printf("[ERROR] 查询向量化失败: %v", err)
+			return nil
+		}
+
+		hits, err := SearchVectors(*kb.QdrantCollection, queryVector, topK, float32(score))
+		if err != nil {
+			log.Printf("[ERROR] 文本向量搜索失败: %v", err)
+		} else {
+			allHits = append(allHits, hits...)
+		}
 	}
 
-	embClient := NewEmbeddingClient(aiModel.APIBaseURL, aiModel.APIKey, aiModel.ModelID)
-	queryVector, err := embClient.EmbedText(l.ctx, query)
-	if err != nil {
-		log.Printf("[ERROR] 查询向量化失败: %v", err)
-		return nil
+	// 多模态向量搜索（用文本查询搜索图片向量空间）
+	multimodalEnabled := kb.MultimodalEnabled != nil && *kb.MultimodalEnabled
+	if multimodalEnabled && (searchFields == "all" || searchFields == "image") {
+		if kb.MultimodalModelID != nil && *kb.MultimodalModelID != 0 {
+			mmModel, err := aiModelLogic.GetByIDWithKey(*kb.MultimodalModelID)
+			if err == nil {
+				mmClient := NewEmbeddingClient(mmModel.APIBaseURL, mmModel.APIKey, mmModel.ModelID)
+				mmInputs := []MultimodalInput{{Type: EmbeddingInputText, Text: query}}
+				mmVectors, err := mmClient.EmbedMultimodal(l.ctx, mmInputs)
+				if err == nil && len(mmVectors) > 0 {
+					imgHits, err := SearchVectorsInField(*kb.QdrantCollection, "image", mmVectors[0], topK, float32(score), nil)
+					if err != nil {
+						log.Printf("[WARN] 多模态搜索失败: %v", err)
+					} else {
+						allHits = append(allHits, imgHits...)
+					}
+				}
+			}
+		}
 	}
 
-	hits, err := SearchVectors(*kb.QdrantCollection, queryVector, topK, float32(score))
-	if err != nil {
-		log.Printf("[ERROR] 向量搜索失败: %v", err)
-		return nil
-	}
-
+	// 去重并排序
+	seen := make(map[string]bool)
 	docNameCache := make(map[int64]string)
-	results := make([]*KnowledgeSearchResult, 0, len(hits))
-	for _, hit := range hits {
+	results := make([]*KnowledgeSearchResult, 0, len(allHits))
+	for _, hit := range allHits {
+		if seen[hit.ID] {
+			continue
+		}
+		seen[hit.ID] = true
 		docName := getDocNameCached(hit.DocumentID, docNameCache)
+		contentType := hit.ContentType
+		if contentType == "" {
+			contentType = "text"
+		}
 		results = append(results, &KnowledgeSearchResult{
 			Content:      hit.Content,
+			ContentType:  contentType,
+			ImagePath:    hit.ImagePath,
 			Score:        hit.Score,
 			DocumentID:   hit.DocumentID,
 			DocumentName: docName,
@@ -866,7 +994,47 @@ func (l *KnowledgeBaseLogic) vectorSearch(kb *model.TKnowledgeBase, query string
 			Metadata:     hit.Metadata,
 		})
 	}
+
+	if len(results) > topK {
+		results = results[:topK]
+	}
 	return results
+}
+
+// graphSearch 图谱检索（Phase 3）
+func (l *KnowledgeBaseLogic) graphSearch(kb *model.TKnowledgeBase, query string, topK int) []*KnowledgeSearchResult {
+	if kb.Type != "graph" || !IsNeo4jEnabled() {
+		return nil
+	}
+
+	// 用简单的分词作为关键词搜索图谱
+	keywords := strings.Fields(query)
+	if len(keywords) == 0 {
+		return nil
+	}
+
+	graphResult, err := SearchGraphByKeywords(l.ctx, kb.ID, keywords, 2)
+	if err != nil {
+		log.Printf("[ERROR] 图谱搜索失败: %v", err)
+		return nil
+	}
+
+	contextText := FormatGraphAsContext(graphResult)
+	if contextText == "" {
+		return nil
+	}
+
+	return []*KnowledgeSearchResult{{
+		Content:      contextText,
+		ContentType:  "text",
+		Score:        0.9,
+		DocumentName: "知识图谱",
+		Metadata: map[string]interface{}{
+			"source":         "graph",
+			"entity_count":   len(graphResult.Entities),
+			"relation_count": len(graphResult.Relations),
+		},
+	}}
 }
 
 func (l *KnowledgeBaseLogic) keywordSearch(kbID int64, query string, topK int) []*KnowledgeSearchResult {
@@ -1006,14 +1174,16 @@ func (l *KnowledgeBaseLogic) updateDocumentCount(kbID int64) {
 
 func (l *KnowledgeBaseLogic) toKnowledgeBaseInfo(m *model.TKnowledgeBase) *KnowledgeBaseInfo {
 	info := &KnowledgeBaseInfo{
-		ID:               m.ID,
-		CreatedAt:        m.CreatedAt,
-		UpdatedAt:        m.UpdatedAt,
-		CreatedBy:        m.CreatedBy,
-		Name:             m.Name,
-		Type:             m.Type,
-		EmbeddingModelID: m.EmbeddingModelID,
-		RerankModelID:    m.RerankModelID,
+		ID:                  m.ID,
+		CreatedAt:           m.CreatedAt,
+		UpdatedAt:           m.UpdatedAt,
+		CreatedBy:           m.CreatedBy,
+		Name:                m.Name,
+		Type:                m.Type,
+		EmbeddingModelID:    m.EmbeddingModelID,
+		MultimodalModelID:   m.MultimodalModelID,
+		RerankModelID:       m.RerankModelID,
+		GraphExtractModelID: m.GraphExtractModelID,
 	}
 	if m.Description != nil {
 		info.Description = *m.Description
@@ -1026,6 +1196,15 @@ func (l *KnowledgeBaseLogic) toKnowledgeBaseInfo(m *model.TKnowledgeBase) *Knowl
 	}
 	if m.EmbeddingDimension != nil {
 		info.EmbeddingDimension = *m.EmbeddingDimension
+	}
+	if m.MultimodalEnabled != nil {
+		info.MultimodalEnabled = *m.MultimodalEnabled
+	}
+	if m.MultimodalModelName != nil {
+		info.MultimodalModelName = *m.MultimodalModelName
+	}
+	if m.MultimodalDimension != nil {
+		info.MultimodalDimension = *m.MultimodalDimension
 	}
 	if m.ChunkSize != nil {
 		info.ChunkSize = *m.ChunkSize
@@ -1054,6 +1233,12 @@ func (l *KnowledgeBaseLogic) toKnowledgeBaseInfo(m *model.TKnowledgeBase) *Knowl
 	if m.ChunkCount != nil {
 		info.ChunkCount = *m.ChunkCount
 	}
+	if m.EntityCount != nil {
+		info.EntityCount = *m.EntityCount
+	}
+	if m.RelationCount != nil {
+		info.RelationCount = *m.RelationCount
+	}
 	return info
 }
 
@@ -1075,6 +1260,9 @@ func (l *KnowledgeBaseLogic) toDocumentInfo(m *model.TKnowledgeDocument) *Knowle
 	}
 	if m.WordCount != nil {
 		info.WordCount = *m.WordCount
+	}
+	if m.ImageCount != nil {
+		info.ImageCount = *m.ImageCount
 	}
 	if m.IndexingStatus != nil {
 		info.IndexingStatus = *m.IndexingStatus
@@ -1123,4 +1311,87 @@ func IsTextFileType(fileType string) bool {
 	default:
 		return false
 	}
+}
+
+// -----------------------------------------------
+// 图知识库查询（Phase 3）
+// -----------------------------------------------
+
+type GraphEntityInfo struct {
+	ID           int64  `json:"id"`
+	Name         string `json:"name"`
+	EntityType   string `json:"entity_type"`
+	Description  string `json:"description"`
+	MentionCount int    `json:"mention_count"`
+}
+
+type GraphRelationInfo struct {
+	ID           int64   `json:"id"`
+	SourceName   string  `json:"source_name"`
+	TargetName   string  `json:"target_name"`
+	RelationType string  `json:"relation_type"`
+	Description  string  `json:"description"`
+	Weight       float64 `json:"weight"`
+}
+
+func (l *KnowledgeBaseLogic) ListGraphEntities(kbID int64) ([]*GraphEntityInfo, error) {
+	db := svc.Ctx.DB
+	var entities []model.TKnowledgeEntity
+	if err := db.Where("knowledge_base_id = ?", kbID).
+		Order("mention_count DESC").Limit(200).
+		Find(&entities).Error; err != nil {
+		return nil, err
+	}
+
+	result := make([]*GraphEntityInfo, 0, len(entities))
+	for _, e := range entities {
+		info := &GraphEntityInfo{
+			ID:           e.ID,
+			Name:         e.Name,
+			EntityType:   e.EntityType,
+			MentionCount: e.MentionCount,
+		}
+		if e.Description != nil {
+			info.Description = *e.Description
+		}
+		result = append(result, info)
+	}
+	return result, nil
+}
+
+func (l *KnowledgeBaseLogic) ListGraphRelations(kbID int64) ([]*GraphRelationInfo, error) {
+	db := svc.Ctx.DB
+
+	type relWithNames struct {
+		model.TKnowledgeRelation
+		SourceName string `gorm:"column:source_name"`
+		TargetName string `gorm:"column:target_name"`
+	}
+
+	var relations []relWithNames
+	if err := db.Table("t_knowledge_relation r").
+		Select("r.*, se.name as source_name, te.name as target_name").
+		Joins("LEFT JOIN t_knowledge_entity se ON se.id = r.source_entity_id").
+		Joins("LEFT JOIN t_knowledge_entity te ON te.id = r.target_entity_id").
+		Where("r.knowledge_base_id = ?", kbID).
+		Limit(500).
+		Find(&relations).Error; err != nil {
+		return nil, err
+	}
+
+	result := make([]*GraphRelationInfo, 0, len(relations))
+	for _, r := range relations {
+		info := &GraphRelationInfo{
+			ID:           r.ID,
+			SourceName:   r.SourceName,
+			TargetName:   r.TargetName,
+			RelationType: r.RelationType,
+			Weight:       r.Weight,
+		}
+		if r.Description != nil {
+			info.Description = *r.Description
+		}
+		result = append(result, info)
+	}
+	return result, nil
 }

@@ -57,6 +57,7 @@ type TKnowledgeDocument struct {
 	FilePath            *string       `gorm:"column:file_path;type:varchar(512)" json:"file_path"`
 	FileSize            *int64        `gorm:"column:file_size;default:0" json:"file_size"`
 	WordCount           *int32        `gorm:"column:word_count;default:0" json:"word_count"`
+	ImageCount          *int32        `gorm:"column:image_count;default:0" json:"image_count"`
 	ChunkSetting        *ChunkSetting `gorm:"column:chunk_setting;type:json" json:"chunk_setting"`
 	IndexingStatus      *string       `gorm:"column:indexing_status;type:varchar(32);default:waiting;index:idx_doc_indexing_status" json:"indexing_status"`
 	ErrorMessage        *string       `gorm:"column:error_message;type:text" json:"error_message"`

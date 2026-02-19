@@ -25,11 +25,16 @@ type KnowledgeBaseInfo struct {
 	EmbeddingModelID int64   `json:"embedding_model_id"`
 	TopK             int     `json:"top_k"`
 	ScoreThreshold   float64 `json:"score_threshold"`
-	// 嵌入模型的 API 配置（由 gulu 层从 t_ai_model 解析后注入）
-	EmbeddingProvider string `json:"embedding_provider"`
-	EmbeddingAPIKey   string `json:"embedding_api_key"`
-	EmbeddingBaseURL  string `json:"embedding_base_url"`
-	EmbeddingDimension int   `json:"embedding_dimension"`
+	// 嵌入模型的 API 配置
+	EmbeddingProvider  string `json:"embedding_provider"`
+	EmbeddingAPIKey    string `json:"embedding_api_key"`
+	EmbeddingBaseURL   string `json:"embedding_base_url"`
+	EmbeddingDimension int    `json:"embedding_dimension"`
+	// 多模态配置（Phase 2）
+	MultimodalEnabled  bool   `json:"multimodal_enabled"`
+	MultimodalModel    string `json:"multimodal_model"`
+	MultimodalAPIKey   string `json:"multimodal_api_key"`
+	MultimodalBaseURL  string `json:"multimodal_base_url"`
 }
 
 // knowledgeSearchToolName 知识库检索工具名称
@@ -72,11 +77,14 @@ func (e *AIExecutor) retrieveKnowledge(ctx context.Context, query string, knowle
 	var allResults []knowledgeChunk
 
 	for _, kb := range knowledgeBases {
-		if kb.Type == "normal" && kb.QdrantCollection != "" {
+		if kb.QdrantCollection != "" {
 			results := e.searchQdrant(ctx, kb, query, topK)
 			allResults = append(allResults, results...)
 		}
-		// TODO: Phase 3 - 图知识库检索
+		if kb.Type == "graph" {
+			graphResults := e.searchGraph(ctx, kb, query, topK)
+			allResults = append(allResults, graphResults...)
+		}
 	}
 
 	if len(allResults) == 0 {
@@ -127,9 +135,13 @@ func (e *AIExecutor) executeKnowledgeSearch(ctx context.Context, arguments strin
 
 	var allResults []knowledgeChunk
 	for _, kb := range knowledgeBases {
-		if kb.Type == "normal" && kb.QdrantCollection != "" {
+		if kb.QdrantCollection != "" {
 			results := e.searchQdrant(ctx, kb, args.Query, topK)
 			allResults = append(allResults, results...)
+		}
+		if kb.Type == "graph" {
+			graphResults := e.searchGraph(ctx, kb, args.Query, topK)
+			allResults = append(allResults, graphResults...)
 		}
 	}
 
@@ -315,6 +327,60 @@ func callEmbeddingAPI(ctx context.Context, baseURL, apiKey, model, text string) 
 	}
 
 	return result.Data[0].Embedding, nil
+}
+
+// searchGraph 通过 gulu API 搜索图知识库
+func (e *AIExecutor) searchGraph(ctx context.Context, kb *KnowledgeBaseInfo, query string, topK int) []knowledgeChunk {
+	// 图知识库检索通过 gulu 的 search API（retrieval_mode=graph）
+	guluHost := "http://127.0.0.1:5321"
+	reqBody := map[string]interface{}{
+		"query":          query,
+		"top_k":          topK,
+		"retrieval_mode": "graph",
+	}
+
+	bodyBytes, _ := json.Marshal(reqBody)
+	url := fmt.Sprintf("%s/api/knowledge-bases/%d/search", guluHost, kb.ID)
+
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
+	if err != nil {
+		log.Printf("[WARN] 图知识库 %s 搜索请求创建失败: %v", kb.Name, err)
+		return nil
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(httpReq)
+	if err != nil {
+		log.Printf("[WARN] 图知识库 %s 搜索失败: %v", kb.Name, err)
+		return nil
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("[WARN] 图知识库 %s 搜索返回错误: %s", kb.Name, string(body))
+		return nil
+	}
+
+	var result struct {
+		Data []struct {
+			Content string  `json:"content"`
+			Score   float64 `json:"score"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil
+	}
+
+	var chunks []knowledgeChunk
+	for _, item := range result.Data {
+		chunks = append(chunks, knowledgeChunk{
+			Content: item.Content,
+			Score:   item.Score,
+			Source:  kb.Name + " (图谱)",
+		})
+	}
+	return chunks
 }
 
 // knowledgeChunk 知识片段

@@ -22,7 +22,6 @@ var (
 	qdrantMu     sync.Mutex
 )
 
-// getQdrantClient 获取 Qdrant 客户端单例
 func getQdrantClient() (*qdrant.Client, error) {
 	var initErr error
 	qdrantOnce.Do(func() {
@@ -42,7 +41,6 @@ func getQdrantClient() (*qdrant.Client, error) {
 	})
 
 	if initErr != nil {
-		// 重置 once 以允许重试
 		qdrantMu.Lock()
 		qdrantOnce = sync.Once{}
 		qdrantMu.Unlock()
@@ -67,11 +65,24 @@ func getQdrantConfig() config.QdrantConfig {
 }
 
 // -----------------------------------------------
-// Collection 操作
+// Collection 操作（支持 Named Vectors: text + image）
 // -----------------------------------------------
 
-// CreateQdrantCollection 创建 Qdrant Collection
+// CollectionVectorConfig 向量字段配置
+type CollectionVectorConfig struct {
+	TextDimension  int // 文本向量维度（必填）
+	ImageDimension int // 图片向量维度（0 表示不启用多模态）
+}
+
+// CreateQdrantCollection 创建 Qdrant Collection（仅 text 向量）
 func CreateQdrantCollection(collectionName string, dimension int) error {
+	return CreateQdrantCollectionMultiVector(collectionName, CollectionVectorConfig{
+		TextDimension: dimension,
+	})
+}
+
+// CreateQdrantCollectionMultiVector 创建支持多向量字段的 Qdrant Collection
+func CreateQdrantCollectionMultiVector(collectionName string, cfg CollectionVectorConfig) error {
 	client, err := getQdrantClient()
 	if err != nil {
 		return err
@@ -79,54 +90,125 @@ func CreateQdrantCollection(collectionName string, dimension int) error {
 
 	ctx := context.Background()
 
-	// 检查是否已存在
 	exists, err := client.CollectionExists(ctx, collectionName)
 	if err != nil {
 		return fmt.Errorf("检查 Collection 是否存在失败: %w", err)
 	}
+
 	if exists {
-		// 验证维度是否匹配，不匹配则删除重建
+		needRecreate := false
 		info, err := client.GetCollectionInfo(ctx, collectionName)
 		if err == nil && info != nil {
 			if params := info.GetConfig().GetParams(); params != nil {
 				if vc := params.GetVectorsConfig(); vc != nil {
 					if paramsMap := vc.GetParamsMap(); paramsMap != nil {
-						if textParams, ok := paramsMap.GetMap()["text"]; ok {
-							existingDim := int(textParams.GetSize())
-							if existingDim != dimension {
-								log.Printf("[WARN] Qdrant Collection %s 维度不匹配 (现有: %d, 需要: %d), 重建 Collection",
-									collectionName, existingDim, dimension)
-								_ = client.DeleteCollection(ctx, collectionName)
-								exists = false
+						m := paramsMap.GetMap()
+						if textParams, ok := m["text"]; ok {
+							if int(textParams.GetSize()) != cfg.TextDimension {
+								needRecreate = true
+							}
+						}
+						// 如果需要 image 向量但不存在，也需要重建
+						if cfg.ImageDimension > 0 {
+							if _, ok := m["image"]; !ok {
+								needRecreate = true
 							}
 						}
 					}
 				}
 			}
 		}
-		if exists {
-			log.Printf("[INFO] Qdrant Collection %s 已存在且维度匹配, 跳过创建", collectionName)
+		if needRecreate {
+			log.Printf("[WARN] Qdrant Collection %s 配置不匹配, 重建 Collection", collectionName)
+			_ = client.DeleteCollection(ctx, collectionName)
+		} else {
+			log.Printf("[INFO] Qdrant Collection %s 已存在且配置匹配, 跳过创建", collectionName)
 			return nil
+		}
+	}
+
+	vectorsMap := map[string]*qdrant.VectorParams{
+		"text": {
+			Size:     uint64(cfg.TextDimension),
+			Distance: qdrant.Distance_Cosine,
+		},
+	}
+
+	if cfg.ImageDimension > 0 {
+		vectorsMap["image"] = &qdrant.VectorParams{
+			Size:     uint64(cfg.ImageDimension),
+			Distance: qdrant.Distance_Cosine,
 		}
 	}
 
 	err = client.CreateCollection(ctx, &qdrant.CreateCollection{
 		CollectionName: collectionName,
-		VectorsConfig: qdrant.NewVectorsConfigMap(
-			map[string]*qdrant.VectorParams{
-				"text": {
-					Size:     uint64(dimension),
-					Distance: qdrant.Distance_Cosine,
-				},
-			},
-		),
+		VectorsConfig:  qdrant.NewVectorsConfigMap(vectorsMap),
 	})
 	if err != nil {
 		return fmt.Errorf("创建 Collection 失败: %w", err)
 	}
 
-	log.Printf("[INFO] Qdrant Collection %s 创建成功 (维度: %d)", collectionName, dimension)
+	fields := "text"
+	if cfg.ImageDimension > 0 {
+		fields = fmt.Sprintf("text(%d) + image(%d)", cfg.TextDimension, cfg.ImageDimension)
+	}
+	log.Printf("[INFO] Qdrant Collection %s 创建成功 (向量: %s)", collectionName, fields)
 	return nil
+}
+
+// AddImageVectorField 为已有 Collection 添加 image 向量字段
+func AddImageVectorField(collectionName string, imageDimension int) error {
+	client, err := getQdrantClient()
+	if err != nil {
+		return err
+	}
+
+	ctx := context.Background()
+
+	exists, err := client.CollectionExists(ctx, collectionName)
+	if err != nil || !exists {
+		return fmt.Errorf("Collection %s 不存在", collectionName)
+	}
+
+	info, err := client.GetCollectionInfo(ctx, collectionName)
+	if err != nil {
+		return fmt.Errorf("获取 Collection 信息失败: %w", err)
+	}
+
+	if params := info.GetConfig().GetParams(); params != nil {
+		if vc := params.GetVectorsConfig(); vc != nil {
+			if paramsMap := vc.GetParamsMap(); paramsMap != nil {
+				if _, ok := paramsMap.GetMap()["image"]; ok {
+					log.Printf("[INFO] Qdrant Collection %s 已有 image 字段, 跳过", collectionName)
+					return nil
+				}
+			}
+		}
+	}
+
+	// Qdrant 不支持直接添加 named vector，需要删除重建
+	// 先获取 text 维度
+	var textDim int
+	if params := info.GetConfig().GetParams(); params != nil {
+		if vc := params.GetVectorsConfig(); vc != nil {
+			if paramsMap := vc.GetParamsMap(); paramsMap != nil {
+				if textParams, ok := paramsMap.GetMap()["text"]; ok {
+					textDim = int(textParams.GetSize())
+				}
+			}
+		}
+	}
+	if textDim == 0 {
+		return fmt.Errorf("无法获取 text 向量维度")
+	}
+
+	log.Printf("[WARN] 需要重建 Collection %s 以添加 image 向量字段，现有数据会丢失并需重新索引", collectionName)
+	_ = client.DeleteCollection(ctx, collectionName)
+	return CreateQdrantCollectionMultiVector(collectionName, CollectionVectorConfig{
+		TextDimension:  textDim,
+		ImageDimension: imageDimension,
+	})
 }
 
 // DeleteQdrantCollection 删除 Qdrant Collection
@@ -147,11 +229,16 @@ func DeleteQdrantCollection(collectionName string) error {
 }
 
 // -----------------------------------------------
-// 向量写入
+// 向量写入（支持多向量字段）
 // -----------------------------------------------
 
-// UpsertVectors 批量写入向量到 Qdrant
+// UpsertVectors 批量写入向量到 Qdrant（默认写入 text 字段）
 func UpsertVectors(collectionName string, points []VectorPoint) error {
+	return UpsertVectorsToField(collectionName, "text", points)
+}
+
+// UpsertVectorsToField 批量写入向量到指定字段
+func UpsertVectorsToField(collectionName string, vectorField string, points []VectorPoint) error {
 	client, err := getQdrantClient()
 	if err != nil {
 		return err
@@ -159,15 +246,18 @@ func UpsertVectors(collectionName string, points []VectorPoint) error {
 
 	ctx := context.Background()
 
-	// 转换为 Qdrant 点格式
 	qdrantPoints := make([]*qdrant.PointStruct, 0, len(points))
 	for _, p := range points {
 		payload := map[string]*qdrant.Value{
-			"content":     qdrant.NewValueString(p.Content),
-			"document_id": qdrant.NewValueInt(p.DocumentID),
-			"chunk_index": qdrant.NewValueInt(int64(p.ChunkIndex)),
+			"content":      qdrant.NewValueString(p.Content),
+			"content_type": qdrant.NewValueString(p.ContentType),
+			"document_id":  qdrant.NewValueInt(p.DocumentID),
+			"chunk_index":  qdrant.NewValueInt(int64(p.ChunkIndex)),
+			"vector_field": qdrant.NewValueString(vectorField),
 		}
-		// 添加额外的 metadata
+		if p.ImagePath != "" {
+			payload["image_path"] = qdrant.NewValueString(p.ImagePath)
+		}
 		for k, v := range p.Metadata {
 			switch val := v.(type) {
 			case string:
@@ -183,18 +273,16 @@ func UpsertVectors(collectionName string, points []VectorPoint) error {
 			}
 		}
 
-		// 使用数字 ID: documentID * 100000 + chunkIndex
 		pointID := uint64(p.DocumentID)*100000 + uint64(p.ChunkIndex)
 		qdrantPoints = append(qdrantPoints, &qdrant.PointStruct{
 			Id: qdrant.NewIDNum(pointID),
 			Vectors: qdrant.NewVectorsMap(map[string]*qdrant.Vector{
-				"text": qdrant.NewVectorDense(p.Vector),
+				vectorField: qdrant.NewVectorDense(p.Vector),
 			}),
 			Payload: payload,
 		})
 	}
 
-	// 分批写入，每批 100 个
 	batchSize := 100
 	for i := 0; i < len(qdrantPoints); i += batchSize {
 		end := i + batchSize
@@ -212,16 +300,22 @@ func UpsertVectors(collectionName string, points []VectorPoint) error {
 		}
 	}
 
-	log.Printf("[INFO] Qdrant: 成功写入 %d 个向量到 %s", len(points), collectionName)
+	log.Printf("[INFO] Qdrant: 成功写入 %d 个向量到 %s.%s", len(points), collectionName, vectorField)
 	return nil
 }
 
 // -----------------------------------------------
-// 向量搜索
+// 向量搜索（支持指定搜索字段）
 // -----------------------------------------------
 
-// SearchVectors 向量相似度搜索
+// SearchVectors 向量相似度搜索（默认搜索 text 字段）
 func SearchVectors(collectionName string, queryVector []float32, topK int, scoreThreshold float32) ([]SearchHit, error) {
+	return SearchVectorsInField(collectionName, "text", queryVector, topK, scoreThreshold, nil)
+}
+
+// SearchVectorsInField 在指定向量字段中搜索
+// filter 可选，传 nil 表示不过滤
+func SearchVectorsInField(collectionName string, vectorField string, queryVector []float32, topK int, scoreThreshold float32, filter *qdrant.Filter) ([]SearchHit, error) {
 	client, err := getQdrantClient()
 	if err != nil {
 		return nil, err
@@ -229,18 +323,55 @@ func SearchVectors(collectionName string, queryVector []float32, topK int, score
 
 	ctx := context.Background()
 
-	results, err := client.Query(ctx, &qdrant.QueryPoints{
+	queryParams := &qdrant.QueryPoints{
 		CollectionName: collectionName,
 		Query:          qdrant.NewQueryDense(queryVector),
-		Using:          qdrant.PtrOf("text"),
+		Using:          qdrant.PtrOf(vectorField),
 		Limit:          qdrant.PtrOf(uint64(topK)),
 		ScoreThreshold: qdrant.PtrOf(scoreThreshold),
 		WithPayload:    qdrant.NewWithPayload(true),
-	})
+	}
+	if filter != nil {
+		queryParams.Filter = filter
+	}
+
+	results, err := client.Query(ctx, queryParams)
 	if err != nil {
 		return nil, fmt.Errorf("向量搜索失败: %w", err)
 	}
 
+	return parseSearchResults(results), nil
+}
+
+// SearchVectorsMultiField 在多个向量字段中搜索并合并结果
+func SearchVectorsMultiField(collectionName string, fields map[string][]float32, topK int, scoreThreshold float32) ([]SearchHit, error) {
+	var allHits []SearchHit
+	seen := make(map[string]bool)
+
+	for field, queryVector := range fields {
+		hits, err := SearchVectorsInField(collectionName, field, queryVector, topK, scoreThreshold, nil)
+		if err != nil {
+			log.Printf("[WARN] 搜索字段 %s 失败: %v", field, err)
+			continue
+		}
+		for _, hit := range hits {
+			if !seen[hit.ID] {
+				seen[hit.ID] = true
+				allHits = append(allHits, hit)
+			}
+		}
+	}
+
+	// 按分数排序并截取 topK
+	sortSearchHits(allHits)
+	if len(allHits) > topK {
+		allHits = allHits[:topK]
+	}
+
+	return allHits, nil
+}
+
+func parseSearchResults(results []*qdrant.ScoredPoint) []SearchHit {
 	hits := make([]SearchHit, 0, len(results))
 	for _, r := range results {
 		hit := SearchHit{
@@ -248,17 +379,25 @@ func SearchVectors(collectionName string, queryVector []float32, topK int, score
 			Score: float64(r.GetScore()),
 		}
 
-		// 提取 payload
 		payload := r.GetPayload()
 		if payload != nil {
 			if v, ok := payload["content"]; ok {
 				hit.Content = v.GetStringValue()
+			}
+			if v, ok := payload["content_type"]; ok {
+				hit.ContentType = v.GetStringValue()
 			}
 			if v, ok := payload["document_id"]; ok {
 				hit.DocumentID = v.GetIntegerValue()
 			}
 			if v, ok := payload["chunk_index"]; ok {
 				hit.ChunkIndex = int(v.GetIntegerValue())
+			}
+			if v, ok := payload["image_path"]; ok {
+				hit.ImagePath = v.GetStringValue()
+			}
+			if v, ok := payload["vector_field"]; ok {
+				hit.VectorField = v.GetStringValue()
 			}
 			if v, ok := payload["document_name"]; ok {
 				if hit.Metadata == nil {
@@ -270,15 +409,22 @@ func SearchVectors(collectionName string, queryVector []float32, topK int, score
 
 		hits = append(hits, hit)
 	}
+	return hits
+}
 
-	return hits, nil
+func sortSearchHits(hits []SearchHit) {
+	for i := 1; i < len(hits); i++ {
+		for j := i; j > 0 && hits[j].Score > hits[j-1].Score; j-- {
+			hits[j], hits[j-1] = hits[j-1], hits[j]
+		}
+	}
 }
 
 // -----------------------------------------------
 // 向量浏览（Scroll）
 // -----------------------------------------------
 
-// ScrollDocumentVectors 获取指定文档的所有向量点（不做相似度搜索，遍历读取）
+// ScrollDocumentVectors 获取指定文档的所有向量点
 func ScrollDocumentVectors(collectionName string, documentID int64) ([]SearchHit, error) {
 	client, err := getQdrantClient()
 	if err != nil {
@@ -306,11 +452,13 @@ func ScrollDocumentVectors(collectionName string, documentID int64) ([]SearchHit
 		hit := SearchHit{
 			ID: fmt.Sprintf("%d", r.GetId().GetNum()),
 		}
-
 		payload := r.GetPayload()
 		if payload != nil {
 			if v, ok := payload["content"]; ok {
 				hit.Content = v.GetStringValue()
+			}
+			if v, ok := payload["content_type"]; ok {
+				hit.ContentType = v.GetStringValue()
 			}
 			if v, ok := payload["document_id"]; ok {
 				hit.DocumentID = v.GetIntegerValue()
@@ -318,8 +466,10 @@ func ScrollDocumentVectors(collectionName string, documentID int64) ([]SearchHit
 			if v, ok := payload["chunk_index"]; ok {
 				hit.ChunkIndex = int(v.GetIntegerValue())
 			}
+			if v, ok := payload["image_path"]; ok {
+				hit.ImagePath = v.GetStringValue()
+			}
 		}
-
 		hits = append(hits, hit)
 	}
 
@@ -339,7 +489,6 @@ func DeleteDocumentVectors(collectionName string, documentID int64) error {
 
 	ctx := context.Background()
 
-	// 使用 filter 条件删除
 	_, err = client.Delete(ctx, &qdrant.DeletePoints{
 		CollectionName: collectionName,
 		Points: qdrant.NewPointsSelectorFilter(
@@ -362,22 +511,27 @@ func DeleteDocumentVectors(collectionName string, documentID int64) error {
 // 数据结构
 // -----------------------------------------------
 
-// VectorPoint 向量数据点
+// VectorPoint 向量数据点（支持多模态）
 type VectorPoint struct {
-	ID         string                 `json:"id"`
-	Vector     []float32              `json:"vector"`
-	DocumentID int64                  `json:"document_id"`
-	ChunkIndex int                    `json:"chunk_index"`
-	Content    string                 `json:"content"`
-	Metadata   map[string]interface{} `json:"metadata,omitempty"`
+	ID          string                 `json:"id"`
+	Vector      []float32              `json:"vector"`
+	DocumentID  int64                  `json:"document_id"`
+	ChunkIndex  int                    `json:"chunk_index"`
+	Content     string                 `json:"content"`
+	ContentType string                 `json:"content_type"` // text / image
+	ImagePath   string                 `json:"image_path,omitempty"`
+	Metadata    map[string]interface{} `json:"metadata,omitempty"`
 }
 
-// SearchHit 搜索命中结果
+// SearchHit 搜索命中结果（支持多模态）
 type SearchHit struct {
-	ID         string                 `json:"id"`
-	Score      float64                `json:"score"`
-	Content    string                 `json:"content"`
-	DocumentID int64                  `json:"document_id"`
-	ChunkIndex int                    `json:"chunk_index"`
-	Metadata   map[string]interface{} `json:"metadata,omitempty"`
+	ID          string                 `json:"id"`
+	Score       float64                `json:"score"`
+	Content     string                 `json:"content"`
+	ContentType string                 `json:"content_type"` // text / image
+	ImagePath   string                 `json:"image_path,omitempty"`
+	VectorField string                 `json:"vector_field,omitempty"` // text / image
+	DocumentID  int64                  `json:"document_id"`
+	ChunkIndex  int                    `json:"chunk_index"`
+	Metadata    map[string]interface{} `json:"metadata,omitempty"`
 }

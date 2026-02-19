@@ -404,3 +404,63 @@ func KnowledgeQueryHistory(c *fiber.Ctx) error {
 	}
 	return response.Success(c, history)
 }
+
+// -----------------------------------------------
+// 图知识库（Phase 3）
+// -----------------------------------------------
+
+func KnowledgeGraphSearch(c *fiber.Ctx) error {
+	kbID, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	if err != nil {
+		return response.Error(c, "无效的知识库ID")
+	}
+
+	var req struct {
+		Keywords []string `json:"keywords"`
+		MaxHops  int      `json:"max_hops"`
+	}
+	if err := c.BodyParser(&req); err != nil {
+		return response.Error(c, "参数解析失败")
+	}
+	if len(req.Keywords) == 0 {
+		return response.Error(c, "关键词不能为空")
+	}
+
+	if !logic.IsNeo4jEnabled() {
+		return response.Error(c, "Neo4j 未启用")
+	}
+
+	result, err := logic.SearchGraphByKeywords(c.UserContext(), kbID, req.Keywords, req.MaxHops)
+	if err != nil {
+		return response.Error(c, err.Error())
+	}
+	return response.Success(c, result)
+}
+
+func KnowledgeGraphEntities(c *fiber.Ctx) error {
+	kbID, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	if err != nil {
+		return response.Error(c, "无效的知识库ID")
+	}
+
+	kbLogic := logic.NewKnowledgeBaseLogic(c.UserContext())
+	entities, err := kbLogic.ListGraphEntities(kbID)
+	if err != nil {
+		return response.Error(c, err.Error())
+	}
+	return response.Success(c, entities)
+}
+
+func KnowledgeGraphRelations(c *fiber.Ctx) error {
+	kbID, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	if err != nil {
+		return response.Error(c, "无效的知识库ID")
+	}
+
+	kbLogic := logic.NewKnowledgeBaseLogic(c.UserContext())
+	relations, err := kbLogic.ListGraphRelations(kbID)
+	if err != nil {
+		return response.Error(c, err.Error())
+	}
+	return response.Success(c, relations)
+}

@@ -80,6 +80,16 @@ func (s *FileStorage) DeleteDir(kbID int64) error {
 	return os.RemoveAll(dir)
 }
 
+// SaveBytes 直接保存字节数据到指定相对路径
+func (s *FileStorage) SaveBytes(relPath string, data []byte) error {
+	fullPath := filepath.Join(s.basePath, relPath)
+	dir := filepath.Dir(fullPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("创建目录失败: %w", err)
+	}
+	return os.WriteFile(fullPath, data, 0644)
+}
+
 // FullPath 返回完整物理路径
 func (s *FileStorage) FullPath(relPath string) string {
 	return filepath.Join(s.basePath, relPath)

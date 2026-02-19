@@ -19,14 +19,21 @@ import (
 	"yqhp/gulu/internal/svc"
 )
 
-// DocumentProcessor 文档处理器
+// DocumentProcessor 文档处理器（支持多模态和图知识库）
 type DocumentProcessor struct{}
 
 func NewDocumentProcessor() *DocumentProcessor {
 	return &DocumentProcessor{}
 }
 
-// Process 处理文档（完整 ETL 流水线）
+// ImageChunk 从文档中提取的图片
+type ImageChunk struct {
+	Data        []byte
+	Description string
+	FilePath    string // 存储后的路径
+}
+
+// Process 处理文档（完整 ETL 流水线，支持多模态 + 图知识库）
 func (p *DocumentProcessor) Process(kb *model.TKnowledgeBase, doc *model.TKnowledgeDocument) error {
 	ctx := context.Background()
 	db := svc.Ctx.DB
@@ -39,16 +46,37 @@ func (p *DocumentProcessor) Process(kb *model.TKnowledgeBase, doc *model.TKnowle
 		p.markFailed(ctx, doc.ID, fmt.Sprintf("文本提取失败: %v", err))
 		return err
 	}
-	if strings.TrimSpace(text) == "" {
+
+	// 提取文档中的图片（多模态支持）
+	var images []ImageChunk
+	multimodalEnabled := kb.MultimodalEnabled != nil && *kb.MultimodalEnabled
+	if multimodalEnabled {
+		images = p.extractImages(doc)
+		if len(images) > 0 {
+			storage := GetFileStorage()
+			for i := range images {
+				imgPath := fmt.Sprintf("kb_%d/images/%d_%d.png", kb.ID, doc.ID, i)
+				if err := storage.SaveBytes(imgPath, images[i].Data); err != nil {
+					log.Printf("[WARN] 保存图片失败: %v", err)
+					continue
+				}
+				images[i].FilePath = imgPath
+			}
+		}
+	}
+
+	if strings.TrimSpace(text) == "" && len(images) == 0 {
 		p.markFailed(ctx, doc.ID, "文档内容为空")
 		return fmt.Errorf("文档内容为空")
 	}
 
 	wordCount := int32(utf8.RuneCountInString(text))
+	imageCount := int32(len(images))
 	now := time.Now()
 	db.Model(&model.TKnowledgeDocument{}).Where("id = ?", doc.ID).Updates(map[string]interface{}{
-		"word_count":            wordCount,
-		"parsing_completed_at":  now,
+		"word_count":           wordCount,
+		"image_count":          imageCount,
+		"parsing_completed_at": now,
 	})
 
 	// ── Stage 2: Cleaning ──
@@ -84,25 +112,22 @@ func (p *DocumentProcessor) Process(kb *model.TKnowledgeBase, doc *model.TKnowle
 	}
 
 	var chunks []string
-	separator := cs.Separator
-	if separator != "" {
-		chunks = splitBySeparator(text, separator, chunkSize, chunkOverlap)
-	} else {
-		chunks = splitText(text, chunkSize, chunkOverlap)
+	if strings.TrimSpace(text) != "" {
+		separator := cs.Separator
+		if separator != "" {
+			chunks = splitBySeparator(text, separator, chunkSize, chunkOverlap)
+		} else {
+			chunks = splitText(text, chunkSize, chunkOverlap)
+		}
 	}
-	if len(chunks) == 0 {
+
+	if len(chunks) == 0 && len(images) == 0 {
 		p.markFailed(ctx, doc.ID, "分块结果为空")
 		return fmt.Errorf("分块结果为空")
 	}
 
-	// ── Stage 4: Indexing (Embedding + Qdrant + MySQL segments) ──
+	// ── Stage 4: Indexing ──
 	p.updateIndexingStatus(ctx, doc.ID, "indexing")
-
-	vectors, err := p.generateEmbeddings(kb, chunks)
-	if err != nil {
-		p.markFailed(ctx, doc.ID, fmt.Sprintf("Embedding 生成失败: %v", err))
-		return err
-	}
 
 	collectionName := ""
 	if kb.QdrantCollection != nil {
@@ -117,63 +142,103 @@ func (p *DocumentProcessor) Process(kb *model.TKnowledgeBase, doc *model.TKnowle
 	if kb.EmbeddingDimension != nil {
 		dimension = int(*kb.EmbeddingDimension)
 	}
-	if err := CreateQdrantCollection(collectionName, dimension); err != nil {
+
+	// 根据是否启用多模态决定 Collection 配置
+	imageDimension := 0
+	if multimodalEnabled && kb.MultimodalDimension != nil {
+		imageDimension = int(*kb.MultimodalDimension)
+	}
+	if err := CreateQdrantCollectionMultiVector(collectionName, CollectionVectorConfig{
+		TextDimension:  dimension,
+		ImageDimension: imageDimension,
+	}); err != nil {
 		log.Printf("[WARN] 确保 Qdrant Collection 存在失败: %v", err)
 	}
 
-	// 先删除旧的分块（MySQL + Qdrant）
+	// 清理旧数据
 	if err := DeleteDocumentVectors(collectionName, doc.ID); err != nil {
 		log.Printf("[WARN] 删除旧向量失败: %v", err)
 	}
 	db.Where("document_id = ?", doc.ID).Delete(&model.TKnowledgeSegment{})
 
-	// 写入 Qdrant
-	points := make([]VectorPoint, len(chunks))
-	for i, chunk := range chunks {
-		points[i] = VectorPoint{
-			ID:         fmt.Sprintf("%d_%d", doc.ID, i),
-			Vector:     vectors[i],
-			DocumentID: doc.ID,
-			ChunkIndex: i,
-			Content:    chunk,
-			Metadata: map[string]interface{}{
-				"document_name": doc.Name,
-				"chunk_index":   i,
-				"total_chunks":  len(chunks),
-			},
+	// 4a. 文本向量化和写入
+	totalChunks := 0
+	if len(chunks) > 0 {
+		vectors, err := p.generateEmbeddings(kb, chunks)
+		if err != nil {
+			p.markFailed(ctx, doc.ID, fmt.Sprintf("Embedding 生成失败: %v", err))
+			return err
 		}
-	}
-	if err := UpsertVectors(collectionName, points); err != nil {
-		p.markFailed(ctx, doc.ID, fmt.Sprintf("向量写入失败: %v", err))
-		return err
+
+		points := make([]VectorPoint, len(chunks))
+		for i, chunk := range chunks {
+			points[i] = VectorPoint{
+				ID:          fmt.Sprintf("%d_%d", doc.ID, i),
+				Vector:      vectors[i],
+				DocumentID:  doc.ID,
+				ChunkIndex:  i,
+				Content:     chunk,
+				ContentType: "text",
+				Metadata: map[string]interface{}{
+					"document_name": doc.Name,
+					"chunk_index":   i,
+					"total_chunks":  len(chunks),
+				},
+			}
+		}
+		if err := UpsertVectors(collectionName, points); err != nil {
+			p.markFailed(ctx, doc.ID, fmt.Sprintf("向量写入失败: %v", err))
+			return err
+		}
+
+		// 写入 MySQL text segments
+		segments := make([]*model.TKnowledgeSegment, len(chunks))
+		nowT := time.Now()
+		for i, chunk := range chunks {
+			pointID := fmt.Sprintf("%d", uint64(doc.ID)*100000+uint64(i))
+			wc := utf8.RuneCountInString(chunk)
+			segments[i] = &model.TKnowledgeSegment{
+				CreatedAt:       &nowT,
+				UpdatedAt:       &nowT,
+				KnowledgeBaseID: doc.KnowledgeBaseID,
+				DocumentID:      doc.ID,
+				Content:         chunk,
+				ContentType:     "text",
+				Position:        i,
+				WordCount:       wc,
+				Tokens:          wc,
+				IndexNodeID:     &pointID,
+				VectorField:     "text",
+				Status:          "active",
+				Enabled:         true,
+			}
+		}
+		if err := db.CreateInBatches(segments, 100).Error; err != nil {
+			log.Printf("[WARN] MySQL 文本分块写入失败: %v", err)
+		}
+		totalChunks += len(chunks)
 	}
 
-	// 写入 MySQL segments
-	segments := make([]*model.TKnowledgeSegment, len(chunks))
-	nowT := time.Now()
-	for i, chunk := range chunks {
-		pointID := fmt.Sprintf("%d", uint64(doc.ID)*100000+uint64(i))
-		wc := utf8.RuneCountInString(chunk)
-		segments[i] = &model.TKnowledgeSegment{
-			CreatedAt:       &nowT,
-			UpdatedAt:       &nowT,
-			KnowledgeBaseID: doc.KnowledgeBaseID,
-			DocumentID:      doc.ID,
-			Content:         chunk,
-			Position:        i,
-			WordCount:       wc,
-			Tokens:          wc,
-			IndexNodeID:     &pointID,
-			Status:          "active",
-			Enabled:         true,
+	// 4b. 图片向量化和写入（多模态）
+	if multimodalEnabled && len(images) > 0 {
+		imgErr := p.indexImages(kb, doc, images, collectionName, len(chunks))
+		if imgErr != nil {
+			log.Printf("[WARN] 图片索引失败: %v", imgErr)
+		} else {
+			totalChunks += len(images)
 		}
 	}
-	if err := db.CreateInBatches(segments, 100).Error; err != nil {
-		log.Printf("[WARN] MySQL 分块写入失败: %v", err)
+
+	// 4c. 图知识库处理（实体关系抽取）
+	if kb.Type == "graph" && len(chunks) > 0 {
+		graphProcessor := NewGraphProcessor()
+		if err := graphProcessor.ProcessDocument(kb, doc, text, chunks); err != nil {
+			log.Printf("[WARN] 图谱处理失败: %v", err)
+		}
 	}
 
 	// ── Stage 5: Completed ──
-	chunkCount := int32(len(chunks))
+	chunkCount := int32(totalChunks)
 	tokenCount := int32(utf8.RuneCountInString(text))
 	completedAt := time.Now()
 	db.Model(&model.TKnowledgeDocument{}).Where("id = ?", doc.ID).Updates(map[string]interface{}{
@@ -186,7 +251,101 @@ func (p *DocumentProcessor) Process(kb *model.TKnowledgeBase, doc *model.TKnowle
 	})
 
 	p.updateKBCounts(ctx, doc.KnowledgeBaseID)
-	log.Printf("[INFO] 文档处理完成: docID=%d, chunks=%d, words=%d", doc.ID, chunkCount, wordCount)
+	log.Printf("[INFO] 文档处理完成: docID=%d, textChunks=%d, images=%d, words=%d", doc.ID, len(chunks), len(images), wordCount)
+	return nil
+}
+
+// indexImages 对图片进行多模态向量化并写入 Qdrant
+func (p *DocumentProcessor) indexImages(kb *model.TKnowledgeBase, doc *model.TKnowledgeDocument, images []ImageChunk, collectionName string, startIndex int) error {
+	if kb.MultimodalModelID == nil || *kb.MultimodalModelID == 0 {
+		return fmt.Errorf("未配置多模态嵌入模型")
+	}
+
+	ctx := context.Background()
+	aiModelLogic := NewAiModelLogic(ctx)
+	aiModel, err := aiModelLogic.GetByIDWithKey(*kb.MultimodalModelID)
+	if err != nil {
+		return fmt.Errorf("多模态嵌入模型不存在: %w", err)
+	}
+
+	embClient := NewEmbeddingClient(aiModel.APIBaseURL, aiModel.APIKey, aiModel.ModelID)
+
+	imageDataList := make([][]byte, 0, len(images))
+	validImages := make([]ImageChunk, 0, len(images))
+	for _, img := range images {
+		if len(img.Data) > 0 && img.FilePath != "" {
+			imageDataList = append(imageDataList, img.Data)
+			validImages = append(validImages, img)
+		}
+	}
+
+	if len(imageDataList) == 0 {
+		return nil
+	}
+
+	vectors, err := embClient.EmbedImages(ctx, imageDataList)
+	if err != nil {
+		return fmt.Errorf("图片 Embedding 生成失败: %w", err)
+	}
+
+	points := make([]VectorPoint, len(validImages))
+	for i, img := range validImages {
+		description := img.Description
+		if description == "" {
+			description = fmt.Sprintf("图片 %d (来自文档 %s)", i+1, doc.Name)
+		}
+		points[i] = VectorPoint{
+			ID:          fmt.Sprintf("%d_img_%d", doc.ID, i),
+			Vector:      vectors[i],
+			DocumentID:  doc.ID,
+			ChunkIndex:  startIndex + i,
+			Content:     description,
+			ContentType: "image",
+			ImagePath:   img.FilePath,
+			Metadata: map[string]interface{}{
+				"document_name": doc.Name,
+				"image_index":   i,
+			},
+		}
+	}
+
+	if err := UpsertVectorsToField(collectionName, "image", points); err != nil {
+		return fmt.Errorf("图片向量写入失败: %w", err)
+	}
+
+	// 写入 MySQL image segments
+	db := svc.Ctx.DB
+	segments := make([]*model.TKnowledgeSegment, len(validImages))
+	nowT := time.Now()
+	for i, img := range validImages {
+		pointID := fmt.Sprintf("%d", uint64(doc.ID)*100000+uint64(startIndex+i))
+		description := img.Description
+		if description == "" {
+			description = fmt.Sprintf("图片 %d", i+1)
+		}
+		imgPath := img.FilePath
+		segments[i] = &model.TKnowledgeSegment{
+			CreatedAt:       &nowT,
+			UpdatedAt:       &nowT,
+			KnowledgeBaseID: doc.KnowledgeBaseID,
+			DocumentID:      doc.ID,
+			Content:         description,
+			ContentType:     "image",
+			ImagePath:       &imgPath,
+			Position:        startIndex + i,
+			WordCount:       0,
+			Tokens:          0,
+			IndexNodeID:     &pointID,
+			VectorField:     "image",
+			Status:          "active",
+			Enabled:         true,
+		}
+	}
+	if err := db.CreateInBatches(segments, 100).Error; err != nil {
+		log.Printf("[WARN] MySQL 图片分块写入失败: %v", err)
+	}
+
+	log.Printf("[INFO] 多模态: 成功索引 %d 张图片", len(validImages))
 	return nil
 }
 
@@ -220,10 +379,138 @@ func (p *DocumentProcessor) extractText(doc *model.TKnowledgeDocument) (string, 
 	case "docx":
 		return extractTextFromDOCX(data)
 	case "image":
-		return "", fmt.Errorf("图片类型暂不支持文本提取，请接入 OCR 服务")
+		return fmt.Sprintf("[图片文件: %s]", doc.Name), nil
 	default:
 		return string(data), nil
 	}
+}
+
+// extractImages 从文档中提取嵌入的图片
+func (p *DocumentProcessor) extractImages(doc *model.TKnowledgeDocument) []ImageChunk {
+	fileType := ""
+	if doc.FileType != nil {
+		fileType = *doc.FileType
+	}
+
+	if doc.FilePath == nil || *doc.FilePath == "" {
+		return nil
+	}
+
+	storage := GetFileStorage()
+	data, err := storage.Read(*doc.FilePath)
+	if err != nil {
+		return nil
+	}
+
+	switch fileType {
+	case "image":
+		return []ImageChunk{{
+			Data:        data,
+			Description: fmt.Sprintf("图片文件: %s", doc.Name),
+		}}
+	case "docx":
+		return extractImagesFromDOCX(data)
+	case "md":
+		return extractImagesFromMarkdown(string(data), storage, doc.KnowledgeBaseID)
+	default:
+		return nil
+	}
+}
+
+// extractImagesFromDOCX 从 DOCX 中提取嵌入的图片
+func extractImagesFromDOCX(data []byte) []ImageChunk {
+	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return nil
+	}
+
+	var images []ImageChunk
+	for _, f := range reader.File {
+		if !strings.HasPrefix(f.Name, "word/media/") {
+			continue
+		}
+		ext := strings.ToLower(f.Name[strings.LastIndex(f.Name, "."):])
+		if ext != ".png" && ext != ".jpg" && ext != ".jpeg" && ext != ".gif" && ext != ".webp" && ext != ".bmp" {
+			continue
+		}
+
+		rc, err := f.Open()
+		if err != nil {
+			continue
+		}
+		imgData, err := io.ReadAll(rc)
+		rc.Close()
+		if err != nil || len(imgData) == 0 {
+			continue
+		}
+
+		// 跳过过小的图片（可能是图标等）
+		if len(imgData) < 1024 {
+			continue
+		}
+
+		images = append(images, ImageChunk{
+			Data:        imgData,
+			Description: fmt.Sprintf("文档嵌入图片: %s", f.Name),
+		})
+	}
+
+	return images
+}
+
+// extractImagesFromMarkdown 从 Markdown 中提取图片引用
+// 支持 ![alt](path) 格式，提取本地图片
+func extractImagesFromMarkdown(content string, storage *FileStorage, kbID int64) []ImageChunk {
+	var images []ImageChunk
+
+	lines := strings.Split(content, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+
+		// 匹配 ![alt](path) 格式
+		imgStart := strings.Index(line, "![")
+		if imgStart < 0 {
+			continue
+		}
+		altEnd := strings.Index(line[imgStart:], "](")
+		if altEnd < 0 {
+			continue
+		}
+		pathStart := imgStart + altEnd + 2
+		pathEnd := strings.Index(line[pathStart:], ")")
+		if pathEnd < 0 {
+			continue
+		}
+
+		imgPath := line[pathStart : pathStart+pathEnd]
+
+		if strings.HasPrefix(imgPath, "http://") || strings.HasPrefix(imgPath, "https://") {
+			continue
+		}
+
+		imgData, err := storage.Read(imgPath)
+		if err != nil {
+			continue
+		}
+		if len(imgData) < 1024 {
+			continue
+		}
+
+		alt := ""
+		if altEnd > 2 {
+			alt = line[imgStart+2 : imgStart+altEnd]
+		}
+		if alt == "" {
+			alt = fmt.Sprintf("Markdown 图片: %s", imgPath)
+		}
+
+		images = append(images, ImageChunk{
+			Data:        imgData,
+			Description: alt,
+		})
+	}
+
+	return images
 }
 
 // -----------------------------------------------

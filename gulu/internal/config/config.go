@@ -44,9 +44,18 @@ type QdrantConfig struct {
 	CollectionPrefix string `yaml:"collection_prefix"`
 }
 
+// Neo4jConfig Neo4j 图数据库配置
+type Neo4jConfig struct {
+	URI      string `yaml:"uri"`
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
+	Database string `yaml:"database"`
+	Enabled  bool   `yaml:"enabled"`
+}
+
 // StorageConfig 文件存储配置
 type StorageConfig struct {
-	Type  string            `yaml:"type"`  // local 或 s3
+	Type  string             `yaml:"type"` // local 或 s3
 	Local LocalStorageConfig `yaml:"local"`
 }
 
@@ -61,6 +70,7 @@ type Config struct {
 	Gulu                GuluConfig           `yaml:"gulu"`
 	WorkflowEngine      WorkflowEngineConfig `yaml:"workflow_engine"`
 	Qdrant              QdrantConfig         `yaml:"qdrant"`
+	Neo4j               Neo4jConfig          `yaml:"neo4j"`
 	Storage             StorageConfig        `yaml:"storage"`
 }
 

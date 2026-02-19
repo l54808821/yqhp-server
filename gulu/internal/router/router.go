@@ -196,6 +196,10 @@ func Setup(app *fiber.App) {
 	// 检索与查询历史
 	kb.Post("/:id/search", handler.KnowledgeBaseSearch)
 	kb.Get("/:id/queries", handler.KnowledgeQueryHistory)
+	// 图知识库（Phase 3）
+	kb.Post("/:id/graph/search", handler.KnowledgeGraphSearch)
+	kb.Get("/:id/graph/entities", handler.KnowledgeGraphEntities)
+	kb.Get("/:id/graph/relations", handler.KnowledgeGraphRelations)
 
 	// MCP 代理服务路由
 	mcpProxyService := mcpproxy.NewMCPProxyService()

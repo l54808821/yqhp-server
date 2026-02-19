@@ -65,7 +65,6 @@ type TKnowledgeDocument struct {
 	TokenCount          *int32        `gorm:"column:token_count;default:0" json:"token_count"`
 	ParsingCompletedAt  *time.Time    `gorm:"column:parsing_completed_at" json:"parsing_completed_at"`
 	IndexingCompletedAt *time.Time    `gorm:"column:indexing_completed_at" json:"indexing_completed_at"`
-	Metadata            *string       `gorm:"column:metadata;type:json" json:"metadata"`
 }
 
 func (*TKnowledgeDocument) TableName() string {

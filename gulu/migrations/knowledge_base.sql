@@ -85,6 +85,7 @@ CREATE TABLE `t_knowledge_segment` (
   `status` VARCHAR(20) DEFAULT 'active',
   `enabled` TINYINT(1) DEFAULT 1,
   `hit_count` INT DEFAULT 0,
+  `metadata` JSON DEFAULT NULL,
   PRIMARY KEY (`id`),
   INDEX `idx_seg_kb_id` (`knowledge_base_id`),
   INDEX `idx_seg_doc_id` (`document_id`),

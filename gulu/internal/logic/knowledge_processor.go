@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -429,7 +430,11 @@ func extractImagesFromDOCX(data []byte) []ImageChunk {
 		if !strings.HasPrefix(f.Name, "word/media/") {
 			continue
 		}
-		ext := strings.ToLower(f.Name[strings.LastIndex(f.Name, "."):])
+		dotIdx := strings.LastIndex(f.Name, ".")
+		if dotIdx < 0 {
+			continue
+		}
+		ext := strings.ToLower(f.Name[dotIdx:])
 		if ext != ".png" && ext != ".jpg" && ext != ".jpeg" && ext != ".gif" && ext != ".webp" && ext != ".bmp" {
 			continue
 		}
@@ -626,35 +631,79 @@ func isPrintableText(s string) bool {
 // DOCX 提取（增强版：支持表格、列表）
 // -----------------------------------------------
 
+// docxRelationship 表示 DOCX 关系文件中的一条关系记录
+type docxRelationship struct {
+	ID     string `xml:"Id,attr"`
+	Type   string `xml:"Type,attr"`
+	Target string `xml:"Target,attr"`
+}
+
+type docxRelationships struct {
+	Relationships []docxRelationship `xml:"Relationship"`
+}
+
+// parseDocxRels 解析 word/_rels/document.xml.rels，返回 rId -> 文件名 的映射（仅图片关系）
+func parseDocxRels(reader *zip.Reader) map[string]string {
+	imageRels := make(map[string]string)
+	for _, f := range reader.File {
+		if f.Name != "word/_rels/document.xml.rels" {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return imageRels
+		}
+		data, err := io.ReadAll(rc)
+		rc.Close()
+		if err != nil {
+			return imageRels
+		}
+		var rels docxRelationships
+		if err := xml.Unmarshal(data, &rels); err != nil {
+			return imageRels
+		}
+		for _, rel := range rels.Relationships {
+			if strings.Contains(rel.Type, "/image") {
+				imageRels[rel.ID] = rel.Target
+			}
+		}
+	}
+	return imageRels
+}
+
+// readZipFile 读取 ZIP 中指定路径的文件内容
+func readZipFile(reader *zip.Reader, name string) ([]byte, error) {
+	for _, f := range reader.File {
+		if f.Name == name {
+			rc, err := f.Open()
+			if err != nil {
+				return nil, err
+			}
+			defer rc.Close()
+			return io.ReadAll(rc)
+		}
+	}
+	return nil, fmt.Errorf("文件 %s 不存在", name)
+}
+
 func extractTextFromDOCX(data []byte) (string, error) {
 	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return "", fmt.Errorf("无法打开 DOCX 压缩包: %v", err)
 	}
 
-	var docXML *zip.File
-	for _, f := range reader.File {
-		if f.Name == "word/document.xml" {
-			docXML = f
-			break
-		}
-	}
-	if docXML == nil {
+	xmlData, err := readZipFile(reader, "word/document.xml")
+	if err != nil {
 		return "", fmt.Errorf("DOCX 中未找到 word/document.xml")
 	}
 
-	rc, err := docXML.Open()
-	if err != nil {
-		return "", fmt.Errorf("无法读取 document.xml: %v", err)
-	}
-	defer rc.Close()
+	// 解析图片关系映射：rId -> word/media/xxx.png
+	imageRels := parseDocxRels(reader)
 
-	xmlData, err := io.ReadAll(rc)
-	if err != nil {
-		return "", fmt.Errorf("读取 document.xml 失败: %v", err)
-	}
-
-	text := parseWordXML(xmlData)
+	// 构建图片数据映射：word/media/xxx.png -> 文件内容（用于保存到存储）
+	// 此处我们将图片以 Markdown 占位符形式嵌入文本，格式：![image](media:word/media/xxx.png)
+	// 调用方可根据需要替换为实际 URL
+	text := parseWordXML(xmlData, imageRels)
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return "", fmt.Errorf("DOCX 文档内容为空")
@@ -662,15 +711,38 @@ func extractTextFromDOCX(data []byte) (string, error) {
 	return text, nil
 }
 
-func parseWordXML(data []byte) string {
-	const wNS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+// parseWordXML 解析 Word XML，将段落文本和内联图片组合输出。
+// imageRels：rId -> 图片相对路径（word/media/...）
+// 段落分隔规则：非空段落之间以 \n 分隔，空段落输出为 \n，从而在内容段之间形成 \n\n。
+func parseWordXML(data []byte, imageRels map[string]string) string {
+	const (
+		wNS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+		aNS = "http://schemas.openxmlformats.org/drawingml/2006/main"
+		rNS = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+	)
 
 	decoder := xml.NewDecoder(bytes.NewReader(data))
-	var sb strings.Builder
+
+	// 收集每个段落/表格行的内容条目，最终用 \n 拼接
+	var items []string
+
+	// 当前段落状态
+	var paraContent strings.Builder
 	inText := false
-	inTable := false
-	cellIdx := 0
-	listLevel := -1
+	inPara := false
+	// 表格行内容
+	var rowCells []string
+	var cellContent strings.Builder
+	inCell := false
+
+	getAttr := func(attrs []xml.Attr, ns, local string) string {
+		for _, a := range attrs {
+			if a.Name.Local == local && (ns == "" || a.Name.Space == ns || strings.HasSuffix(a.Name.Space, ns)) {
+				return a.Value
+			}
+		}
+		return ""
+	}
 
 	for {
 		token, err := decoder.Token()
@@ -681,27 +753,44 @@ func parseWordXML(data []byte) string {
 		switch t := token.(type) {
 		case xml.StartElement:
 			switch {
+			case t.Name.Local == "tbl" && t.Name.Space == wNS:
+				// 进入表格
+			case t.Name.Local == "tr" && t.Name.Space == wNS:
+				rowCells = nil
+			case t.Name.Local == "tc" && t.Name.Space == wNS:
+				inCell = true
+				cellContent.Reset()
+			case t.Name.Local == "p" && t.Name.Space == wNS:
+				if !inCell {
+					inPara = true
+					paraContent.Reset()
+				}
 			case t.Name.Local == "t" && t.Name.Space == wNS:
 				inText = true
 			case t.Name.Local == "br" && t.Name.Space == wNS:
-				sb.WriteString("\n")
-			case t.Name.Local == "tbl" && t.Name.Space == wNS:
-				inTable = true
-			case t.Name.Local == "tc" && t.Name.Space == wNS:
-				if cellIdx > 0 {
-					sb.WriteString("\t| ")
+				if inCell {
+					cellContent.WriteString("\n")
+				} else if inPara {
+					paraContent.WriteString("\n")
 				}
-			case t.Name.Local == "numPr" && t.Name.Space == wNS:
-				listLevel = 0
-			case t.Name.Local == "ilvl" && t.Name.Space == wNS:
-				for _, attr := range t.Attr {
-					if attr.Name.Local == "val" {
-						if v := attr.Value; v != "" {
-							lvl := 0
-							for _, c := range v {
-								lvl = lvl*10 + int(c-'0')
-							}
-							listLevel = lvl
+			// 处理内联图片（DrawingML）：<a:blip r:embed="rIdN"/>
+			case t.Name.Local == "blip" && t.Name.Space == aNS:
+				embedID := getAttr(t.Attr, rNS, "embed")
+				if embedID == "" {
+					// 有些序列化时 namespace 写在属性名里
+					embedID = getAttr(t.Attr, "", "embed")
+				}
+				if embedID != "" {
+					if imgPath, ok := imageRels[embedID]; ok != false {
+						imgPath = strings.TrimPrefix(imgPath, "../")
+						if !strings.HasPrefix(imgPath, "word/") {
+							imgPath = "word/" + imgPath
+						}
+						imgMd := fmt.Sprintf("![image](media:%s)", imgPath)
+						if inCell {
+							cellContent.WriteString(imgMd)
+						} else if inPara {
+							paraContent.WriteString(imgMd)
 						}
 					}
 				}
@@ -712,28 +801,57 @@ func parseWordXML(data []byte) string {
 			case t.Name.Local == "t" && t.Name.Space == wNS:
 				inText = false
 			case t.Name.Local == "p" && t.Name.Space == wNS:
-				if listLevel >= 0 {
-					listLevel = -1
+				if inCell {
+					// 单元格内段落：内容追加到 cellContent，不触发 items
+					break
 				}
-				sb.WriteString("\n")
-			case t.Name.Local == "tr" && t.Name.Space == wNS:
-				sb.WriteString("\n")
-				cellIdx = 0
+				inPara = false
+				content := strings.TrimSpace(paraContent.String())
+				if content != "" {
+					items = append(items, content)
+				} else {
+					// 空段落作为分隔符
+					items = append(items, "")
+				}
+				paraContent.Reset()
 			case t.Name.Local == "tc" && t.Name.Space == wNS:
-				cellIdx++
+				inCell = false
+				rowCells = append(rowCells, strings.TrimSpace(cellContent.String()))
+			case t.Name.Local == "tr" && t.Name.Space == wNS:
+				if len(rowCells) > 0 {
+					items = append(items, strings.Join(rowCells, " | "))
+				}
+				rowCells = nil
 			case t.Name.Local == "tbl" && t.Name.Space == wNS:
-				inTable = false
-				sb.WriteString("\n")
+				// 离开表格
 			}
 
 		case xml.CharData:
 			if inText {
-				_ = inTable
-				sb.Write(t)
+				if inCell {
+					cellContent.Write(t)
+				} else if inPara {
+					paraContent.Write(t)
+				}
 			}
 		}
 	}
 
+	// 将 items 拼成最终文本：空 item 表示空段落，产生 \n\n 分隔
+	var sb strings.Builder
+	for i, item := range items {
+		if item == "" {
+			// 空段落：如果前面已有内容则写入换行
+			if i > 0 {
+				sb.WriteString("\n")
+			}
+		} else {
+			if sb.Len() > 0 {
+				sb.WriteString("\n")
+			}
+			sb.WriteString(item)
+		}
+	}
 	return sb.String()
 }
 
@@ -838,6 +956,8 @@ func splitText(text string, chunkSize, overlap int) []string {
 	return chunks
 }
 
+// splitBySeparator 按固定分隔符切分文本，对齐 Dify 的 FixedRecursiveCharacterTextSplitter 行为：
+// 每个分隔符切出的段直接作为独立 chunk，不合并小段；只对超过 chunkSize 的段递归拆分。
 func splitBySeparator(text, separator string, chunkSize, chunkOverlap int) []string {
 	if chunkSize <= 0 {
 		chunkSize = 500
@@ -852,26 +972,24 @@ func splitBySeparator(text, separator string, chunkSize, chunkOverlap int) []str
 	actualSep := strings.ReplaceAll(separator, `\n`, "\n")
 	segments := strings.Split(text, actualSep)
 
-	var flatChunks []string
+	var result []string
 	for _, seg := range segments {
 		seg = strings.TrimSpace(seg)
 		if seg == "" {
 			continue
 		}
 		if runeLen(seg) > chunkSize {
-			flatChunks = append(flatChunks, recursiveSplit(seg, fallbackSeparators, chunkSize)...)
+			result = append(result, recursiveSplit(seg, fallbackSeparators, chunkSize, chunkOverlap)...)
 		} else {
-			flatChunks = append(flatChunks, seg)
+			result = append(result, seg)
 		}
 	}
-
-	if chunkOverlap <= 0 || len(flatChunks) <= 1 {
-		return flatChunks
-	}
-	return mergeSplits(flatChunks, chunkSize, chunkOverlap)
+	return result
 }
 
-func recursiveSplit(text string, separators []string, chunkSize int) []string {
+// recursiveSplit 递归地将超大文本段拆分为不超过 chunkSize 的块。
+// 当 chunkOverlap > 0 时，在最终字符级拆分阶段应用重叠。
+func recursiveSplit(text string, separators []string, chunkSize, chunkOverlap int) []string {
 	if runeLen(text) <= chunkSize {
 		t := strings.TrimSpace(text)
 		if t == "" {
@@ -880,13 +998,13 @@ func recursiveSplit(text string, separators []string, chunkSize int) []string {
 		return []string{t}
 	}
 	if len(separators) == 0 {
-		return charSplit(text, chunkSize)
+		return charSplitWithOverlap(text, chunkSize, chunkOverlap)
 	}
 
 	sep := separators[0]
 	remaining := separators[1:]
 	if sep == "" {
-		return charSplit(text, chunkSize)
+		return charSplitWithOverlap(text, chunkSize, chunkOverlap)
 	}
 
 	parts := strings.Split(text, sep)
@@ -910,7 +1028,7 @@ func recursiveSplit(text string, separators []string, chunkSize int) []string {
 			goodSplits = append(goodSplits, part)
 		} else {
 			flushGood()
-			result = append(result, recursiveSplit(part, remaining, chunkSize)...)
+			result = append(result, recursiveSplit(part, remaining, chunkSize, chunkOverlap)...)
 		}
 	}
 	flushGood()
@@ -998,16 +1116,34 @@ func mergeSplitsSimple(splits []string, sep string, chunkSize int) []string {
 }
 
 func charSplit(text string, chunkSize int) []string {
+	return charSplitWithOverlap(text, chunkSize, 0)
+}
+
+func charSplitWithOverlap(text string, chunkSize, overlap int) []string {
 	runes := []rune(text)
+	total := len(runes)
+	if total == 0 {
+		return nil
+	}
+	if overlap < 0 || overlap >= chunkSize {
+		overlap = 0
+	}
+	step := chunkSize - overlap
+	if step <= 0 {
+		step = chunkSize
+	}
 	var chunks []string
-	for i := 0; i < len(runes); i += chunkSize {
-		end := i + chunkSize
-		if end > len(runes) {
-			end = len(runes)
+	for start := 0; start < total; start += step {
+		end := start + chunkSize
+		if end > total {
+			end = total
 		}
-		chunk := strings.TrimSpace(string(runes[i:end]))
+		chunk := strings.TrimSpace(string(runes[start:end]))
 		if chunk != "" {
 			chunks = append(chunks, chunk)
+		}
+		if end == total {
+			break
 		}
 	}
 	return chunks
@@ -1055,7 +1191,7 @@ func (p *DocumentProcessor) updateIndexingStatus(ctx context.Context, docID int6
 	db := svc.Ctx.DB
 	db.Model(&model.TKnowledgeDocument{}).Where("id = ?", docID).Updates(map[string]interface{}{
 		"indexing_status": status,
-		"updated_at":     time.Now(),
+		"updated_at":      time.Now(),
 	})
 }
 
@@ -1086,33 +1222,56 @@ func (p *DocumentProcessor) updateKBCounts(ctx context.Context, kbID int64) {
 // 文本预处理工具
 // -----------------------------------------------
 
+var (
+	// 3 个及以上连续换行 → \n\n
+	reMultiNewline = regexp.MustCompile(`\n{3,}`)
+	// Unicode 水平空白（含全角空格、不间断空格等），2 个及以上 → 单空格
+	// 使用反引号 raw string，\x{HHHH} 由 RE2 引擎解析
+	reMultiSpace = regexp.MustCompile(`[\t\f\r \x{00a0}\x{1680}\x{180e}\x{2000}-\x{200a}\x{202f}\x{205f}\x{3000}]{2,}`)
+	// 控制字符（排除 \t \n \r）
+	reControlChars = regexp.MustCompile(`[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]`)
+	// Markdown 图片/链接占位符保护
+	reMarkdownImage = regexp.MustCompile(`!\[[^\]]*\]\((https?://[^)]+)\)`)
+	reMarkdownLink  = regexp.MustCompile(`\[([^\]]*)\]\((https?://[^)]+)\)`)
+	// 普通 URL
+	reURL = regexp.MustCompile(`https?://\S+`)
+	// 电子邮件
+	reEmail = regexp.MustCompile(`[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+`)
+)
+
 func cleanWhitespace(text string) string {
-	text = strings.ReplaceAll(text, "\t", " ")
-	for strings.Contains(text, "  ") {
-		text = strings.ReplaceAll(text, "  ", " ")
-	}
-	for strings.Contains(text, "\n\n\n") {
-		text = strings.ReplaceAll(text, "\n\n\n", "\n\n")
-	}
+	// 去除控制字符
+	text = reControlChars.ReplaceAllString(text, "")
+	// 多换行压缩
+	text = reMultiNewline.ReplaceAllString(text, "\n\n")
+	// 多空白压缩（不影响换行）
+	text = reMultiSpace.ReplaceAllString(text, " ")
 	return strings.TrimSpace(text)
 }
 
 func removeURLsAndEmails(text string) string {
-	lines := strings.Split(text, "\n")
-	var result []string
-	for _, line := range lines {
-		words := strings.Fields(line)
-		var cleaned []string
-		for _, w := range words {
-			if strings.HasPrefix(w, "http://") || strings.HasPrefix(w, "https://") {
-				continue
-			}
-			if strings.Contains(w, "@") && strings.Contains(w, ".") {
-				continue
-			}
-			cleaned = append(cleaned, w)
-		}
-		result = append(result, strings.Join(cleaned, " "))
+	// 先保护 Markdown 图片和链接，避免其中的 URL 被误删
+	type placeholder struct{ orig, key string }
+	var placeholders []placeholder
+	idx := 0
+
+	protect := func(s string) string {
+		key := fmt.Sprintf("__MD_PLACEHOLDER_%d__", idx)
+		idx++
+		placeholders = append(placeholders, placeholder{s, key})
+		return key
 	}
-	return strings.Join(result, "\n")
+
+	text = reMarkdownImage.ReplaceAllStringFunc(text, protect)
+	text = reMarkdownLink.ReplaceAllStringFunc(text, protect)
+
+	// 删除裸 URL 和邮件
+	text = reURL.ReplaceAllString(text, "")
+	text = reEmail.ReplaceAllString(text, "")
+
+	// 还原占位符
+	for _, p := range placeholders {
+		text = strings.ReplaceAll(text, p.key, p.orig)
+	}
+	return text
 }

@@ -109,6 +109,11 @@ type KnowledgeBaseInfo struct {
 	MultimodalDimension int     `json:"multimodal_dimension,omitempty"`
 }
 
+type KnowledgeDocumentListReq struct {
+	Keyword string `query:"keyword"`
+	Status  string `query:"status"`
+}
+
 type KnowledgeDocumentInfo struct {
 	ID                  int64      `json:"id"`
 	CreatedAt           *time.Time `json:"created_at"`
@@ -429,10 +434,20 @@ func (l *KnowledgeBaseLogic) CreateDocument(kbID int64, name, fileType, filePath
 	return l.toDocumentInfo(doc), nil
 }
 
-func (l *KnowledgeBaseLogic) ListDocuments(kbID int64) ([]*KnowledgeDocumentInfo, error) {
+func (l *KnowledgeBaseLogic) ListDocuments(kbID int64, req *KnowledgeDocumentListReq) ([]*KnowledgeDocumentInfo, error) {
 	db := svc.Ctx.DB
+	q := db.Where("knowledge_base_id = ?", kbID)
+
+	if req.Keyword != "" {
+		q = q.Where("name LIKE ?", "%"+req.Keyword+"%")
+	}
+	if req.Status != "" {
+		statuses := strings.Split(req.Status, ",")
+		q = q.Where("indexing_status IN ?", statuses)
+	}
+
 	var list []model.TKnowledgeDocument
-	if err := db.Where("knowledge_base_id = ?", kbID).Order("id DESC").Find(&list).Error; err != nil {
+	if err := q.Order("id DESC").Find(&list).Error; err != nil {
 		return nil, err
 	}
 

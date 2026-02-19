@@ -172,8 +172,13 @@ func KnowledgeDocumentList(c *fiber.Ctx) error {
 		return response.Error(c, "无效的知识库ID")
 	}
 
+	var req logic.KnowledgeDocumentListReq
+	if err := c.QueryParser(&req); err != nil {
+		return response.Error(c, "参数解析失败")
+	}
+
 	kbLogic := logic.NewKnowledgeBaseLogic(c.UserContext())
-	list, err := kbLogic.ListDocuments(kbID)
+	list, err := kbLogic.ListDocuments(kbID, &req)
 	if err != nil {
 		return response.Error(c, err.Error())
 	}

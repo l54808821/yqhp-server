@@ -10,6 +10,7 @@ import (
 	"log"
 	"os/exec"
 	"regexp"
+	"runtime/debug"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -35,7 +36,17 @@ type ImageChunk struct {
 }
 
 // Process 处理文档（完整 ETL 流水线，支持多模态 + 图知识库）
-func (p *DocumentProcessor) Process(kb *model.TKnowledgeBase, doc *model.TKnowledgeDocument) error {
+func (p *DocumentProcessor) Process(kb *model.TKnowledgeBase, doc *model.TKnowledgeDocument) (retErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			stack := string(debug.Stack())
+			log.Printf("[PANIC] Process recovered: docID=%d, panic=%v\n%s", doc.ID, r, stack)
+			retErr = fmt.Errorf("处理过程发生内部错误: %v", r)
+			ctx := context.Background()
+			p.markFailed(ctx, doc.ID, fmt.Sprintf("内部错误: %v", r))
+		}
+	}()
+
 	ctx := context.Background()
 	db := svc.Ctx.DB
 

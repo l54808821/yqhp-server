@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -13,6 +14,18 @@ import (
 	"yqhp/gulu/internal/model"
 	"yqhp/gulu/internal/svc"
 )
+
+// safeGo 启动一个带 panic 恢复的后台 goroutine，防止 panic 导致整个服务崩溃。
+func safeGo(fn func()) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[PANIC] goroutine recovered: %v\n%s", r, debug.Stack())
+			}
+		}()
+		fn()
+	}()
+}
 
 // KnowledgeBaseLogic 知识库逻辑
 type KnowledgeBaseLogic struct {
@@ -366,7 +379,7 @@ func (l *KnowledgeBaseLogic) Delete(id int64) error {
 
 	db.Model(&model.TKnowledgeBase{}).Where("id = ?", id).Update("is_delete", true)
 
-	go func() {
+	safeGo(func() {
 		if kb.QdrantCollection != nil && *kb.QdrantCollection != "" {
 			if err := DeleteQdrantCollection(*kb.QdrantCollection); err != nil {
 				log.Printf("[WARN] 删除 Qdrant Collection 失败: %v", err)
@@ -384,7 +397,7 @@ func (l *KnowledgeBaseLogic) Delete(id int64) error {
 		db.Where("knowledge_base_id = ?", id).Delete(&model.TKnowledgeEntity{})
 		db.Where("knowledge_base_id = ?", id).Delete(&model.TKnowledgeRelation{})
 		GetFileStorage().DeleteDir(id)
-	}()
+	})
 
 	return nil
 }
@@ -466,7 +479,7 @@ func (l *KnowledgeBaseLogic) CreateDocument(kbID int64, name, fileType, filePath
 		return nil, err
 	}
 
-	go l.updateDocumentCount(kbID)
+	safeGo(func() { l.updateDocumentCount(kbID) })
 	return l.toDocumentInfo(doc), nil
 }
 
@@ -500,7 +513,7 @@ func (l *KnowledgeBaseLogic) DeleteDocument(kbID, docID int64) error {
 	db.Where("id = ?", docID).Delete(&model.TKnowledgeDocument{})
 	db.Where("document_id = ?", docID).Delete(&model.TKnowledgeSegment{})
 
-	go func() {
+	safeGo(func() {
 		l.updateDocumentCount(kbID)
 		if kb.QdrantCollection != nil && *kb.QdrantCollection != "" {
 			if err := DeleteDocumentVectors(*kb.QdrantCollection, docID); err != nil {
@@ -510,7 +523,7 @@ func (l *KnowledgeBaseLogic) DeleteDocument(kbID, docID int64) error {
 		if doc.FilePath != nil && *doc.FilePath != "" {
 			GetFileStorage().Delete(*doc.FilePath)
 		}
-	}()
+	})
 
 	return nil
 }
@@ -529,7 +542,7 @@ func (l *KnowledgeBaseLogic) BatchDeleteDocuments(kbID int64, docIDs []int64) er
 	db.Where("id IN ? AND knowledge_base_id = ?", docIDs, kbID).Delete(&model.TKnowledgeDocument{})
 	db.Where("document_id IN ? AND knowledge_base_id = ?", docIDs, kbID).Delete(&model.TKnowledgeSegment{})
 
-	go func() {
+	safeGo(func() {
 		l.updateDocumentCount(kbID)
 		for _, doc := range docs {
 			if kb.QdrantCollection != nil && *kb.QdrantCollection != "" {
@@ -539,7 +552,7 @@ func (l *KnowledgeBaseLogic) BatchDeleteDocuments(kbID int64, docIDs []int64) er
 				GetFileStorage().Delete(*doc.FilePath)
 			}
 		}
-	}()
+	})
 
 	return nil
 }
@@ -562,12 +575,12 @@ func (l *KnowledgeBaseLogic) ReprocessDocument(kbID, docID int64) error {
 		"error_message":   nil,
 	})
 
-	go func() {
+	safeGo(func() {
 		processor := NewDocumentProcessor()
 		if err := processor.Process(&kb, &doc); err != nil {
 			log.Printf("[ERROR] 文档重处理失败: docID=%d, err=%v", doc.ID, err)
 		}
-	}()
+	})
 
 	return nil
 }
@@ -590,7 +603,7 @@ func (l *KnowledgeBaseLogic) BatchReprocessDocuments(kbID int64, docIDs []int64)
 		})
 	}
 
-	go func() {
+	safeGo(func() {
 		processor := NewDocumentProcessor()
 		for _, doc := range docs {
 			d := doc
@@ -598,7 +611,7 @@ func (l *KnowledgeBaseLogic) BatchReprocessDocuments(kbID int64, docIDs []int64)
 				log.Printf("[ERROR] 批量重处理失败: docID=%d, err=%v", d.ID, err)
 			}
 		}
-	}()
+	})
 
 	return nil
 }
@@ -839,12 +852,12 @@ func (l *KnowledgeBaseLogic) ProcessDocument(kbID, docID int64, req *ProcessDocu
 
 	db.Where("id = ?", docID).First(&doc)
 
-	go func() {
+	safeGo(func() {
 		processor := NewDocumentProcessor()
 		if err := processor.Process(&kb, &doc); err != nil {
 			log.Printf("[ERROR] 文档处理失败: docID=%d, err=%v", doc.ID, err)
 		}
-	}()
+	})
 
 	return nil
 }

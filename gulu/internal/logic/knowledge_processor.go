@@ -165,9 +165,34 @@ func (p *DocumentProcessor) Process(kb *model.TKnowledgeBase, doc *model.TKnowle
 		return fmt.Errorf("qdrant collection 未配置")
 	}
 
+	// ── 自动检测并修正 Embedding 维度 ──
+	// 原因：知识库创建时默认维度（1536）可能与实际模型输出不符
+	// 在正式索引前用一条文本试算真实维度，如有偏差则自动更新并重建 Collection
 	dimension := 1536
 	if kb.EmbeddingDimension != nil {
 		dimension = int(*kb.EmbeddingDimension)
+	}
+	if len(chunks) > 0 {
+		probeRunes := []rune(chunks[0])
+		probeText := chunks[0]
+		if len(probeRunes) > 100 {
+			probeText = string(probeRunes[:100])
+		}
+		probeTexts := []string{probeText}
+		probeVectors, probeErr := p.generateEmbeddings(kb, probeTexts)
+		if probeErr == nil && len(probeVectors) > 0 && len(probeVectors[0]) > 0 {
+			actualDim := len(probeVectors[0])
+			if actualDim != dimension {
+				log.Printf("[INFO] Embedding 维度自动修正: 配置=%d, 实际=%d, 将重建 Qdrant Collection", dimension, actualDim)
+				dimension = actualDim
+				// 更新数据库中的维度配置
+				dim32 := int32(actualDim)
+				db.Model(&model.TKnowledgeBase{}).Where("id = ?", kb.ID).Update("embedding_dimension", dim32)
+				kb.EmbeddingDimension = &dim32
+				// 强制删除旧 Collection（维度错误的），稍后重建
+				_ = DeleteQdrantCollection(collectionName)
+			}
+		}
 	}
 
 	// 根据是否启用多模态决定 Collection 配置
@@ -1198,15 +1223,42 @@ func (p *DocumentProcessor) generateEmbeddings(kb *model.TKnowledgeBase, chunks 
 }
 
 func (p *DocumentProcessor) getEmbeddingClient(kb *model.TKnowledgeBase) (*EmbeddingClient, error) {
-	if kb.EmbeddingModelID == nil || *kb.EmbeddingModelID == 0 {
-		return nil, fmt.Errorf("知识库未配置嵌入模型")
-	}
 	aiModelLogic := NewAiModelLogic(context.Background())
-	aiModel, err := aiModelLogic.GetByIDWithKey(*kb.EmbeddingModelID)
-	if err != nil {
-		return nil, fmt.Errorf("嵌入模型不存在 (ID=%d): %w", *kb.EmbeddingModelID, err)
+
+	// 优先用 EmbeddingModelID 查找
+	if kb.EmbeddingModelID != nil && *kb.EmbeddingModelID != 0 {
+		aiModel, err := aiModelLogic.GetByIDWithKey(*kb.EmbeddingModelID)
+		if err != nil {
+			return nil, fmt.Errorf("嵌入模型不存在 (ID=%d): %w", *kb.EmbeddingModelID, err)
+		}
+		return NewEmbeddingClient(aiModel.APIBaseURL, aiModel.APIKey, aiModel.ModelID), nil
 	}
-	return NewEmbeddingClient(aiModel.APIBaseURL, aiModel.APIKey, aiModel.ModelID), nil
+
+	// 降级：尝试用 EmbeddingModelName 按 model_id 字段查找
+	if kb.EmbeddingModelName != nil && *kb.EmbeddingModelName != "" {
+		log.Printf("[WARN] 知识库 %d 的 embedding_model_id 为空，尝试按模型名称 %q 查找",
+			kb.ID, *kb.EmbeddingModelName)
+		db := svc.Ctx.DB
+		var aiModelRecord struct {
+			ID         int64  `gorm:"column:id"`
+			APIBaseURL string `gorm:"column:api_base_url"`
+			APIKey     string `gorm:"column:api_key"`
+			ModelID    string `gorm:"column:model_id"`
+		}
+		if err := db.Table("t_ai_model").
+			Where("model_id = ? OR display_name = ?", *kb.EmbeddingModelName, *kb.EmbeddingModelName).
+			First(&aiModelRecord).Error; err == nil {
+			// 顺便修复数据库中缺失的 model_id
+			db.Model(&model.TKnowledgeBase{}).Where("id = ?", kb.ID).Update("embedding_model_id", aiModelRecord.ID)
+			kb.EmbeddingModelID = &aiModelRecord.ID
+			log.Printf("[INFO] 知识库 %d 的 embedding_model_id 已自动修复为 %d", kb.ID, aiModelRecord.ID)
+			return NewEmbeddingClient(aiModelRecord.APIBaseURL, aiModelRecord.APIKey, aiModelRecord.ModelID), nil
+		}
+	}
+
+	log.Printf("[ERROR] 知识库 %d 未配置嵌入模型 (embedding_model_id=%v, embedding_model_name=%v)",
+		kb.ID, kb.EmbeddingModelID, kb.EmbeddingModelName)
+	return nil, fmt.Errorf("知识库未配置嵌入模型，请在知识库「设置」页面选择嵌入模型并保存")
 }
 
 // -----------------------------------------------

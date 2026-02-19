@@ -1162,12 +1162,15 @@ func (l *KnowledgeBaseLogic) saveQueryHistory(kbID int64, query, mode string, to
 
 // KnowledgeDiagResult 诊断结果
 type KnowledgeDiagResult struct {
-	KBID           int64                  `json:"kb_id"`
-	KBName         string                 `json:"kb_name"`
-	EmbeddingModel string                 `json:"embedding_model"`
-	MySQLSegments  int64                  `json:"mysql_segments"`
-	Qdrant         *QdrantCollectionDiag  `json:"qdrant"`
-	EmbeddingTest  *EmbeddingTestResult   `json:"embedding_test"`
+	KBID              int64                 `json:"kb_id"`
+	KBName            string                `json:"kb_name"`
+	EmbeddingModel    string                `json:"embedding_model"`
+	ConfiguredDim     int                   `json:"configured_dimension"`
+	MySQLSegments     int64                 `json:"mysql_segments"`
+	Qdrant            *QdrantCollectionDiag `json:"qdrant"`
+	EmbeddingTest     *EmbeddingTestResult  `json:"embedding_test"`
+	DimensionMismatch bool                  `json:"dimension_mismatch"`
+	Suggestion        string                `json:"suggestion,omitempty"`
 }
 
 type EmbeddingTestResult struct {
@@ -1185,9 +1188,14 @@ func (l *KnowledgeBaseLogic) Diagnose(kbID int64) (*KnowledgeDiagResult, error) 
 		return nil, fmt.Errorf("知识库不存在")
 	}
 
+	configuredDim := 1536
+	if kb.EmbeddingDimension != nil {
+		configuredDim = int(*kb.EmbeddingDimension)
+	}
 	result := &KnowledgeDiagResult{
-		KBID:   kb.ID,
-		KBName: kb.Name,
+		KBID:          kb.ID,
+		KBName:        kb.Name,
+		ConfiguredDim: configuredDim,
 	}
 
 	// MySQL segment 数量
@@ -1214,6 +1222,21 @@ func (l *KnowledgeBaseLogic) Diagnose(kbID int64) (*KnowledgeDiagResult, error) 
 				result.EmbeddingTest = &EmbeddingTestResult{Error: fmt.Sprintf("Embedding API 调用失败: %v", err)}
 			} else {
 				result.EmbeddingTest = &EmbeddingTestResult{Success: true, Dimension: len(vec)}
+				// 检查维度是否匹配
+				if len(vec) != configuredDim {
+					result.DimensionMismatch = true
+					result.Suggestion = fmt.Sprintf(
+						"维度不匹配！知识库配置为 %d 维，但模型实际输出 %d 维。"+
+							"请在文档管理页面「批量重新处理」所有文档，系统会自动修正维度并重建向量索引。",
+						configuredDim, len(vec))
+					// 检查 Qdrant collection 里配置的维度
+					if result.Qdrant != nil {
+						if qdrantTextDim, ok := result.Qdrant.VectorFields["text"]; ok && int(qdrantTextDim) != len(vec) {
+							result.Suggestion += fmt.Sprintf(
+								" (Qdrant Collection 当前 text 维度=%d，将被自动重建为 %d)", qdrantTextDim, len(vec))
+						}
+					}
+				}
 			}
 		}
 	} else {

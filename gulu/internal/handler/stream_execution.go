@@ -758,7 +758,6 @@ func (h *StreamExecutionHandler) resolveKnowledgeBaseConfigs(c *fiber.Ctx, confi
 			"name":                kbInfo.Name,
 			"type":                kbInfo.Type,
 			"qdrant_collection":   kbInfo.QdrantCollection,
-			"embedding_model_name": kbInfo.EmbeddingModelName,
 			"embedding_dimension": kbInfo.EmbeddingDimension,
 			"top_k":               kbInfo.TopK,
 			"score_threshold":     kbInfo.SimilarityThreshold,

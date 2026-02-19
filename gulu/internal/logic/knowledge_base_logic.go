@@ -45,33 +45,25 @@ type CreateKnowledgeBaseReq struct {
 	Description         string  `json:"description"`
 	Type                string  `json:"type"`
 	EmbeddingModelID    *int64  `json:"embedding_model_id"`
-	EmbeddingModelName  string  `json:"embedding_model_name"`
-	EmbeddingDimension  int32   `json:"embedding_dimension"`
-	// 多模态配置（Phase 2）
 	MultimodalEnabled   bool    `json:"multimodal_enabled"`
 	MultimodalModelID   *int64  `json:"multimodal_model_id"`
-	MultimodalModelName string  `json:"multimodal_model_name"`
-	MultimodalDimension int32   `json:"multimodal_dimension"`
-	// 分块配置
+	GraphExtractModelID *int64  `json:"graph_extract_model_id"`
+	// 分块 + 检索参数（可选，未填则使用默认值）
 	ChunkSize           int32   `json:"chunk_size"`
 	ChunkOverlap        int32   `json:"chunk_overlap"`
 	SimilarityThreshold float64 `json:"similarity_threshold"`
 	TopK                int32   `json:"top_k"`
 	RetrievalMode       string  `json:"retrieval_mode"`
-	// 图知识库配置（Phase 3）
-	GraphExtractModelID *int64  `json:"graph_extract_model_id"`
 }
 
 type UpdateKnowledgeBaseReq struct {
 	Name                string  `json:"name"`
 	Description         string  `json:"description"`
 	EmbeddingModelID    *int64  `json:"embedding_model_id"`
-	EmbeddingModelName  string  `json:"embedding_model_name"`
-	EmbeddingDimension  int32   `json:"embedding_dimension"`
 	MultimodalEnabled   *bool   `json:"multimodal_enabled"`
 	MultimodalModelID   *int64  `json:"multimodal_model_id"`
-	MultimodalModelName string  `json:"multimodal_model_name"`
-	MultimodalDimension int32   `json:"multimodal_dimension"`
+	GraphExtractModelID *int64  `json:"graph_extract_model_id"`
+	// 分块 + 检索参数
 	ChunkSize           int32   `json:"chunk_size"`
 	ChunkOverlap        int32   `json:"chunk_overlap"`
 	SimilarityThreshold float64 `json:"similarity_threshold"`
@@ -79,7 +71,6 @@ type UpdateKnowledgeBaseReq struct {
 	RetrievalMode       string  `json:"retrieval_mode"`
 	RerankModelID       *int64  `json:"rerank_model_id"`
 	RerankEnabled       *bool   `json:"rerank_enabled"`
-	GraphExtractModelID *int64  `json:"graph_extract_model_id"`
 }
 
 type KnowledgeBaseListReq struct {
@@ -100,25 +91,22 @@ type KnowledgeBaseInfo struct {
 	Type                string     `json:"type"`
 	Status              int32      `json:"status"`
 	EmbeddingModelID    *int64     `json:"embedding_model_id"`
-	EmbeddingModelName  string     `json:"embedding_model_name"`
-	EmbeddingDimension  int32      `json:"embedding_dimension"`
 	MultimodalEnabled   bool       `json:"multimodal_enabled"`
 	MultimodalModelID   *int64     `json:"multimodal_model_id"`
-	MultimodalModelName string     `json:"multimodal_model_name"`
-	MultimodalDimension int32      `json:"multimodal_dimension"`
-	ChunkSize           int32      `json:"chunk_size"`
-	ChunkOverlap        int32      `json:"chunk_overlap"`
-	SimilarityThreshold float64    `json:"similarity_threshold"`
-	TopK                int32      `json:"top_k"`
-	RetrievalMode       string     `json:"retrieval_mode"`
-	RerankModelID       *int64     `json:"rerank_model_id"`
-	RerankEnabled       bool       `json:"rerank_enabled"`
-	QdrantCollection    string     `json:"qdrant_collection"`
 	GraphExtractModelID *int64     `json:"graph_extract_model_id"`
+	QdrantCollection    string     `json:"qdrant_collection"`
 	DocumentCount       int32      `json:"document_count"`
 	ChunkCount          int32      `json:"chunk_count"`
-	EntityCount         int32      `json:"entity_count"`
-	RelationCount       int32      `json:"relation_count"`
+	// 配置字段（来自 config JSON，展开到顶层方便前端使用）
+	ChunkSize           int32   `json:"chunk_size"`
+	ChunkOverlap        int32   `json:"chunk_overlap"`
+	SimilarityThreshold float64 `json:"similarity_threshold"`
+	TopK                int32   `json:"top_k"`
+	RetrievalMode       string  `json:"retrieval_mode"`
+	RerankEnabled       bool    `json:"rerank_enabled"`
+	RerankModelID       *int64  `json:"rerank_model_id"`
+	EmbeddingDimension  int     `json:"embedding_dimension,omitempty"`
+	MultimodalDimension int     `json:"multimodal_dimension,omitempty"`
 }
 
 type KnowledgeDocumentInfo struct {
@@ -216,91 +204,56 @@ type QueryHistoryItem struct {
 
 func (l *KnowledgeBaseLogic) Create(req *CreateKnowledgeBaseReq) (*KnowledgeBaseInfo, error) {
 	db := svc.Ctx.DB
-	now := time.Now()
+
+	// 构建配置 JSON（用户传入的值覆盖默认值）
+	cfg := model.DefaultKBConfig()
+	if req.ChunkSize > 0 {
+		cfg.ChunkSize = int(req.ChunkSize)
+	}
+	if req.ChunkOverlap >= 0 && req.ChunkOverlap < req.ChunkSize {
+		cfg.ChunkOverlap = int(req.ChunkOverlap)
+	}
+	if req.SimilarityThreshold > 0 {
+		cfg.SimilarityThreshold = req.SimilarityThreshold
+	}
+	if req.TopK > 0 {
+		cfg.TopK = int(req.TopK)
+	}
+	if req.RetrievalMode != "" {
+		cfg.RetrievalMode = req.RetrievalMode
+	}
+
+	kbType := req.Type
+	if kbType == "" {
+		kbType = "normal"
+	}
 	isDelete := false
 	status := int32(1)
-
-	embeddingDimension := req.EmbeddingDimension
-	if embeddingDimension == 0 {
-		embeddingDimension = 1536
-	}
-	chunkSize := req.ChunkSize
-	if chunkSize == 0 {
-		chunkSize = 500
-	}
-	chunkOverlap := req.ChunkOverlap
-	if chunkOverlap == 0 {
-		chunkOverlap = 50
-	}
-	similarityThreshold := req.SimilarityThreshold
-	if similarityThreshold == 0 {
-		similarityThreshold = 0.7
-	}
-	topK := req.TopK
-	if topK == 0 {
-		topK = 5
-	}
-	retrievalMode := req.RetrievalMode
-	if retrievalMode == "" {
-		retrievalMode = "vector"
-	}
-
-	multimodalEnabled := req.MultimodalEnabled
-	var multimodalDimension *int32
-	if req.MultimodalDimension > 0 {
-		multimodalDimension = &req.MultimodalDimension
-	}
-
 	kb := &model.TKnowledgeBase{
-		CreatedAt:           &now,
-		UpdatedAt:           &now,
 		IsDelete:            &isDelete,
 		Name:                req.Name,
 		Description:         strPtr(req.Description),
-		Type:                req.Type,
+		Type:                kbType,
 		Status:              &status,
 		EmbeddingModelID:    req.EmbeddingModelID,
-		EmbeddingModelName:  strPtr(req.EmbeddingModelName),
-		EmbeddingDimension:  &embeddingDimension,
-		MultimodalEnabled:   &multimodalEnabled,
+		MultimodalEnabled:   req.MultimodalEnabled,
 		MultimodalModelID:   req.MultimodalModelID,
-		MultimodalModelName: strPtr(req.MultimodalModelName),
-		MultimodalDimension: multimodalDimension,
-		ChunkSize:           &chunkSize,
-		ChunkOverlap:        &chunkOverlap,
-		SimilarityThreshold: &similarityThreshold,
-		TopK:                &topK,
-		RetrievalMode:       &retrievalMode,
 		GraphExtractModelID: req.GraphExtractModelID,
 	}
+	kb.SetConfig(cfg)
 
 	if err := db.Create(kb).Error; err != nil {
 		return nil, err
 	}
 
+	// 设置 Qdrant Collection 名称（创建后才有 ID）
 	collectionName := fmt.Sprintf("kb_%d", kb.ID)
-	db.Model(kb).Update("qdrant_collection", collectionName)
+	updates := map[string]interface{}{"qdrant_collection": collectionName}
+	if kbType == "graph" {
+		updates["neo4j_database"] = collectionName
+	}
+	db.Model(kb).Updates(updates)
 	kb.QdrantCollection = &collectionName
-
-	if req.Type == "normal" || req.Type == "graph" {
-		imageDim := 0
-		if multimodalEnabled && multimodalDimension != nil {
-			imageDim = int(*multimodalDimension)
-		}
-		if err := CreateQdrantCollectionMultiVector(collectionName, CollectionVectorConfig{
-			TextDimension:  int(embeddingDimension),
-			ImageDimension: imageDim,
-		}); err != nil {
-			log.Printf("[WARN] 创建 Qdrant Collection 失败: %v", err)
-		}
-	}
-
-	// 图知识库设置 Neo4j database 名
-	if req.Type == "graph" {
-		neo4jDB := fmt.Sprintf("kb_%d", kb.ID)
-		db.Model(kb).Update("neo4j_database", neo4jDB)
-		kb.Neo4jDatabase = &neo4jDB
-	}
 
 	return l.toKnowledgeBaseInfo(kb), nil
 }
@@ -313,8 +266,34 @@ func (l *KnowledgeBaseLogic) Update(id int64, req *UpdateKnowledgeBaseReq) error
 		return errors.New("知识库不存在")
 	}
 
+	// 将 req 中的配置字段 merge 进已有的 config JSON
+	cfg := kb.GetConfig()
+	if req.ChunkSize > 0 {
+		cfg.ChunkSize = int(req.ChunkSize)
+	}
+	if req.ChunkOverlap >= 0 {
+		cfg.ChunkOverlap = int(req.ChunkOverlap)
+	}
+	if req.SimilarityThreshold > 0 {
+		cfg.SimilarityThreshold = req.SimilarityThreshold
+	}
+	if req.TopK > 0 {
+		cfg.TopK = int(req.TopK)
+	}
+	if req.RetrievalMode != "" {
+		cfg.RetrievalMode = req.RetrievalMode
+	}
+	if req.RerankModelID != nil {
+		cfg.RerankModelID = req.RerankModelID
+	}
+	if req.RerankEnabled != nil {
+		cfg.RerankEnabled = *req.RerankEnabled
+	}
+	kb.SetConfig(cfg)
+
 	updates := map[string]interface{}{
 		"updated_at": time.Now(),
+		"config":     kb.ConfigJSON,
 	}
 	if req.Name != "" {
 		updates["name"] = req.Name
@@ -323,44 +302,11 @@ func (l *KnowledgeBaseLogic) Update(id int64, req *UpdateKnowledgeBaseReq) error
 	if req.EmbeddingModelID != nil {
 		updates["embedding_model_id"] = *req.EmbeddingModelID
 	}
-	if req.EmbeddingModelName != "" {
-		updates["embedding_model_name"] = req.EmbeddingModelName
-	}
-	if req.EmbeddingDimension > 0 {
-		updates["embedding_dimension"] = req.EmbeddingDimension
-	}
-	if req.ChunkSize > 0 {
-		updates["chunk_size"] = req.ChunkSize
-	}
-	if req.ChunkOverlap >= 0 {
-		updates["chunk_overlap"] = req.ChunkOverlap
-	}
-	if req.SimilarityThreshold > 0 {
-		updates["similarity_threshold"] = req.SimilarityThreshold
-	}
-	if req.TopK > 0 {
-		updates["top_k"] = req.TopK
-	}
-	if req.RetrievalMode != "" {
-		updates["retrieval_mode"] = req.RetrievalMode
-	}
-	if req.RerankModelID != nil {
-		updates["rerank_model_id"] = *req.RerankModelID
-	}
-	if req.RerankEnabled != nil {
-		updates["rerank_enabled"] = *req.RerankEnabled
-	}
 	if req.MultimodalEnabled != nil {
 		updates["multimodal_enabled"] = *req.MultimodalEnabled
 	}
 	if req.MultimodalModelID != nil {
 		updates["multimodal_model_id"] = *req.MultimodalModelID
-	}
-	if req.MultimodalModelName != "" {
-		updates["multimodal_model_name"] = req.MultimodalModelName
-	}
-	if req.MultimodalDimension > 0 {
-		updates["multimodal_dimension"] = req.MultimodalDimension
 	}
 	if req.GraphExtractModelID != nil {
 		updates["graph_extract_model_id"] = *req.GraphExtractModelID
@@ -756,6 +702,26 @@ func (l *KnowledgeBaseLogic) reEmbedSegment(kbID, segID int64, content string) {
 // 分块预览 + 文档处理
 // -----------------------------------------------
 
+// mergeChunkSetting 将请求中的分块设置合并到默认设置（提取公共逻辑）
+func mergeChunkSetting(override *model.ChunkSetting) *model.ChunkSetting {
+	cs := model.DefaultChunkSetting()
+	if override == nil {
+		return cs
+	}
+	if override.Separator != "" {
+		cs.Separator = override.Separator
+	}
+	if override.ChunkSize > 0 {
+		cs.ChunkSize = override.ChunkSize
+	}
+	if override.ChunkOverlap >= 0 {
+		cs.ChunkOverlap = override.ChunkOverlap
+	}
+	cs.CleanWhitespace = override.CleanWhitespace
+	cs.RemoveURLs = override.RemoveURLs
+	return cs
+}
+
 func (l *KnowledgeBaseLogic) PreviewChunks(kbID int64, req *PreviewChunksReq) ([]*PreviewChunkItem, error) {
 	text := req.Content
 
@@ -777,21 +743,7 @@ func (l *KnowledgeBaseLogic) PreviewChunks(kbID int64, req *PreviewChunksReq) ([
 		return nil, errors.New("文档内容为空")
 	}
 
-	cs := model.DefaultChunkSetting()
-	if req.ChunkSetting != nil {
-		if req.ChunkSetting.Separator != "" {
-			cs.Separator = req.ChunkSetting.Separator
-		}
-		if req.ChunkSetting.ChunkSize > 0 {
-			cs.ChunkSize = req.ChunkSetting.ChunkSize
-		}
-		if req.ChunkSetting.ChunkOverlap >= 0 {
-			cs.ChunkOverlap = req.ChunkSetting.ChunkOverlap
-		}
-		cs.CleanWhitespace = req.ChunkSetting.CleanWhitespace
-		cs.RemoveURLs = req.ChunkSetting.RemoveURLs
-	}
-
+	cs := mergeChunkSetting(req.ChunkSetting)
 	if cs.CleanWhitespace {
 		text = cleanWhitespace(text)
 	}
@@ -830,26 +782,11 @@ func (l *KnowledgeBaseLogic) ProcessDocument(kbID, docID int64, req *ProcessDocu
 		return errors.New("文档不存在")
 	}
 
-	cs := model.DefaultChunkSetting()
-	if req.ChunkSetting != nil {
-		if req.ChunkSetting.Separator != "" {
-			cs.Separator = req.ChunkSetting.Separator
-		}
-		if req.ChunkSetting.ChunkSize > 0 {
-			cs.ChunkSize = req.ChunkSetting.ChunkSize
-		}
-		if req.ChunkSetting.ChunkOverlap >= 0 {
-			cs.ChunkOverlap = req.ChunkSetting.ChunkOverlap
-		}
-		cs.CleanWhitespace = req.ChunkSetting.CleanWhitespace
-		cs.RemoveURLs = req.ChunkSetting.RemoveURLs
-	}
-
+	cs := mergeChunkSetting(req.ChunkSetting)
 	db.Model(&model.TKnowledgeDocument{}).Where("id = ?", docID).Updates(map[string]interface{}{
 		"chunk_setting":   cs,
 		"indexing_status": "waiting",
 	})
-
 	db.Where("id = ?", docID).First(&doc)
 
 	safeGo(func() {
@@ -878,28 +815,25 @@ func (l *KnowledgeBaseLogic) Search(kbID int64, req *KnowledgeSearchReq) ([]*Kno
 		return nil, errors.New("知识库尚未初始化向量存储")
 	}
 
+	cfg := kb.GetConfig()
+
 	topK := req.TopK
-	if topK <= 0 && kb.TopK != nil {
-		topK = int(*kb.TopK)
-	}
 	if topK <= 0 {
-		topK = 5
+		topK = cfg.TopK
 	}
+
 	score := req.Score
-	// score < 0 表示"使用知识库默认阈值"；score == 0 表示不过滤（Dify 默认行为）
-	if score < 0 && kb.SimilarityThreshold != nil {
-		score = *kb.SimilarityThreshold
+	// score < 0：使用知识库配置的阈值；score == 0：不过滤（对齐 Dify）
+	if score < 0 {
+		score = cfg.SimilarityThreshold
 	}
 	if score < 0 {
 		score = 0
 	}
 
 	retrievalMode := req.RetrievalMode
-	if retrievalMode == "" && kb.RetrievalMode != nil {
-		retrievalMode = *kb.RetrievalMode
-	}
 	if retrievalMode == "" {
-		retrievalMode = "vector"
+		retrievalMode = cfg.RetrievalMode
 	}
 
 	searchFields := req.SearchFields
@@ -970,7 +904,7 @@ func (l *KnowledgeBaseLogic) vectorSearch(kb *model.TKnowledgeBase, query string
 	}
 
 	// 多模态向量搜索（用文本查询搜索图片向量空间）
-	multimodalEnabled := kb.MultimodalEnabled != nil && *kb.MultimodalEnabled
+	multimodalEnabled := kb.MultimodalEnabled
 	if multimodalEnabled && (searchFields == "all" || searchFields == "image") {
 		if kb.MultimodalModelID != nil && *kb.MultimodalModelID != 0 {
 			mmModel, err := aiModelLogic.GetByIDWithKey(*kb.MultimodalModelID)
@@ -1188,10 +1122,8 @@ func (l *KnowledgeBaseLogic) Diagnose(kbID int64) (*KnowledgeDiagResult, error) 
 		return nil, fmt.Errorf("知识库不存在")
 	}
 
-	configuredDim := 1536
-	if kb.EmbeddingDimension != nil {
-		configuredDim = int(*kb.EmbeddingDimension)
-	}
+	kbCfg := kb.GetConfig()
+	configuredDim := kbCfg.EmbeddingDimension
 	result := &KnowledgeDiagResult{
 		KBID:          kb.ID,
 		KBName:        kb.Name,
@@ -1281,6 +1213,7 @@ func (l *KnowledgeBaseLogic) updateDocumentCount(kbID int64) {
 }
 
 func (l *KnowledgeBaseLogic) toKnowledgeBaseInfo(m *model.TKnowledgeBase) *KnowledgeBaseInfo {
+	cfg := m.GetConfig()
 	info := &KnowledgeBaseInfo{
 		ID:                  m.ID,
 		CreatedAt:           m.CreatedAt,
@@ -1289,9 +1222,21 @@ func (l *KnowledgeBaseLogic) toKnowledgeBaseInfo(m *model.TKnowledgeBase) *Knowl
 		Name:                m.Name,
 		Type:                m.Type,
 		EmbeddingModelID:    m.EmbeddingModelID,
+		MultimodalEnabled:   m.MultimodalEnabled,
 		MultimodalModelID:   m.MultimodalModelID,
-		RerankModelID:       m.RerankModelID,
 		GraphExtractModelID: m.GraphExtractModelID,
+		DocumentCount:       m.DocumentCount,
+		ChunkCount:          m.ChunkCount,
+		// 配置字段（从 config JSON 展开）
+		ChunkSize:           int32(cfg.ChunkSize),
+		ChunkOverlap:        int32(cfg.ChunkOverlap),
+		SimilarityThreshold: cfg.SimilarityThreshold,
+		TopK:                int32(cfg.TopK),
+		RetrievalMode:       cfg.RetrievalMode,
+		RerankEnabled:       cfg.RerankEnabled,
+		RerankModelID:       cfg.RerankModelID,
+		EmbeddingDimension:  cfg.EmbeddingDimension,
+		MultimodalDimension: cfg.MultimodalDimension,
 	}
 	if m.Description != nil {
 		info.Description = *m.Description
@@ -1299,53 +1244,8 @@ func (l *KnowledgeBaseLogic) toKnowledgeBaseInfo(m *model.TKnowledgeBase) *Knowl
 	if m.Status != nil {
 		info.Status = *m.Status
 	}
-	if m.EmbeddingModelName != nil {
-		info.EmbeddingModelName = *m.EmbeddingModelName
-	}
-	if m.EmbeddingDimension != nil {
-		info.EmbeddingDimension = *m.EmbeddingDimension
-	}
-	if m.MultimodalEnabled != nil {
-		info.MultimodalEnabled = *m.MultimodalEnabled
-	}
-	if m.MultimodalModelName != nil {
-		info.MultimodalModelName = *m.MultimodalModelName
-	}
-	if m.MultimodalDimension != nil {
-		info.MultimodalDimension = *m.MultimodalDimension
-	}
-	if m.ChunkSize != nil {
-		info.ChunkSize = *m.ChunkSize
-	}
-	if m.ChunkOverlap != nil {
-		info.ChunkOverlap = *m.ChunkOverlap
-	}
-	if m.SimilarityThreshold != nil {
-		info.SimilarityThreshold = *m.SimilarityThreshold
-	}
-	if m.TopK != nil {
-		info.TopK = *m.TopK
-	}
-	if m.RetrievalMode != nil {
-		info.RetrievalMode = *m.RetrievalMode
-	}
-	if m.RerankEnabled != nil {
-		info.RerankEnabled = *m.RerankEnabled
-	}
 	if m.QdrantCollection != nil {
 		info.QdrantCollection = *m.QdrantCollection
-	}
-	if m.DocumentCount != nil {
-		info.DocumentCount = *m.DocumentCount
-	}
-	if m.ChunkCount != nil {
-		info.ChunkCount = *m.ChunkCount
-	}
-	if m.EntityCount != nil {
-		info.EntityCount = *m.EntityCount
-	}
-	if m.RelationCount != nil {
-		info.RelationCount = *m.RelationCount
 	}
 	return info
 }

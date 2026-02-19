@@ -61,7 +61,7 @@ func (p *DocumentProcessor) Process(kb *model.TKnowledgeBase, doc *model.TKnowle
 
 	// 提取文档中的图片（多模态支持）
 	var images []ImageChunk
-	multimodalEnabled := kb.MultimodalEnabled != nil && *kb.MultimodalEnabled
+	multimodalEnabled := kb.MultimodalEnabled
 	if multimodalEnabled {
 		images = p.extractImages(doc)
 		if len(images) > 0 {
@@ -109,6 +109,7 @@ func (p *DocumentProcessor) Process(kb *model.TKnowledgeBase, doc *model.TKnowle
 	// ── Stage 2: Cleaning ──
 	p.updateIndexingStatus(ctx, doc.ID, "cleaning")
 
+	// 分块设置：文档级设置优先，其次用知识库 config
 	cs := doc.ChunkSetting
 	if cs == nil {
 		cs = model.DefaultChunkSetting()
@@ -123,16 +124,17 @@ func (p *DocumentProcessor) Process(kb *model.TKnowledgeBase, doc *model.TKnowle
 	// ── Stage 3: Splitting ──
 	p.updateIndexingStatus(ctx, doc.ID, "splitting")
 
+	kbCfg := kb.GetConfig()
 	chunkSize := cs.ChunkSize
 	chunkOverlap := cs.ChunkOverlap
-	if chunkSize <= 0 && kb.ChunkSize != nil {
-		chunkSize = int(*kb.ChunkSize)
+	if chunkSize <= 0 {
+		chunkSize = kbCfg.ChunkSize
 	}
 	if chunkSize <= 0 {
 		chunkSize = 500
 	}
-	if chunkOverlap < 0 && kb.ChunkOverlap != nil {
-		chunkOverlap = int(*kb.ChunkOverlap)
+	if chunkOverlap < 0 {
+		chunkOverlap = kbCfg.ChunkOverlap
 	}
 	if chunkOverlap >= chunkSize {
 		chunkOverlap = chunkSize / 5
@@ -178,21 +180,19 @@ func (p *DocumentProcessor) Process(kb *model.TKnowledgeBase, doc *model.TKnowle
 
 		// 从实际输出拿维度，然后创建/验证 Qdrant Collection
 		textDimension = len(vectors[0])
-		// 如果 Collection 里的维度不匹配，删掉重建（含多模态字段）
-		imageDimension := 0
-		if multimodalEnabled && kb.MultimodalDimension != nil {
-			imageDimension = int(*kb.MultimodalDimension)
-		}
+		// 如果 Collection 里的维度不匹配，删掉重建
+		kbCfgForIndex := kb.GetConfig()
+		imageDimension := kbCfgForIndex.MultimodalDimension
 		if err := ensureCollectionDimension(collectionName, textDimension, imageDimension); err != nil {
 			p.markFailed(ctx, doc.ID, fmt.Sprintf("Qdrant Collection 初始化失败: %v", err))
 			return err
 		}
 
-		// 将实际维度回写 DB（作为缓存，方便查阅），不影响索引逻辑
-		if kb.EmbeddingDimension == nil || int(*kb.EmbeddingDimension) != textDimension {
-			dim32 := int32(textDimension)
-			db.Model(&model.TKnowledgeBase{}).Where("id = ?", kb.ID).Update("embedding_dimension", dim32)
-			kb.EmbeddingDimension = &dim32
+		// 将实际维度回写 config JSON（缓存值，不影响索引逻辑）
+		if kbCfgForIndex.EmbeddingDimension != textDimension {
+			kbCfgForIndex.EmbeddingDimension = textDimension
+			kb.SetConfig(kbCfgForIndex)
+			db.Model(&model.TKnowledgeBase{}).Where("id = ?", kb.ID).Update("config", kb.ConfigJSON)
 		}
 
 		// 清理旧数据
@@ -328,19 +328,16 @@ func (p *DocumentProcessor) indexImages(kb *model.TKnowledgeBase, doc *model.TKn
 
 	// 从实际输出拿图片向量维度，确保 Collection 的 image 字段维度正确
 	imageDimension := len(vectors[0])
-	textDimension := 0
-	if kb.EmbeddingDimension != nil {
-		textDimension = int(*kb.EmbeddingDimension)
-	}
-	if err := ensureCollectionDimension(collectionName, textDimension, imageDimension); err != nil {
+	kbCfg := kb.GetConfig()
+	if err := ensureCollectionDimension(collectionName, kbCfg.EmbeddingDimension, imageDimension); err != nil {
 		return fmt.Errorf("Qdrant Collection image 字段初始化失败: %w", err)
 	}
-	// 回写实际图片维度
-	if kb.MultimodalDimension == nil || int(*kb.MultimodalDimension) != imageDimension {
-		dim32 := int32(imageDimension)
+	// 回写实际图片维度到 config JSON
+	if kbCfg.MultimodalDimension != imageDimension {
+		kbCfg.MultimodalDimension = imageDimension
+		kb.SetConfig(kbCfg)
 		db := svc.Ctx.DB
-		db.Model(&model.TKnowledgeBase{}).Where("id = ?", kb.ID).Update("multimodal_dimension", dim32)
-		kb.MultimodalDimension = &dim32
+		db.Model(&model.TKnowledgeBase{}).Where("id = ?", kb.ID).Update("config", kb.ConfigJSON)
 	}
 
 	points := make([]VectorPoint, len(validImages))
@@ -1237,30 +1234,8 @@ func (p *DocumentProcessor) getEmbeddingClient(kb *model.TKnowledgeBase) (*Embed
 		return NewEmbeddingClient(aiModel.APIBaseURL, aiModel.APIKey, aiModel.ModelID), nil
 	}
 
-	// 降级：尝试用 EmbeddingModelName 按 model_id 字段查找
-	if kb.EmbeddingModelName != nil && *kb.EmbeddingModelName != "" {
-		log.Printf("[WARN] 知识库 %d 的 embedding_model_id 为空，尝试按模型名称 %q 查找",
-			kb.ID, *kb.EmbeddingModelName)
-		db := svc.Ctx.DB
-		var aiModelRecord struct {
-			ID         int64  `gorm:"column:id"`
-			APIBaseURL string `gorm:"column:api_base_url"`
-			APIKey     string `gorm:"column:api_key"`
-			ModelID    string `gorm:"column:model_id"`
-		}
-		if err := db.Table("t_ai_model").
-			Where("model_id = ? OR display_name = ?", *kb.EmbeddingModelName, *kb.EmbeddingModelName).
-			First(&aiModelRecord).Error; err == nil {
-			// 顺便修复数据库中缺失的 model_id
-			db.Model(&model.TKnowledgeBase{}).Where("id = ?", kb.ID).Update("embedding_model_id", aiModelRecord.ID)
-			kb.EmbeddingModelID = &aiModelRecord.ID
-			log.Printf("[INFO] 知识库 %d 的 embedding_model_id 已自动修复为 %d", kb.ID, aiModelRecord.ID)
-			return NewEmbeddingClient(aiModelRecord.APIBaseURL, aiModelRecord.APIKey, aiModelRecord.ModelID), nil
-		}
-	}
-
-	log.Printf("[ERROR] 知识库 %d 未配置嵌入模型 (embedding_model_id=%v, embedding_model_name=%v)",
-		kb.ID, kb.EmbeddingModelID, kb.EmbeddingModelName)
+	log.Printf("[ERROR] 知识库 %d 未配置嵌入模型 (embedding_model_id=%v)",
+		kb.ID, kb.EmbeddingModelID)
 	return nil, fmt.Errorf("知识库未配置嵌入模型，请在知识库「设置」页面选择嵌入模型并保存")
 }
 

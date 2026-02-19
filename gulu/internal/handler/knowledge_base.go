@@ -12,6 +12,11 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
+// parseKBID 从路由参数 ":id" 解析知识库 ID（消除各 handler 中的重复代码）
+func parseKBID(c *fiber.Ctx) (int64, error) {
+	return strconv.ParseInt(c.Params("id"), 10, 64)
+}
+
 // -----------------------------------------------
 // 知识库 CRUD
 // -----------------------------------------------
@@ -60,7 +65,7 @@ func KnowledgeBaseList(c *fiber.Ctx) error {
 }
 
 func KnowledgeBaseGetByID(c *fiber.Ctx) error {
-	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	id, err := parseKBID(c)
 	if err != nil {
 		return response.Error(c, "无效的知识库ID")
 	}
@@ -74,7 +79,7 @@ func KnowledgeBaseGetByID(c *fiber.Ctx) error {
 }
 
 func KnowledgeBaseUpdate(c *fiber.Ctx) error {
-	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	id, err := parseKBID(c)
 	if err != nil {
 		return response.Error(c, "无效的知识库ID")
 	}
@@ -92,7 +97,7 @@ func KnowledgeBaseUpdate(c *fiber.Ctx) error {
 }
 
 func KnowledgeBaseDelete(c *fiber.Ctx) error {
-	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	id, err := parseKBID(c)
 	if err != nil {
 		return response.Error(c, "无效的知识库ID")
 	}
@@ -105,7 +110,7 @@ func KnowledgeBaseDelete(c *fiber.Ctx) error {
 }
 
 func KnowledgeBaseUpdateStatus(c *fiber.Ctx) error {
-	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	id, err := parseKBID(c)
 	if err != nil {
 		return response.Error(c, "无效的知识库ID")
 	}
@@ -371,7 +376,7 @@ func KnowledgeSegmentUpdate(c *fiber.Ctx) error {
 // -----------------------------------------------
 
 func KnowledgeBaseSearch(c *fiber.Ctx) error {
-	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	id, err := parseKBID(c)
 	if err != nil {
 		return response.Error(c, "无效的知识库ID")
 	}

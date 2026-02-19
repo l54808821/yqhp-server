@@ -212,8 +212,36 @@ func (c *EmbeddingClient) EmbedMultimodal(ctx context.Context, inputs []Multimod
 	return allEmbeddings, nil
 }
 
+// doHTTPPost 发送 JSON POST 请求并返回响应体（提取公共 HTTP 逻辑）
+func (c *EmbeddingClient) doHTTPPost(ctx context.Context, url string, reqBody interface{}, timeout time.Duration) ([]byte, error) {
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, fmt.Errorf("请求序列化失败: %w", err)
+	}
+	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return nil, fmt.Errorf("创建 HTTP 请求失败: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	if c.APIKey != "" {
+		httpReq.Header.Set("Authorization", "Bearer "+c.APIKey)
+	}
+	resp, err := (&http.Client{Timeout: timeout}).Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP 请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("读取响应失败: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("API 返回错误 (HTTP %d): %s", resp.StatusCode, string(respBody))
+	}
+	return respBody, nil
+}
+
 // callMultimodalEmbeddingAPI 调用多模态 Embedding API
-// 兼容 Jina CLIP、Google Vertex AI 等多模态嵌入模型 API 格式
 func (c *EmbeddingClient) callMultimodalEmbeddingAPI(ctx context.Context, inputs []MultimodalInput) ([][]float32, error) {
 	inputItems := make([]map[string]string, len(inputs))
 	for i, inp := range inputs {
@@ -221,59 +249,22 @@ func (c *EmbeddingClient) callMultimodalEmbeddingAPI(ctx context.Context, inputs
 		case EmbeddingInputImage:
 			b64 := base64.StdEncoding.EncodeToString(inp.ImageData)
 			mimeType := detectImageMime(inp.ImageData)
-			inputItems[i] = map[string]string{
-				"image": fmt.Sprintf("data:%s;base64,%s", mimeType, b64),
-			}
+			inputItems[i] = map[string]string{"image": fmt.Sprintf("data:%s;base64,%s", mimeType, b64)}
 		default:
-			inputItems[i] = map[string]string{
-				"text": inp.Text,
-			}
+			inputItems[i] = map[string]string{"text": inp.Text}
 		}
 	}
 
-	reqBody := embeddingRequest{
-		Model: c.Model,
-		Input: inputItems,
-	}
-
-	bodyBytes, err := json.Marshal(reqBody)
+	respBody, err := c.doHTTPPost(ctx, c.BaseURL+"/embeddings",
+		embeddingRequest{Model: c.Model, Input: inputItems}, c.Timeout*2)
 	if err != nil {
-		return nil, fmt.Errorf("请求序列化失败: %w", err)
-	}
-
-	url := c.BaseURL + "/embeddings"
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
-	if err != nil {
-		return nil, fmt.Errorf("创建 HTTP 请求失败: %w", err)
-	}
-
-	httpReq.Header.Set("Content-Type", "application/json")
-	if c.APIKey != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+c.APIKey)
-	}
-
-	httpClient := &http.Client{Timeout: c.Timeout * 2}
-	resp, err := httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("HTTP 请求失败: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("读取响应失败: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("多模态 Embedding API 返回错误 (HTTP %d): %s", resp.StatusCode, string(respBody))
+		return nil, err
 	}
 
 	var embResp embeddingResponse
 	if err := json.Unmarshal(respBody, &embResp); err != nil {
 		return nil, fmt.Errorf("响应解析失败: %w", err)
 	}
-
 	if embResp.Error != nil {
 		return nil, fmt.Errorf("多模态 Embedding API 错误: %s", embResp.Error.Message)
 	}
@@ -284,72 +275,33 @@ func (c *EmbeddingClient) callMultimodalEmbeddingAPI(ctx context.Context, inputs
 			embeddings[d.Index] = normalizeVector(d.Embedding)
 		}
 	}
-
 	for i, emb := range embeddings {
 		if emb == nil {
 			return nil, fmt.Errorf("缺少第 %d 项的多模态 Embedding 结果", i)
 		}
 	}
-
 	return embeddings, nil
 }
 
 // callEmbeddingAPI 调用纯文本 Embedding API
 // inputType：传 "document" 或 "query"，仅在 SupportInputType=true 时才发送
-// 大多数本地部署（Ollama、vLLM 等）不支持此字段，发送会导致报错
 func (c *EmbeddingClient) callEmbeddingAPI(ctx context.Context, texts []string, inputType string) ([][]float32, error) {
 	var reqBody interface{}
 	if c.SupportInputType && inputType != "" {
-		reqBody = embeddingRequestWithInputType{
-			Model:     c.Model,
-			Input:     texts,
-			InputType: inputType,
-		}
+		reqBody = embeddingRequestWithInputType{Model: c.Model, Input: texts, InputType: inputType}
 	} else {
-		reqBody = embeddingRequest{
-			Model: c.Model,
-			Input: texts,
-		}
+		reqBody = embeddingRequest{Model: c.Model, Input: texts}
 	}
 
-	bodyBytes, marshalErr := json.Marshal(reqBody)
-	if marshalErr != nil {
-		return nil, fmt.Errorf("请求序列化失败: %w", marshalErr)
-	}
-
-	url := c.BaseURL + "/embeddings"
-
-	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
+	respBody, err := c.doHTTPPost(ctx, c.BaseURL+"/embeddings", reqBody, c.Timeout)
 	if err != nil {
-		return nil, fmt.Errorf("创建 HTTP 请求失败: %w", err)
-	}
-
-	httpReq.Header.Set("Content-Type", "application/json")
-	if c.APIKey != "" {
-		httpReq.Header.Set("Authorization", "Bearer "+c.APIKey)
-	}
-
-	httpClient := &http.Client{Timeout: c.Timeout}
-	resp, err := httpClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("HTTP 请求失败: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("读取响应失败: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("Embedding API 返回错误 (HTTP %d): %s", resp.StatusCode, string(respBody))
+		return nil, err
 	}
 
 	var embResp embeddingResponse
 	if err := json.Unmarshal(respBody, &embResp); err != nil {
 		return nil, fmt.Errorf("响应解析失败: %w", err)
 	}
-
 	if embResp.Error != nil {
 		return nil, fmt.Errorf("Embedding API 错误: %s", embResp.Error.Message)
 	}
@@ -360,13 +312,11 @@ func (c *EmbeddingClient) callEmbeddingAPI(ctx context.Context, texts []string, 
 			embeddings[d.Index] = normalizeVector(d.Embedding)
 		}
 	}
-
 	for i, emb := range embeddings {
 		if emb == nil {
 			return nil, fmt.Errorf("缺少第 %d 条文本的 Embedding 结果", i)
 		}
 	}
-
 	return embeddings, nil
 }
 

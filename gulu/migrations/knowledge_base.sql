@@ -33,9 +33,6 @@ CREATE TABLE `t_knowledge_base` (
   --            "top_k":5,"retrieval_mode":"vector","rerank_enabled":false,
   --            "rerank_model_id":null,"embedding_dimension":0,"multimodal_dimension":0}
   `config` JSON DEFAULT NULL,
-  -- 统计（缓存值，实时更新）
-  `document_count` INT DEFAULT 0,
-  `chunk_count` INT DEFAULT 0,
   PRIMARY KEY (`id`),
   INDEX `idx_kb_project_id` (`project_id`),
   INDEX `idx_kb_is_delete` (`is_delete`),

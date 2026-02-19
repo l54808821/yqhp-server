@@ -172,6 +172,8 @@ type SegmentInfo struct {
 
 type PreviewChunksReq struct {
 	DocumentID   int64               `json:"document_id"`
+	FilePath     string              `json:"file_path"`
+	FileType     string              `json:"file_type"`
 	Content      string              `json:"content"`
 	ChunkSetting *model.ChunkSetting `json:"chunk_setting"`
 }
@@ -183,6 +185,23 @@ type PreviewChunkItem struct {
 }
 
 type ProcessDocumentReq struct {
+	ChunkSetting *model.ChunkSetting `json:"chunk_setting"`
+}
+
+// UploadFileResult 仅上传文件（不建 DB 记录）的返回结构
+type UploadFileResult struct {
+	FilePath string `json:"file_path"`
+	FileName string `json:"file_name"`
+	FileType string `json:"file_type"`
+	FileSize int64  `json:"file_size"`
+}
+
+// CreateAndProcessReq 创建文档并处理的请求
+type CreateAndProcessReq struct {
+	FilePath     string              `json:"file_path"`
+	FileName     string              `json:"file_name"`
+	FileType     string              `json:"file_type"`
+	FileSize     int64               `json:"file_size"`
 	ChunkSetting *model.ChunkSetting `json:"chunk_setting"`
 }
 
@@ -359,7 +378,8 @@ func (l *KnowledgeBaseLogic) GetByID(id int64) (*KnowledgeBaseInfo, error) {
 	if err := db.Where("id = ? AND is_delete = 0", id).First(&kb).Error; err != nil {
 		return nil, err
 	}
-	return l.toKnowledgeBaseInfo(&kb), nil
+	countsMap := l.getKBCounts([]int64{id})
+	return l.toKnowledgeBaseInfo(&kb, countsMap[id]), nil
 }
 
 func (l *KnowledgeBaseLogic) List(req *KnowledgeBaseListReq) ([]*KnowledgeBaseInfo, int64, error) {
@@ -385,9 +405,15 @@ func (l *KnowledgeBaseLogic) List(req *KnowledgeBaseListReq) ([]*KnowledgeBaseIn
 		return nil, 0, err
 	}
 
+	kbIDs := make([]int64, 0, len(list))
+	for i := range list {
+		kbIDs = append(kbIDs, list[i].ID)
+	}
+	countsMap := l.getKBCounts(kbIDs)
+
 	result := make([]*KnowledgeBaseInfo, 0, len(list))
 	for i := range list {
-		result = append(result, l.toKnowledgeBaseInfo(&list[i]))
+		result = append(result, l.toKnowledgeBaseInfo(&list[i], countsMap[list[i].ID]))
 	}
 	return result, total, nil
 }
@@ -430,7 +456,6 @@ func (l *KnowledgeBaseLogic) CreateDocument(kbID int64, name, fileType, filePath
 		return nil, err
 	}
 
-	safeGo(func() { l.updateDocumentCount(kbID) })
 	return l.toDocumentInfo(doc), nil
 }
 
@@ -475,7 +500,6 @@ func (l *KnowledgeBaseLogic) DeleteDocument(kbID, docID int64) error {
 	db.Where("document_id = ?", docID).Delete(&model.TKnowledgeSegment{})
 
 	safeGo(func() {
-		l.updateDocumentCount(kbID)
 		if kb.QdrantCollection != nil && *kb.QdrantCollection != "" {
 			if err := DeleteDocumentVectors(*kb.QdrantCollection, docID); err != nil {
 				log.Printf("[WARN] 清理文档向量失败: docID=%d, err=%v", docID, err)
@@ -504,7 +528,6 @@ func (l *KnowledgeBaseLogic) BatchDeleteDocuments(kbID int64, docIDs []int64) er
 	db.Where("document_id IN ? AND knowledge_base_id = ?", docIDs, kbID).Delete(&model.TKnowledgeSegment{})
 
 	safeGo(func() {
-		l.updateDocumentCount(kbID)
 		for _, doc := range docs {
 			if kb.QdrantCollection != nil && *kb.QdrantCollection != "" {
 				DeleteDocumentVectors(*kb.QdrantCollection, doc.ID)
@@ -752,6 +775,17 @@ func (l *KnowledgeBaseLogic) PreviewChunks(kbID int64, req *PreviewChunksReq) ([
 			return nil, fmt.Errorf("文本提取失败: %w", err)
 		}
 		text = extracted
+	} else if req.FilePath != "" {
+		tmpDoc := &model.TKnowledgeDocument{
+			FilePath: &req.FilePath,
+			FileType: &req.FileType,
+		}
+		processor := NewDocumentProcessor()
+		extracted, err := processor.extractText(tmpDoc)
+		if err != nil {
+			return nil, fmt.Errorf("文本提取失败: %w", err)
+		}
+		text = extracted
 	}
 
 	if text == "" {
@@ -812,6 +846,21 @@ func (l *KnowledgeBaseLogic) ProcessDocument(kbID, docID int64, req *ProcessDocu
 	})
 
 	return nil
+}
+
+// CreateAndProcessDocument 一次性创建文档记录并启动异步处理（配合 upload-file 使用）
+func (l *KnowledgeBaseLogic) CreateAndProcessDocument(kbID int64, req *CreateAndProcessReq) (*KnowledgeDocumentInfo, error) {
+	docInfo, err := l.CreateDocument(kbID, req.FileName, req.FileType, req.FilePath, req.FileSize)
+	if err != nil {
+		return nil, err
+	}
+
+	processReq := &ProcessDocumentReq{ChunkSetting: req.ChunkSetting}
+	if err := l.ProcessDocument(kbID, docInfo.ID, processReq); err != nil {
+		return nil, err
+	}
+
+	return docInfo, nil
 }
 
 // -----------------------------------------------
@@ -1222,14 +1271,54 @@ func getDocNameCached(docID int64, cache map[int64]string) string {
 	return ""
 }
 
-func (l *KnowledgeBaseLogic) updateDocumentCount(kbID int64) {
-	db := svc.Ctx.DB
-	var count int64
-	db.Model(&model.TKnowledgeDocument{}).Where("knowledge_base_id = ?", kbID).Count(&count)
-	db.Model(&model.TKnowledgeBase{}).Where("id = ?", kbID).Update("document_count", int32(count))
+
+// kbCounts 存储知识库的文档数和分块数
+type kbCounts struct {
+	DocumentCount int32
+	ChunkCount    int32
 }
 
-func (l *KnowledgeBaseLogic) toKnowledgeBaseInfo(m *model.TKnowledgeBase) *KnowledgeBaseInfo {
+// getKBCounts 批量查询知识库的文档数和分块数
+func (l *KnowledgeBaseLogic) getKBCounts(kbIDs []int64) map[int64]*kbCounts {
+	db := svc.Ctx.DB
+	result := make(map[int64]*kbCounts, len(kbIDs))
+	for _, id := range kbIDs {
+		result[id] = &kbCounts{}
+	}
+
+	type countRow struct {
+		KnowledgeBaseID int64 `gorm:"column:knowledge_base_id"`
+		Cnt             int64 `gorm:"column:cnt"`
+	}
+
+	var docRows []countRow
+	db.Model(&model.TKnowledgeDocument{}).
+		Select("knowledge_base_id, COUNT(*) as cnt").
+		Where("knowledge_base_id IN ?", kbIDs).
+		Group("knowledge_base_id").
+		Find(&docRows)
+	for _, r := range docRows {
+		if c, ok := result[r.KnowledgeBaseID]; ok {
+			c.DocumentCount = int32(r.Cnt)
+		}
+	}
+
+	var chunkRows []countRow
+	db.Model(&model.TKnowledgeSegment{}).
+		Select("knowledge_base_id, COUNT(*) as cnt").
+		Where("knowledge_base_id IN ? AND status = 'active'", kbIDs).
+		Group("knowledge_base_id").
+		Find(&chunkRows)
+	for _, r := range chunkRows {
+		if c, ok := result[r.KnowledgeBaseID]; ok {
+			c.ChunkCount = int32(r.Cnt)
+		}
+	}
+
+	return result
+}
+
+func (l *KnowledgeBaseLogic) toKnowledgeBaseInfo(m *model.TKnowledgeBase, counts *kbCounts) *KnowledgeBaseInfo {
 	cfg := m.GetConfig()
 	info := &KnowledgeBaseInfo{
 		ID:                  m.ID,
@@ -1242,9 +1331,6 @@ func (l *KnowledgeBaseLogic) toKnowledgeBaseInfo(m *model.TKnowledgeBase) *Knowl
 		MultimodalEnabled:   m.MultimodalEnabled,
 		MultimodalModelID:   m.MultimodalModelID,
 		GraphExtractModelID: m.GraphExtractModelID,
-		DocumentCount:       m.DocumentCount,
-		ChunkCount:          m.ChunkCount,
-		// 配置字段（从 config JSON 展开）
 		ChunkSize:           int32(cfg.ChunkSize),
 		ChunkOverlap:        int32(cfg.ChunkOverlap),
 		SimilarityThreshold: cfg.SimilarityThreshold,
@@ -1254,6 +1340,10 @@ func (l *KnowledgeBaseLogic) toKnowledgeBaseInfo(m *model.TKnowledgeBase) *Knowl
 		RerankModelID:       cfg.RerankModelID,
 		EmbeddingDimension:  cfg.EmbeddingDimension,
 		MultimodalDimension: cfg.MultimodalDimension,
+	}
+	if counts != nil {
+		info.DocumentCount = counts.DocumentCount
+		info.ChunkCount = counts.ChunkCount
 	}
 	if m.Description != nil {
 		info.Description = *m.Description

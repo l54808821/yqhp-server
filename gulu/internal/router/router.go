@@ -183,6 +183,8 @@ func Setup(app *fiber.App) {
 	kb.Delete("/:id", handler.KnowledgeBaseDelete)
 	kb.Put("/:id/status", handler.KnowledgeBaseUpdateStatus)
 	// 文档管理
+	kb.Post("/:id/upload-file", handler.KnowledgeFileUpload)
+	kb.Post("/:id/documents/create-and-process", handler.KnowledgeDocumentCreateAndProcess)
 	kb.Post("/:id/documents", handler.KnowledgeDocumentUpload)
 	kb.Get("/:id/documents", handler.KnowledgeDocumentList)
 	kb.Delete("/:id/documents/:docId", handler.KnowledgeDocumentDelete)

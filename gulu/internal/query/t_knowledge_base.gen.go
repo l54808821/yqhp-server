@@ -47,8 +47,6 @@ func newTKnowledgeBase(db *gorm.DB, opts ...gen.DOOption) tKnowledgeBase {
 	_tKnowledgeBase.TopK = field.NewInt32(tableName, "top_k")
 	_tKnowledgeBase.QdrantCollection = field.NewString(tableName, "qdrant_collection")
 	_tKnowledgeBase.Neo4jDatabase = field.NewString(tableName, "neo4j_database")
-	_tKnowledgeBase.DocumentCount = field.NewInt32(tableName, "document_count")
-	_tKnowledgeBase.ChunkCount = field.NewInt32(tableName, "chunk_count")
 	_tKnowledgeBase.Metadata = field.NewString(tableName, "metadata")
 
 	_tKnowledgeBase.fillFieldMap()
@@ -81,8 +79,6 @@ type tKnowledgeBase struct {
 	TopK                field.Int32
 	QdrantCollection    field.String
 	Neo4jDatabase       field.String
-	DocumentCount       field.Int32
-	ChunkCount          field.Int32
 	Metadata            field.String
 
 	fieldMap map[string]field.Expr
@@ -120,8 +116,6 @@ func (t *tKnowledgeBase) updateTableName(table string) *tKnowledgeBase {
 	t.TopK = field.NewInt32(table, "top_k")
 	t.QdrantCollection = field.NewString(table, "qdrant_collection")
 	t.Neo4jDatabase = field.NewString(table, "neo4j_database")
-	t.DocumentCount = field.NewInt32(table, "document_count")
-	t.ChunkCount = field.NewInt32(table, "chunk_count")
 	t.Metadata = field.NewString(table, "metadata")
 
 	t.fillFieldMap()
@@ -149,7 +143,7 @@ func (t *tKnowledgeBase) GetFieldByName(fieldName string) (field.OrderExpr, bool
 }
 
 func (t *tKnowledgeBase) fillFieldMap() {
-	t.fieldMap = make(map[string]field.Expr, 25)
+	t.fieldMap = make(map[string]field.Expr, 23)
 	t.fieldMap["id"] = t.ID
 	t.fieldMap["created_at"] = t.CreatedAt
 	t.fieldMap["updated_at"] = t.UpdatedAt
@@ -170,8 +164,6 @@ func (t *tKnowledgeBase) fillFieldMap() {
 	t.fieldMap["top_k"] = t.TopK
 	t.fieldMap["qdrant_collection"] = t.QdrantCollection
 	t.fieldMap["neo4j_database"] = t.Neo4jDatabase
-	t.fieldMap["document_count"] = t.DocumentCount
-	t.fieldMap["chunk_count"] = t.ChunkCount
 	t.fieldMap["metadata"] = t.Metadata
 }
 

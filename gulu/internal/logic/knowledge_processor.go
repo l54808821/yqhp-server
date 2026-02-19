@@ -288,7 +288,6 @@ func (p *DocumentProcessor) Process(kb *model.TKnowledgeBase, doc *model.TKnowle
 		"updated_at":            completedAt,
 	})
 
-	p.updateKBCounts(ctx, doc.KnowledgeBaseID)
 	log.Printf("[INFO] 文档处理完成: docID=%d, textChunks=%d, images=%d, words=%d", doc.ID, len(chunks), len(images), wordCount)
 	return nil
 }
@@ -1257,20 +1256,6 @@ func (p *DocumentProcessor) markFailed(ctx context.Context, docID int64, errMsg 
 		"indexing_status": "error",
 		"error_message":   errMsg,
 		"updated_at":      time.Now(),
-	})
-}
-
-func (p *DocumentProcessor) updateKBCounts(ctx context.Context, kbID int64) {
-	db := svc.Ctx.DB
-	var docCount int64
-	db.Model(&model.TKnowledgeDocument{}).Where("knowledge_base_id = ?", kbID).Count(&docCount)
-
-	var chunkCount int64
-	db.Model(&model.TKnowledgeSegment{}).Where("knowledge_base_id = ? AND status = 'active'", kbID).Count(&chunkCount)
-
-	db.Model(&model.TKnowledgeBase{}).Where("id = ?", kbID).Updates(map[string]interface{}{
-		"document_count": int32(docCount),
-		"chunk_count":    int32(chunkCount),
 	})
 }
 

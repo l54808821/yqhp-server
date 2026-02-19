@@ -60,10 +60,6 @@ type TKnowledgeBase struct {
 
 	// 配置 JSON（分块 + 检索参数 + 维度缓存）
 	ConfigJSON *string `gorm:"column:config;type:json" json:"-"`
-
-	// 统计
-	DocumentCount int32 `gorm:"column:document_count;default:0" json:"document_count"`
-	ChunkCount    int32 `gorm:"column:chunk_count;default:0" json:"chunk_count"`
 }
 
 func (*TKnowledgeBase) TableName() string {

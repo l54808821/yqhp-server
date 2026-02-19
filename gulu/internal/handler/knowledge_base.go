@@ -166,6 +166,63 @@ func KnowledgeDocumentUpload(c *fiber.Ctx) error {
 	return response.Success(c, result)
 }
 
+// KnowledgeFileUpload 仅上传文件到磁盘，不创建数据库记录。
+// 用于向导式上传流程：先上传文件预览，确认后再建记录并处理。
+func KnowledgeFileUpload(c *fiber.Ctx) error {
+	kbID, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	if err != nil {
+		return response.Error(c, "无效的知识库ID")
+	}
+
+	file, fileErr := c.FormFile("file")
+	if fileErr != nil || file == nil {
+		return response.Error(c, "请上传文件")
+	}
+
+	f, err := file.Open()
+	if err != nil {
+		return response.Error(c, "读取文件失败")
+	}
+	defer f.Close()
+
+	storage := logic.GetFileStorage()
+	relPath, err := storage.Save(kbID, file.Filename, f)
+	if err != nil {
+		return response.Error(c, "保存文件失败: "+err.Error())
+	}
+
+	return response.Success(c, logic.UploadFileResult{
+		FilePath: relPath,
+		FileName: file.Filename,
+		FileType: logic.InferFileType(file.Filename),
+		FileSize: file.Size,
+	})
+}
+
+// KnowledgeDocumentCreateAndProcess 一次性创建文档记录并启动异步处理。
+// 配合 KnowledgeFileUpload 使用：文件已在磁盘上，此接口创建 DB 记录后立即处理。
+func KnowledgeDocumentCreateAndProcess(c *fiber.Ctx) error {
+	kbID, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	if err != nil {
+		return response.Error(c, "无效的知识库ID")
+	}
+
+	var req logic.CreateAndProcessReq
+	if err := c.BodyParser(&req); err != nil {
+		return response.Error(c, "参数解析失败")
+	}
+	if req.FilePath == "" || req.FileName == "" {
+		return response.Error(c, "文件信息不完整")
+	}
+
+	kbLogic := logic.NewKnowledgeBaseLogic(c.UserContext())
+	result, err := kbLogic.CreateAndProcessDocument(kbID, &req)
+	if err != nil {
+		return response.Error(c, err.Error())
+	}
+	return response.Success(c, result)
+}
+
 func KnowledgeDocumentList(c *fiber.Ctx) error {
 	kbID, err := strconv.ParseInt(c.Params("id"), 10, 64)
 	if err != nil {
@@ -229,8 +286,8 @@ func KnowledgeDocumentPreviewChunks(c *fiber.Ctx) error {
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败")
 	}
-	if req.DocumentID == 0 && req.Content == "" {
-		return response.Error(c, "请提供文档ID或文档内容")
+	if req.DocumentID == 0 && req.FilePath == "" && req.Content == "" {
+		return response.Error(c, "请提供文档ID、文件路径或文档内容")
 	}
 
 	kbLogic := logic.NewKnowledgeBaseLogic(c.UserContext())

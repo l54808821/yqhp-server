@@ -1091,7 +1091,9 @@ func (l *KnowledgeBaseLogic) saveQueryHistory(kbID int64, query, mode string, to
 		ResultCount:     resultCount,
 		Source:          "hit_testing",
 	}
-	db.Create(q)
+	if err := db.Create(q).Error; err != nil {
+		log.Printf("[ERROR] saveQueryHistory: 保存查询历史失败 (kbID=%d): %v", kbID, err)
+	}
 }
 
 // KnowledgeDiagResult 诊断结果

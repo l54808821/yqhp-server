@@ -99,6 +99,7 @@ CREATE TABLE `t_knowledge_query` (
   `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
   `knowledge_base_id` BIGINT UNSIGNED NOT NULL,
   `query_text` TEXT NOT NULL,
+  `query_type` VARCHAR(20) DEFAULT 'text' COMMENT 'text / image',
   `retrieval_mode` VARCHAR(20) DEFAULT 'vector',
   `top_k` INT DEFAULT 5,
   `score_threshold` FLOAT DEFAULT 0.0,

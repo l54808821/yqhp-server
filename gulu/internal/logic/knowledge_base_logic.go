@@ -886,8 +886,12 @@ func (l *KnowledgeBaseLogic) Search(kbID int64, req *KnowledgeSearchReq) ([]*Kno
 		topK = 5
 	}
 	score := req.Score
-	if score <= 0 && kb.SimilarityThreshold != nil {
+	// score < 0 表示"使用知识库默认阈值"；score == 0 表示不过滤（Dify 默认行为）
+	if score < 0 && kb.SimilarityThreshold != nil {
 		score = *kb.SimilarityThreshold
+	}
+	if score < 0 {
+		score = 0
 	}
 
 	retrievalMode := req.RetrievalMode
@@ -930,6 +934,7 @@ func (l *KnowledgeBaseLogic) Search(kbID int64, req *KnowledgeSearchReq) ([]*Kno
 
 func (l *KnowledgeBaseLogic) vectorSearch(kb *model.TKnowledgeBase, query string, topK int, score float64, searchFields string) []*KnowledgeSearchResult {
 	if kb.EmbeddingModelID == nil || *kb.EmbeddingModelID == 0 {
+		log.Printf("[ERROR] vectorSearch: 知识库 %d 未配置嵌入模型", kb.ID)
 		return nil
 	}
 
@@ -941,21 +946,25 @@ func (l *KnowledgeBaseLogic) vectorSearch(kb *model.TKnowledgeBase, query string
 	if searchFields == "all" || searchFields == "text" || searchFields == "" {
 		aiModel, err := aiModelLogic.GetByIDWithKey(*kb.EmbeddingModelID)
 		if err != nil {
-			log.Printf("[ERROR] 获取嵌入模型失败: %v", err)
+			log.Printf("[ERROR] vectorSearch: 获取嵌入模型失败 (modelID=%d): %v", *kb.EmbeddingModelID, err)
 			return nil
 		}
+		log.Printf("[DEBUG] vectorSearch: 使用模型 %s (base=%s), collection=%s, score=%.3f",
+			aiModel.ModelID, aiModel.APIBaseURL, *kb.QdrantCollection, score)
 
 		embClient := NewEmbeddingClient(aiModel.APIBaseURL, aiModel.APIKey, aiModel.ModelID)
-		queryVector, err := embClient.EmbedText(l.ctx, query)
+		queryVector, err := embClient.EmbedTextAsQuery(l.ctx, query)
 		if err != nil {
-			log.Printf("[ERROR] 查询向量化失败: %v", err)
+			log.Printf("[ERROR] vectorSearch: 查询向量化失败 (query=%q): %v", query, err)
 			return nil
 		}
+		log.Printf("[DEBUG] vectorSearch: 查询向量维度=%d", len(queryVector))
 
 		hits, err := SearchVectors(*kb.QdrantCollection, queryVector, topK, float32(score))
 		if err != nil {
-			log.Printf("[ERROR] 文本向量搜索失败: %v", err)
+			log.Printf("[ERROR] vectorSearch: Qdrant 搜索失败 (collection=%s): %v", *kb.QdrantCollection, err)
 		} else {
+			log.Printf("[DEBUG] vectorSearch: Qdrant 返回 %d 条命中", len(hits))
 			allHits = append(allHits, hits...)
 		}
 	}
@@ -998,7 +1007,7 @@ func (l *KnowledgeBaseLogic) vectorSearch(kb *model.TKnowledgeBase, query string
 		results = append(results, &KnowledgeSearchResult{
 			Content:      hit.Content,
 			ContentType:  contentType,
-			ImagePath:    hit.ImagePath,
+			ImagePath:    imagePathToURL(hit.ImagePath, kb.ID),
 			Score:        hit.Score,
 			DocumentID:   hit.DocumentID,
 			DocumentName: docName,
@@ -1149,6 +1158,69 @@ func (l *KnowledgeBaseLogic) saveQueryHistory(kbID int64, query, mode string, to
 		Source:          "hit_testing",
 	}
 	db.Create(q)
+}
+
+// KnowledgeDiagResult 诊断结果
+type KnowledgeDiagResult struct {
+	KBID           int64                  `json:"kb_id"`
+	KBName         string                 `json:"kb_name"`
+	EmbeddingModel string                 `json:"embedding_model"`
+	MySQLSegments  int64                  `json:"mysql_segments"`
+	Qdrant         *QdrantCollectionDiag  `json:"qdrant"`
+	EmbeddingTest  *EmbeddingTestResult   `json:"embedding_test"`
+}
+
+type EmbeddingTestResult struct {
+	Success   bool   `json:"success"`
+	Dimension int    `json:"dimension,omitempty"`
+	Error     string `json:"error,omitempty"`
+}
+
+// Diagnose 诊断知识库向量数据状态
+func (l *KnowledgeBaseLogic) Diagnose(kbID int64) (*KnowledgeDiagResult, error) {
+	db := svc.Ctx.DB
+
+	var kb model.TKnowledgeBase
+	if err := db.Where("id = ? AND is_delete = 0", kbID).First(&kb).Error; err != nil {
+		return nil, fmt.Errorf("知识库不存在")
+	}
+
+	result := &KnowledgeDiagResult{
+		KBID:   kb.ID,
+		KBName: kb.Name,
+	}
+
+	// MySQL segment 数量
+	db.Model(&model.TKnowledgeSegment{}).Where("knowledge_base_id = ?", kbID).Count(&result.MySQLSegments)
+
+	// Qdrant 集合信息
+	if kb.QdrantCollection != nil && *kb.QdrantCollection != "" {
+		result.Qdrant = DiagnoseQdrantCollection(*kb.QdrantCollection)
+	} else {
+		result.Qdrant = &QdrantCollectionDiag{Error: "未配置 Qdrant Collection"}
+	}
+
+	// 测试 Embedding API
+	if kb.EmbeddingModelID != nil && *kb.EmbeddingModelID != 0 {
+		aiModelLogic := NewAiModelLogic(l.ctx)
+		aiModel, err := aiModelLogic.GetByIDWithKey(*kb.EmbeddingModelID)
+		if err != nil {
+			result.EmbeddingTest = &EmbeddingTestResult{Error: fmt.Sprintf("获取嵌入模型失败: %v", err)}
+		} else {
+			result.EmbeddingModel = aiModel.ModelID
+			embClient := NewEmbeddingClient(aiModel.APIBaseURL, aiModel.APIKey, aiModel.ModelID)
+			vec, err := embClient.EmbedTextAsQuery(l.ctx, "测试")
+			if err != nil {
+				result.EmbeddingTest = &EmbeddingTestResult{Error: fmt.Sprintf("Embedding API 调用失败: %v", err)}
+			} else {
+				result.EmbeddingTest = &EmbeddingTestResult{Success: true, Dimension: len(vec)}
+			}
+		}
+	} else {
+		result.EmbeddingTest = &EmbeddingTestResult{Error: "未配置嵌入模型"}
+	}
+
+	return result, nil
 }
 
 func (l *KnowledgeBaseLogic) updateHitCounts(results []*KnowledgeSearchResult) {
@@ -1407,4 +1479,23 @@ func (l *KnowledgeBaseLogic) ListGraphRelations(kbID int64) ([]*GraphRelationInf
 		result = append(result, info)
 	}
 	return result, nil
+}
+
+// imagePathToURL 将服务端相对路径转换为前端可访问的 HTTP URL
+// 存储路径格式：kb_{kbID}/images/{docID}_{i}.png
+// 输出 URL：/api/knowledge-bases/{kbID}/images/{filename}
+func imagePathToURL(imagePath string, kbID int64) string {
+	if imagePath == "" {
+		return ""
+	}
+	// 已经是 URL 格式，直接返回
+	if strings.HasPrefix(imagePath, "/") || strings.HasPrefix(imagePath, "http") {
+		return imagePath
+	}
+	prefix := fmt.Sprintf("kb_%d/images/", kbID)
+	if strings.HasPrefix(imagePath, prefix) {
+		filename := strings.TrimPrefix(imagePath, prefix)
+		return fmt.Sprintf("/api/knowledge-bases/%d/images/%s", kbID, filename)
+	}
+	return imagePath
 }

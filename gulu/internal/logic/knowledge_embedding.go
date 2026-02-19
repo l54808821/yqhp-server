@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"time"
@@ -20,10 +21,11 @@ import (
 
 // EmbeddingClient 嵌入模型客户端
 type EmbeddingClient struct {
-	BaseURL string
-	APIKey  string
-	Model   string
-	Timeout time.Duration
+	BaseURL        string
+	APIKey         string
+	Model          string
+	Timeout        time.Duration
+	SupportInputType bool // 是否在 API 请求中发送 input_type 字段（Qwen3-Embedding 等模型需要显式启用）
 }
 
 // NewEmbeddingClient 创建嵌入模型客户端
@@ -32,10 +34,11 @@ func NewEmbeddingClient(baseURL, apiKey, model string) *EmbeddingClient {
 		baseURL = "https://api.openai.com/v1"
 	}
 	return &EmbeddingClient{
-		BaseURL: baseURL,
-		APIKey:  apiKey,
-		Model:   model,
-		Timeout: 60 * time.Second,
+		BaseURL:          baseURL,
+		APIKey:           apiKey,
+		Model:            model,
+		Timeout:          60 * time.Second,
+		SupportInputType: false, // 默认不发送，避免破坏不支持该字段的本地部署
 	}
 }
 
@@ -54,10 +57,26 @@ type MultimodalInput struct {
 	ImageData []byte             `json:"-"`
 }
 
+// TextEmbedPurpose 文本 Embedding 用途（影响部分模型的向量质量）
+type TextEmbedPurpose string
+
+const (
+	EmbedPurposeDocument TextEmbedPurpose = "document" // 索引阶段，文档内容
+	EmbedPurposeQuery    TextEmbedPurpose = "query"    // 检索阶段，查询文本
+)
+
 // embeddingRequest OpenAI Embedding API 请求
 type embeddingRequest struct {
 	Model string      `json:"model"`
 	Input interface{} `json:"input"` // string, []string, or []map for multimodal
+}
+
+// embeddingRequestWithInputType 带 input_type 的请求（Qwen3-Embedding 等模型专用）
+// 仅在知识库明确配置了 input_type 支持时才使用
+type embeddingRequestWithInputType struct {
+	Model     string      `json:"model"`
+	Input     interface{} `json:"input"`
+	InputType string      `json:"input_type,omitempty"`
 }
 
 // embeddingResponse OpenAI Embedding API 响应
@@ -78,8 +97,26 @@ type embeddingData struct {
 	Index     int       `json:"index"`
 }
 
-// EmbedTexts 批量生成文本 Embedding
+// EmbedTexts 批量生成文档 Embedding（索引阶段使用）
 func (c *EmbeddingClient) EmbedTexts(ctx context.Context, texts []string) ([][]float32, error) {
+	return c.embedTextsWithPurpose(ctx, texts, EmbedPurposeDocument)
+}
+
+// EmbedTextAsQuery 生成查询 Embedding（检索阶段使用）
+// 对 Qwen3-Embedding 等支持 input_type 的模型效果更好
+func (c *EmbeddingClient) EmbedTextAsQuery(ctx context.Context, text string) ([]float32, error) {
+	results, err := c.embedTextsWithPurpose(ctx, []string{text}, EmbedPurposeQuery)
+	if err != nil {
+		return nil, err
+	}
+	if len(results) == 0 {
+		return nil, fmt.Errorf("Embedding 结果为空")
+	}
+	return results[0], nil
+}
+
+// embedTextsWithPurpose 带用途参数的批量 Embedding 实现
+func (c *EmbeddingClient) embedTextsWithPurpose(ctx context.Context, texts []string, purpose TextEmbedPurpose) ([][]float32, error) {
 	if len(texts) == 0 {
 		return nil, nil
 	}
@@ -94,7 +131,7 @@ func (c *EmbeddingClient) EmbedTexts(ctx context.Context, texts []string) ([][]f
 		}
 		batch := texts[i:end]
 
-		embeddings, err := c.callEmbeddingAPI(ctx, batch)
+		embeddings, err := c.callEmbeddingAPI(ctx, batch, string(purpose))
 		if err != nil {
 			return nil, fmt.Errorf("Embedding API 调用失败 (batch %d-%d): %w", i, end, err)
 		}
@@ -105,7 +142,7 @@ func (c *EmbeddingClient) EmbedTexts(ctx context.Context, texts []string) ([][]f
 	return allEmbeddings, nil
 }
 
-// EmbedText 生成单条文本的 Embedding
+// EmbedText 生成单条文档 Embedding（索引阶段使用）
 func (c *EmbeddingClient) EmbedText(ctx context.Context, text string) ([]float32, error) {
 	results, err := c.EmbedTexts(ctx, []string{text})
 	if err != nil {
@@ -244,7 +281,7 @@ func (c *EmbeddingClient) callMultimodalEmbeddingAPI(ctx context.Context, inputs
 	embeddings := make([][]float32, len(inputs))
 	for _, d := range embResp.Data {
 		if d.Index < len(embeddings) {
-			embeddings[d.Index] = d.Embedding
+			embeddings[d.Index] = normalizeVector(d.Embedding)
 		}
 	}
 
@@ -258,15 +295,26 @@ func (c *EmbeddingClient) callMultimodalEmbeddingAPI(ctx context.Context, inputs
 }
 
 // callEmbeddingAPI 调用纯文本 Embedding API
-func (c *EmbeddingClient) callEmbeddingAPI(ctx context.Context, texts []string) ([][]float32, error) {
-	reqBody := embeddingRequest{
-		Model: c.Model,
-		Input: texts,
+// inputType：传 "document" 或 "query"，仅在 SupportInputType=true 时才发送
+// 大多数本地部署（Ollama、vLLM 等）不支持此字段，发送会导致报错
+func (c *EmbeddingClient) callEmbeddingAPI(ctx context.Context, texts []string, inputType string) ([][]float32, error) {
+	var reqBody interface{}
+	if c.SupportInputType && inputType != "" {
+		reqBody = embeddingRequestWithInputType{
+			Model:     c.Model,
+			Input:     texts,
+			InputType: inputType,
+		}
+	} else {
+		reqBody = embeddingRequest{
+			Model: c.Model,
+			Input: texts,
+		}
 	}
 
-	bodyBytes, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("请求序列化失败: %w", err)
+	bodyBytes, marshalErr := json.Marshal(reqBody)
+	if marshalErr != nil {
+		return nil, fmt.Errorf("请求序列化失败: %w", marshalErr)
 	}
 
 	url := c.BaseURL + "/embeddings"
@@ -309,7 +357,7 @@ func (c *EmbeddingClient) callEmbeddingAPI(ctx context.Context, texts []string) 
 	embeddings := make([][]float32, len(texts))
 	for _, d := range embResp.Data {
 		if d.Index < len(embeddings) {
-			embeddings[d.Index] = d.Embedding
+			embeddings[d.Index] = normalizeVector(d.Embedding)
 		}
 	}
 
@@ -320,6 +368,24 @@ func (c *EmbeddingClient) callEmbeddingAPI(ctx context.Context, texts []string) 
 	}
 
 	return embeddings, nil
+}
+
+// normalizeVector 对向量做 L2 归一化（与 Dify 行为保持一致）
+// 对于 Qdrant Cosine 距离，归一化后向量长度统一，相似度计算更稳定
+func normalizeVector(v []float32) []float32 {
+	var sum float64
+	for _, x := range v {
+		sum += float64(x) * float64(x)
+	}
+	norm := float32(math.Sqrt(sum))
+	if norm < 1e-10 {
+		return v
+	}
+	result := make([]float32, len(v))
+	for i, x := range v {
+		result[i] = x / norm
+	}
+	return result
 }
 
 // detectImageMime 检测图片 MIME 类型

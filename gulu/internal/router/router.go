@@ -36,6 +36,9 @@ func Setup(app *fiber.App) {
 		})
 	})
 
+	// 知识库图片访问（无需认证，支持前端直接渲染）
+	app.Get("/api/knowledge-bases/:id/images/:filename", handler.KnowledgeImageServe)
+
 	// 创建执行相关组件（需要依赖注入的 handler）
 	engineClient := client.NewWorkflowEngineClient()
 	sched := scheduler.NewScheduler(engineClient)
@@ -196,6 +199,8 @@ func Setup(app *fiber.App) {
 	// 检索与查询历史
 	kb.Post("/:id/search", handler.KnowledgeBaseSearch)
 	kb.Get("/:id/queries", handler.KnowledgeQueryHistory)
+	// 诊断接口（排查向量数据问题）
+	kb.Get("/:id/diagnose", handler.KnowledgeBaseDiagnose)
 	// 图知识库（Phase 3）
 	kb.Post("/:id/graph/search", handler.KnowledgeGraphSearch)
 	kb.Get("/:id/graph/entities", handler.KnowledgeGraphEntities)

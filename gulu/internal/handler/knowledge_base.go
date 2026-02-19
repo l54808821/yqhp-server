@@ -1,6 +1,9 @@
 package handler
 
 import (
+	"fmt"
+	"mime"
+	"path/filepath"
 	"strconv"
 
 	"yqhp/common/response"
@@ -403,6 +406,60 @@ func KnowledgeQueryHistory(c *fiber.Ctx) error {
 		return response.Error(c, err.Error())
 	}
 	return response.Success(c, history)
+}
+
+// -----------------------------------------------
+// 诊断接口
+// -----------------------------------------------
+
+// KnowledgeBaseDiagnose 诊断知识库向量数据状态
+// GET /api/knowledge-bases/:id/diagnose
+func KnowledgeBaseDiagnose(c *fiber.Ctx) error {
+	kbID, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	if err != nil {
+		return response.Error(c, "无效的知识库ID")
+	}
+
+	kbLogic := logic.NewKnowledgeBaseLogic(c.UserContext())
+	diag, err := kbLogic.Diagnose(kbID)
+	if err != nil {
+		return response.Error(c, err.Error())
+	}
+	return response.Success(c, diag)
+}
+
+// -----------------------------------------------
+// 图片资源访问
+// -----------------------------------------------
+
+// KnowledgeImageServe 提供知识库图片的访问服务
+// GET /api/knowledge-bases/:id/images/:filename
+func KnowledgeImageServe(c *fiber.Ctx) error {
+	kbID, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	if err != nil {
+		return c.Status(fiber.StatusBadRequest).SendString("无效的知识库ID")
+	}
+
+	filename := c.Params("filename")
+	if filename == "" {
+		return c.Status(fiber.StatusBadRequest).SendString("文件名不能为空")
+	}
+
+	relPath := fmt.Sprintf("kb_%d/images/%s", kbID, filename)
+	storage := logic.GetFileStorage()
+	data, err := storage.Read(relPath)
+	if err != nil {
+		return c.Status(fiber.StatusNotFound).SendString("图片不存在")
+	}
+
+	ext := filepath.Ext(filename)
+	mimeType := mime.TypeByExtension(ext)
+	if mimeType == "" {
+		mimeType = "image/png"
+	}
+	c.Set("Content-Type", mimeType)
+	c.Set("Cache-Control", "public, max-age=86400")
+	return c.Send(data)
 }
 
 // -----------------------------------------------

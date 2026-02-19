@@ -535,3 +535,59 @@ type SearchHit struct {
 	ChunkIndex  int                    `json:"chunk_index"`
 	Metadata    map[string]interface{} `json:"metadata,omitempty"`
 }
+
+// QdrantCollectionDiag Qdrant 集合诊断信息
+type QdrantCollectionDiag struct {
+	CollectionName string            `json:"collection_name"`
+	Exists         bool              `json:"exists"`
+	VectorCount    uint64            `json:"vector_count"`
+	PointCount     uint64            `json:"point_count"`
+	VectorFields   map[string]uint64 `json:"vector_fields"` // 各向量字段的维度
+	Error          string            `json:"error,omitempty"`
+}
+
+// DiagnoseQdrantCollection 获取 Qdrant 集合的诊断信息
+func DiagnoseQdrantCollection(collectionName string) *QdrantCollectionDiag {
+	diag := &QdrantCollectionDiag{CollectionName: collectionName}
+
+	client, err := getQdrantClient()
+	if err != nil {
+		diag.Error = fmt.Sprintf("连接 Qdrant 失败: %v", err)
+		return diag
+	}
+
+	ctx := context.Background()
+
+	exists, err := client.CollectionExists(ctx, collectionName)
+	if err != nil {
+		diag.Error = fmt.Sprintf("检查集合是否存在失败: %v", err)
+		return diag
+	}
+	diag.Exists = exists
+	if !exists {
+		diag.Error = "集合不存在，文档可能尚未索引"
+		return diag
+	}
+
+	info, err := client.GetCollectionInfo(ctx, collectionName)
+	if err != nil {
+		diag.Error = fmt.Sprintf("获取集合信息失败: %v", err)
+		return diag
+	}
+
+	diag.PointCount = info.GetPointsCount()
+	diag.VectorCount = info.GetIndexedVectorsCount()
+
+	diag.VectorFields = make(map[string]uint64)
+	if params := info.GetConfig().GetParams(); params != nil {
+		if vc := params.GetVectorsConfig(); vc != nil {
+			if paramsMap := vc.GetParamsMap(); paramsMap != nil {
+				for name, vp := range paramsMap.GetMap() {
+					diag.VectorFields[name] = uint64(vp.GetSize())
+				}
+			}
+		}
+	}
+
+	return diag
+}

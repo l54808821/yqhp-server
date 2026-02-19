@@ -35,7 +35,7 @@ CREATE TABLE `t_knowledge_base` (
   `chunk_size` INT DEFAULT 500 COMMENT '默认分块大小(字符数)',
   `chunk_overlap` INT DEFAULT 50 COMMENT '默认分块重叠(字符数)',
   -- 检索配置
-  `similarity_threshold` FLOAT DEFAULT 0.7 COMMENT '默认相似度阈值',
+  `similarity_threshold` FLOAT DEFAULT 0.3 COMMENT '默认相似度阈值',
   `top_k` INT DEFAULT 5 COMMENT '默认检索数量',
   `retrieval_mode` VARCHAR(20) DEFAULT 'vector' COMMENT '检索模式: vector/keyword/hybrid',
   `rerank_model_id` BIGINT UNSIGNED DEFAULT NULL COMMENT '重排序模型ID',

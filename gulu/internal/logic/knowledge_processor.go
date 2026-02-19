@@ -66,6 +66,8 @@ func (p *DocumentProcessor) Process(kb *model.TKnowledgeBase, doc *model.TKnowle
 		images = p.extractImages(doc)
 		if len(images) > 0 {
 			storage := GetFileStorage()
+			// mediaName -> 前端可访问的 HTTP URL 映射，用于替换文本中的 media: 占位符
+			imageURLMap := make(map[string]string)
 			for i := range images {
 				imgPath := fmt.Sprintf("kb_%d/images/%d_%d.png", kb.ID, doc.ID, i)
 				if err := storage.SaveBytes(imgPath, images[i].Data); err != nil {
@@ -73,6 +75,19 @@ func (p *DocumentProcessor) Process(kb *model.TKnowledgeBase, doc *model.TKnowle
 					continue
 				}
 				images[i].FilePath = imgPath
+				// Description 格式：'文档嵌入图片: word/media/xxx.png'
+				const prefix = "文档嵌入图片: "
+				if desc := images[i].Description; strings.HasPrefix(desc, prefix) {
+					mediaName := strings.TrimPrefix(desc, prefix)
+					// 生成前端可访问的相对 URL（通过前端 /api 代理转发）
+					imageURLMap[mediaName] = fmt.Sprintf("/api/knowledge-bases/%d/images/%d_%d.png", kb.ID, doc.ID, i)
+				}
+			}
+			// 替换文本中的 media: 占位符为可访问的 URL
+			for mediaName, imgURL := range imageURLMap {
+				placeholder := fmt.Sprintf("![image](media:%s)", mediaName)
+				replacement := fmt.Sprintf("![image](%s)", imgURL)
+				text = strings.ReplaceAll(text, placeholder, replacement)
 			}
 		}
 	}

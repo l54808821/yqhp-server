@@ -23,9 +23,12 @@ func NewAiChatLogic(ctx context.Context) *AiChatLogic {
 }
 
 // ChatMessage 对话消息
+// Content 支持两种格式：
+//   - string: 纯文本消息 "hello"
+//   - array:  多模态消息 [{"type":"text","text":"..."}, {"type":"image_url","image_url":{"url":"..."}}]
 type ChatMessage struct {
-	Role    string `json:"role"`    // system, user, assistant
-	Content string `json:"content"` // 消息内容
+	Role    string          `json:"role"`    // system, user, assistant
+	Content json.RawMessage `json:"content"` // 消息内容（string 或 content parts 数组）
 }
 
 // ChatRequest 对话请求

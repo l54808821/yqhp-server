@@ -237,13 +237,13 @@ func (h *StreamExecutionHandler) prepareExecutionFromDefinition(c *fiber.Ctx, de
 		}
 	}
 
-	// 转换工作流
+	// 转换工作流（带上下文，支持解析引用工作流）
 	var engineWf *types.Workflow
 	var err error
 	if mode == "normal" {
-		engineWf, err = logic.ConvertToEngineWorkflow(definitionStr, sessionID)
+		engineWf, err = logic.ConvertToEngineWorkflowWithContext(c.UserContext(), definitionStr, sessionID)
 	} else {
-		engineWf, err = logic.ConvertToEngineWorkflowStopOnError(definitionStr, sessionID)
+		engineWf, err = logic.ConvertToEngineWorkflowStopOnErrorWithContext(c.UserContext(), definitionStr, sessionID)
 	}
 	if err != nil {
 		return nil, &executionError{code: "CONVERT_ERROR", message: "工作流转换失败: " + err.Error()}

@@ -150,6 +150,12 @@ func (l *ExecutionLogic) Execute(req *ExecuteWorkflowReq, userID int64) (*model.
 		return nil, err
 	}
 
+	// 解析引用工作流
+	refResolver := workflow.NewRefWorkflowResolver(NewDBWorkflowLoader(l.ctx))
+	if err := refResolver.Resolve(def.Steps); err != nil {
+		return nil, fmt.Errorf("解析引用工作流失败: %w", err)
+	}
+
 	// 提交工作流到 workflow-engine 执行
 	engine := workflow.GetEngine()
 	if engine != nil {
@@ -636,29 +642,67 @@ func (l *ExecutionLogic) toStreamExecutionDetail(e *model.TExecution) *StreamExe
 	return detail
 }
 
+// ============== WorkflowLoader 实现 ==============
+
+// dbWorkflowLoader 基于数据库的工作流加载器，实现 workflow.WorkflowLoader 接口
+type dbWorkflowLoader struct {
+	ctx context.Context
+}
+
+// NewDBWorkflowLoader 创建基于数据库的工作流加载器
+func NewDBWorkflowLoader(ctx context.Context) workflow.WorkflowLoader {
+	return &dbWorkflowLoader{ctx: ctx}
+}
+
+func (l *dbWorkflowLoader) LoadDefinition(id int64) (string, string, error) {
+	wfLogic := NewWorkflowLogic(l.ctx)
+	wf, err := wfLogic.GetByID(id)
+	if err != nil {
+		return "", "", err
+	}
+	return wf.Name, wf.Definition, nil
+}
+
 // ============== 工作流转换函数 ==============
 
 // ConvertToEngineWorkflow 将工作流定义转换为引擎工作流
 func ConvertToEngineWorkflow(definition string, executionID string) (*types.Workflow, error) {
-	// 解析工作流定义
+	return ConvertToEngineWorkflowWithContext(context.Background(), definition, executionID)
+}
+
+// ConvertToEngineWorkflowWithContext 将工作流定义转换为引擎工作流（带上下文，支持解析引用工作流）
+func ConvertToEngineWorkflowWithContext(ctx context.Context, definition string, executionID string) (*types.Workflow, error) {
 	var def workflow.WorkflowDefinition
 	if err := json.Unmarshal([]byte(definition), &def); err != nil {
 		return nil, err
 	}
 
-	// 使用 workflow 包的转换函数
+	// 解析引用工作流：将 ref_workflow 步骤展开为完整定义
+	resolver := workflow.NewRefWorkflowResolver(NewDBWorkflowLoader(ctx))
+	if err := resolver.Resolve(def.Steps); err != nil {
+		return nil, fmt.Errorf("解析引用工作流失败: %w", err)
+	}
+
 	return workflow.ConvertToEngineWorkflow(&def, executionID), nil
 }
 
 // ConvertToEngineWorkflowStopOnError 将工作流定义转换为"失败即停止"模式的引擎工作流
-// 该模式下，任何步骤失败后立即停止执行
 func ConvertToEngineWorkflowStopOnError(definition string, executionID string) (*types.Workflow, error) {
-	// 解析工作流定义
+	return ConvertToEngineWorkflowStopOnErrorWithContext(context.Background(), definition, executionID)
+}
+
+// ConvertToEngineWorkflowStopOnErrorWithContext 将工作流定义转换为"失败即停止"模式的引擎工作流（带上下文）
+func ConvertToEngineWorkflowStopOnErrorWithContext(ctx context.Context, definition string, executionID string) (*types.Workflow, error) {
 	var def workflow.WorkflowDefinition
 	if err := json.Unmarshal([]byte(definition), &def); err != nil {
 		return nil, err
 	}
 
-	// 使用 workflow 包的调试模式转换函数
+	// 解析引用工作流
+	resolver := workflow.NewRefWorkflowResolver(NewDBWorkflowLoader(ctx))
+	if err := resolver.Resolve(def.Steps); err != nil {
+		return nil, fmt.Errorf("解析引用工作流失败: %w", err)
+	}
+
 	return workflow.ConvertToEngineWorkflowForDebug(&def, executionID), nil
 }

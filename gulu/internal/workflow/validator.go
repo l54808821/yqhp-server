@@ -8,14 +8,15 @@ import (
 
 // ValidNodeTypes workflow-engine 支持的节点类型
 var ValidNodeTypes = map[string]bool{
-	"http":      true, // HTTP 请求
-	"script":    true, // 脚本执行
-	"condition": true, // 条件判断
-	"loop":      true, // 循环
-	"database":  true, // 数据库操作
-	"wait":      true, // 等待/延时
-	"mq":        true, // MQ 操作
-	"ai":        true, // AI 调用
+	"http":         true, // HTTP 请求
+	"script":       true, // 脚本执行
+	"condition":    true, // 条件判断
+	"loop":         true, // 循环
+	"database":     true, // 数据库操作
+	"wait":         true, // 等待/延时
+	"mq":           true, // MQ 操作
+	"ai":           true, // AI 调用
+	"ref_workflow": true, // 引用工作流
 }
 
 // ValidationError 验证错误
@@ -138,6 +139,8 @@ func validateStep(step *Step, index int, stepIDs map[string]bool) []ValidationEr
 		errs = append(errs, validateMQStep(step, prefix)...)
 	case "ai":
 		errs = append(errs, validateAIStep(step, prefix)...)
+	case "ref_workflow":
+		errs = append(errs, validateRefWorkflowStep(step, prefix)...)
 	}
 
 	return errs
@@ -439,6 +442,37 @@ func validateAIStep(step *Step, prefix string) []ValidationError {
 			errs = append(errs, ValidationError{
 				Field:   prefix + ".config.max_tool_rounds",
 				Message: "max_tool_rounds 必须在 1 到 50 之间",
+			})
+		}
+	}
+
+	return errs
+}
+
+// validateRefWorkflowStep 验证引用工作流步骤
+func validateRefWorkflowStep(step *Step, prefix string) []ValidationError {
+	var errs []ValidationError
+
+	if step.Config == nil {
+		errs = append(errs, ValidationError{
+			Field:   prefix + ".config",
+			Message: "引用工作流步骤必须包含配置",
+		})
+		return errs
+	}
+
+	// 验证 workflow_id
+	wfID, ok := step.Config["workflow_id"]
+	if !ok || wfID == nil {
+		errs = append(errs, ValidationError{
+			Field:   prefix + ".config.workflow_id",
+			Message: "引用工作流步骤必须指定目标工作流 ID",
+		})
+	} else if f, ok := wfID.(float64); ok {
+		if f <= 0 || f != float64(int64(f)) {
+			errs = append(errs, ValidationError{
+				Field:   prefix + ".config.workflow_id",
+				Message: "工作流 ID 必须为有效的正整数",
 			})
 		}
 	}

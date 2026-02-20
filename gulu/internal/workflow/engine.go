@@ -333,6 +333,20 @@ func convertStepWithOptions(s Step, debugMode bool) types.Step {
 		}
 	}
 
+	// 转换引用工作流中的子步骤
+	if s.Type == "ref_workflow" && s.Config != nil {
+		if wfDef, ok := s.Config["workflow_definition"].(map[string]any); ok {
+			if rawSteps, ok := wfDef["steps"].([]Step); ok {
+				convertedSteps := make([]map[string]any, len(rawSteps))
+				for i, cs := range rawSteps {
+					engineStep := convertStepWithOptions(cs, debugMode)
+					convertedSteps[i] = stepToMap(engineStep)
+				}
+				wfDef["steps"] = convertedSteps
+			}
+		}
+	}
+
 	// 转换前置处理器
 	if len(s.PreProcessors) > 0 {
 		preProcessors := make([]types.Processor, len(s.PreProcessors))
@@ -364,4 +378,99 @@ func convertStepWithOptions(s Step, debugMode bool) types.Step {
 	}
 
 	return step
+}
+
+// stepToMap 将 types.Step 转换为 map 以便 JSON 序列化后被引擎执行器解析
+func stepToMap(s types.Step) map[string]any {
+	m := map[string]any{
+		"id":   s.ID,
+		"type": s.Type,
+		"name": s.Name,
+	}
+	if s.Disabled {
+		m["disabled"] = true
+	}
+	if s.Config != nil {
+		m["config"] = s.Config
+	}
+	if s.Timeout > 0 {
+		m["timeout"] = s.Timeout.String()
+	}
+	if s.OnError != "" {
+		m["on_error"] = string(s.OnError)
+	}
+	if len(s.Branches) > 0 {
+		branches := make([]map[string]any, len(s.Branches))
+		for i, br := range s.Branches {
+			brMap := map[string]any{
+				"id":   br.ID,
+				"kind": string(br.Kind),
+			}
+			if br.Name != "" {
+				brMap["name"] = br.Name
+			}
+			if br.Expression != "" {
+				brMap["expression"] = br.Expression
+			}
+			if len(br.Steps) > 0 {
+				brSteps := make([]map[string]any, len(br.Steps))
+				for j, bs := range br.Steps {
+					brSteps[j] = stepToMap(bs)
+				}
+				brMap["steps"] = brSteps
+			}
+			branches[i] = brMap
+		}
+		m["branches"] = branches
+	}
+	if len(s.Children) > 0 {
+		children := make([]map[string]any, len(s.Children))
+		for i, cs := range s.Children {
+			children[i] = stepToMap(cs)
+		}
+		m["children"] = children
+	}
+	if s.Loop != nil {
+		loopMap := map[string]any{
+			"mode": s.Loop.Mode,
+		}
+		if s.Loop.Count > 0 {
+			loopMap["count"] = s.Loop.Count
+		}
+		if s.Loop.Items != nil {
+			loopMap["items"] = s.Loop.Items
+		}
+		if s.Loop.ItemVar != "" {
+			loopMap["item_var"] = s.Loop.ItemVar
+		}
+		if s.Loop.Condition != "" {
+			loopMap["condition"] = s.Loop.Condition
+		}
+		if s.Loop.MaxIterations > 0 {
+			loopMap["max_iterations"] = s.Loop.MaxIterations
+		}
+		if len(s.Loop.Steps) > 0 {
+			loopSteps := make([]map[string]any, len(s.Loop.Steps))
+			for i, ls := range s.Loop.Steps {
+				loopSteps[i] = stepToMap(ls)
+			}
+			loopMap["steps"] = loopSteps
+		}
+		m["loop"] = loopMap
+	}
+	if len(s.PreProcessors) > 0 {
+		procs := make([]map[string]any, len(s.PreProcessors))
+		for i, p := range s.PreProcessors {
+			procs[i] = map[string]any{"id": p.ID, "type": p.Type, "enabled": p.Enabled, "name": p.Name, "config": p.Config}
+		}
+		m["preProcessors"] = procs
+	}
+	if len(s.PostProcessors) > 0 {
+		procs := make([]map[string]any, len(s.PostProcessors))
+		for i, p := range s.PostProcessors {
+			procs[i] = map[string]any{"id": p.ID, "type": p.Type, "enabled": p.Enabled, "name": p.Name, "config": p.Config}
+		}
+		m["postProcessors"] = procs
+	}
+	return m
 }

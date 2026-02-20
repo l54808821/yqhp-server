@@ -404,7 +404,13 @@ func (b *HTTPBaseExecutor) CollectLogsAndAssertions(execCtx *ExecutionContext, o
 }
 
 // trackVariableChanges 从处理器日志中追踪变量变更。
+// 注意：实际逻辑委托给包级别的 trackVariableChanges 函数，以便其他执行器复用。
 func (b *HTTPBaseExecutor) trackVariableChanges(execCtx *ExecutionContext, logs []types.ConsoleLogEntry) {
+	trackVariableChangesShared(execCtx, logs)
+}
+
+// trackVariableChangesShared 从处理器日志中追踪变量变更（包级别函数，供所有执行器使用）。
+func trackVariableChangesShared(execCtx *ExecutionContext, logs []types.ConsoleLogEntry) {
 	if execCtx == nil {
 		return
 	}

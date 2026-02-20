@@ -13,7 +13,17 @@ type WorkflowDefinition struct {
 	Description string                 `json:"description,omitempty" yaml:"description,omitempty"`
 	Version     int                    `json:"version,omitempty" yaml:"version,omitempty"`
 	Variables   map[string]interface{} `json:"variables,omitempty" yaml:"variables,omitempty"`
+	Params      []WorkflowParam        `json:"params,omitempty" yaml:"params,omitempty"`
 	Steps       []Step                 `json:"steps" yaml:"steps"`
+}
+
+// WorkflowParam 工作流输入参数定义（用于子流程调用时的参数接口）
+type WorkflowParam struct {
+	Name         string `json:"name" yaml:"name"`
+	Type         string `json:"type" yaml:"type"`                                       // string, number, boolean, json
+	DefaultValue string `json:"defaultValue,omitempty" yaml:"default_value,omitempty"`
+	Description  string `json:"description,omitempty" yaml:"description,omitempty"`
+	Required     bool   `json:"required,omitempty" yaml:"required,omitempty"`
 }
 
 // Step 工作流步骤

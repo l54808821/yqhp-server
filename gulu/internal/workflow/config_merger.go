@@ -342,6 +342,7 @@ func (m *ConfigMerger) MergeToWorkflow(def *WorkflowDefinition) (*WorkflowDefini
 		Description: def.Description,
 		Version:     def.Version,
 		Variables:   make(map[string]interface{}),
+		Params:      def.Params,
 		Steps:       def.Steps,
 	}
 

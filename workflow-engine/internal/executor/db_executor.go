@@ -73,12 +73,12 @@ type DBResult struct {
 	Success      bool             `json:"success"`
 	Action       string           `json:"action,omitempty"`
 	Driver       string           `json:"driver,omitempty"`
-	ActualSQL    string           `json:"actual_sql,omitempty"`
+	ActualSQL    string           `json:"actualSql,omitempty"`
 	Data         []map[string]any `json:"data,omitempty"`
-	RowsAffected int64            `json:"rows_affected,omitempty"`
+	RowsAffected int64            `json:"rowsAffected,omitempty"`
 	Count        int64            `json:"count,omitempty"`
 	Exists       bool             `json:"exists,omitempty"`
-	TxID         string           `json:"tx_id,omitempty"`
+	TxID         string           `json:"txId,omitempty"`
 	Error        string           `json:"error,omitempty"`
 }
 

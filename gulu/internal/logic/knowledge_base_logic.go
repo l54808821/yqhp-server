@@ -41,13 +41,13 @@ func NewKnowledgeBaseLogic(ctx context.Context) *KnowledgeBaseLogic {
 // -----------------------------------------------
 
 type CreateKnowledgeBaseReq struct {
-	Name                string  `json:"name"`
-	Description         string  `json:"description"`
-	Type                string  `json:"type"`
-	EmbeddingModelID    *int64  `json:"embedding_model_id"`
-	MultimodalEnabled   bool    `json:"multimodal_enabled"`
-	MultimodalModelID   *int64  `json:"multimodal_model_id"`
-	GraphExtractModelID *int64  `json:"graph_extract_model_id"`
+	Name                string `json:"name"`
+	Description         string `json:"description"`
+	Type                string `json:"type"`
+	EmbeddingModelID    *int64 `json:"embedding_model_id"`
+	MultimodalEnabled   bool   `json:"multimodal_enabled"`
+	MultimodalModelID   *int64 `json:"multimodal_model_id"`
+	GraphExtractModelID *int64 `json:"graph_extract_model_id"`
 	// 分块 + 检索参数（可选，未填则使用默认值）
 	ChunkSize           int32   `json:"chunk_size"`
 	ChunkOverlap        int32   `json:"chunk_overlap"`
@@ -57,12 +57,12 @@ type CreateKnowledgeBaseReq struct {
 }
 
 type UpdateKnowledgeBaseReq struct {
-	Name                string  `json:"name"`
-	Description         string  `json:"description"`
-	EmbeddingModelID    *int64  `json:"embedding_model_id"`
-	MultimodalEnabled   *bool   `json:"multimodal_enabled"`
-	MultimodalModelID   *int64  `json:"multimodal_model_id"`
-	GraphExtractModelID *int64  `json:"graph_extract_model_id"`
+	Name                string `json:"name"`
+	Description         string `json:"description"`
+	EmbeddingModelID    *int64 `json:"embedding_model_id"`
+	MultimodalEnabled   *bool  `json:"multimodal_enabled"`
+	MultimodalModelID   *int64 `json:"multimodal_model_id"`
+	GraphExtractModelID *int64 `json:"graph_extract_model_id"`
 	// 分块 + 检索参数
 	ChunkSize           int32   `json:"chunk_size"`
 	ChunkOverlap        int32   `json:"chunk_overlap"`
@@ -135,11 +135,11 @@ type KnowledgeDocumentInfo struct {
 
 type KnowledgeSearchReq struct {
 	Query         string  `json:"query"`
-	QueryType     string  `json:"query_type"`     // text / image (default: text)
+	QueryType     string  `json:"query_type"` // text / image (default: text)
 	TopK          int     `json:"top_k"`
 	Score         float64 `json:"score"`
 	RetrievalMode string  `json:"retrieval_mode"`
-	SearchFields  string  `json:"search_fields"`  // text / image / all (default: all)
+	SearchFields  string  `json:"search_fields"` // text / image / all (default: all)
 }
 
 type KnowledgeSearchResult struct {
@@ -1289,7 +1289,6 @@ func getDocNameCached(docID int64, cache map[int64]string) string {
 	cache[docID] = ""
 	return ""
 }
-
 
 // kbCounts 存储知识库的文档数和分块数
 type kbCounts struct {

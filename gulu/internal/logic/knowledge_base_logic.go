@@ -91,6 +91,7 @@ type KnowledgeBaseInfo struct {
 	Type                string     `json:"type"`
 	Status              int32      `json:"status"`
 	EmbeddingModelID    *int64     `json:"embedding_model_id"`
+	EmbeddingModelName  string     `json:"embedding_model_name,omitempty"`
 	MultimodalEnabled   bool       `json:"multimodal_enabled"`
 	MultimodalModelID   *int64     `json:"multimodal_model_id"`
 	GraphExtractModelID *int64     `json:"graph_extract_model_id"`
@@ -279,7 +280,11 @@ func (l *KnowledgeBaseLogic) Create(req *CreateKnowledgeBaseReq) (*KnowledgeBase
 	db.Model(kb).Updates(updates)
 	kb.QdrantCollection = &collectionName
 
-	return l.toKnowledgeBaseInfo(kb, nil), nil
+	var modelIDs []int64
+	if kb.EmbeddingModelID != nil {
+		modelIDs = append(modelIDs, *kb.EmbeddingModelID)
+	}
+	return l.toKnowledgeBaseInfo(kb, nil, l.getModelNames(modelIDs)), nil
 }
 
 func (l *KnowledgeBaseLogic) Update(id int64, req *UpdateKnowledgeBaseReq) error {
@@ -379,7 +384,12 @@ func (l *KnowledgeBaseLogic) GetByID(id int64) (*KnowledgeBaseInfo, error) {
 		return nil, err
 	}
 	countsMap := l.getKBCounts([]int64{id})
-	return l.toKnowledgeBaseInfo(&kb, countsMap[id]), nil
+	var modelIDs []int64
+	if kb.EmbeddingModelID != nil {
+		modelIDs = append(modelIDs, *kb.EmbeddingModelID)
+	}
+	modelNames := l.getModelNames(modelIDs)
+	return l.toKnowledgeBaseInfo(&kb, countsMap[id], modelNames), nil
 }
 
 func (l *KnowledgeBaseLogic) List(req *KnowledgeBaseListReq) ([]*KnowledgeBaseInfo, int64, error) {
@@ -406,14 +416,23 @@ func (l *KnowledgeBaseLogic) List(req *KnowledgeBaseListReq) ([]*KnowledgeBaseIn
 	}
 
 	kbIDs := make([]int64, 0, len(list))
+	modelIDSet := make(map[int64]struct{})
 	for i := range list {
 		kbIDs = append(kbIDs, list[i].ID)
+		if list[i].EmbeddingModelID != nil {
+			modelIDSet[*list[i].EmbeddingModelID] = struct{}{}
+		}
 	}
 	countsMap := l.getKBCounts(kbIDs)
+	modelIDs := make([]int64, 0, len(modelIDSet))
+	for id := range modelIDSet {
+		modelIDs = append(modelIDs, id)
+	}
+	modelNames := l.getModelNames(modelIDs)
 
 	result := make([]*KnowledgeBaseInfo, 0, len(list))
 	for i := range list {
-		result = append(result, l.toKnowledgeBaseInfo(&list[i], countsMap[list[i].ID]))
+		result = append(result, l.toKnowledgeBaseInfo(&list[i], countsMap[list[i].ID], modelNames))
 	}
 	return result, total, nil
 }
@@ -1318,7 +1337,20 @@ func (l *KnowledgeBaseLogic) getKBCounts(kbIDs []int64) map[int64]*kbCounts {
 	return result
 }
 
-func (l *KnowledgeBaseLogic) toKnowledgeBaseInfo(m *model.TKnowledgeBase, counts *kbCounts) *KnowledgeBaseInfo {
+func (l *KnowledgeBaseLogic) getModelNames(modelIDs []int64) map[int64]string {
+	result := make(map[int64]string, len(modelIDs))
+	if len(modelIDs) == 0 {
+		return result
+	}
+	var models []model.TAiModel
+	svc.Ctx.DB.Select("id, name").Where("id IN ?", modelIDs).Find(&models)
+	for _, m := range models {
+		result[m.ID] = m.Name
+	}
+	return result
+}
+
+func (l *KnowledgeBaseLogic) toKnowledgeBaseInfo(m *model.TKnowledgeBase, counts *kbCounts, modelNames map[int64]string) *KnowledgeBaseInfo {
 	cfg := m.GetConfig()
 	info := &KnowledgeBaseInfo{
 		ID:                  m.ID,
@@ -1340,6 +1372,9 @@ func (l *KnowledgeBaseLogic) toKnowledgeBaseInfo(m *model.TKnowledgeBase, counts
 		RerankModelID:       cfg.RerankModelID,
 		EmbeddingDimension:  cfg.EmbeddingDimension,
 		MultimodalDimension: cfg.MultimodalDimension,
+	}
+	if m.EmbeddingModelID != nil {
+		info.EmbeddingModelName = modelNames[*m.EmbeddingModelID]
 	}
 	if counts != nil {
 		info.DocumentCount = counts.DocumentCount

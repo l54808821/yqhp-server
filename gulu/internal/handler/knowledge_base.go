@@ -199,6 +199,20 @@ func KnowledgeFileUpload(c *fiber.Ctx) error {
 	})
 }
 
+// KnowledgeFileDelete 删除通过 upload-file 上传的临时文件（未建 DB 记录的孤立文件）。
+func KnowledgeFileDelete(c *fiber.Ctx) error {
+	var req struct {
+		FilePath string `json:"file_path"`
+	}
+	if err := c.BodyParser(&req); err != nil || req.FilePath == "" {
+		return response.Error(c, "请提供文件路径")
+	}
+
+	storage := logic.GetFileStorage()
+	_ = storage.Delete(req.FilePath)
+	return response.Success(c, nil)
+}
+
 // KnowledgeDocumentCreateAndProcess 一次性创建文档记录并启动异步处理。
 // 配合 KnowledgeFileUpload 使用：文件已在磁盘上，此接口创建 DB 记录后立即处理。
 func KnowledgeDocumentCreateAndProcess(c *fiber.Ctx) error {

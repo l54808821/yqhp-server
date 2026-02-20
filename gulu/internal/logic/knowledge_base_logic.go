@@ -279,7 +279,7 @@ func (l *KnowledgeBaseLogic) Create(req *CreateKnowledgeBaseReq) (*KnowledgeBase
 	db.Model(kb).Updates(updates)
 	kb.QdrantCollection = &collectionName
 
-	return l.toKnowledgeBaseInfo(kb), nil
+	return l.toKnowledgeBaseInfo(kb, nil), nil
 }
 
 func (l *KnowledgeBaseLogic) Update(id int64, req *UpdateKnowledgeBaseReq) error {

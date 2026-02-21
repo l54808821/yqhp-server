@@ -532,6 +532,28 @@ func ScrollDocumentVectors(collectionName string, documentID int64) ([]SearchHit
 // 向量删除
 // -----------------------------------------------
 
+// DeleteSegmentVector 删除指定分段的向量（按 documentID + chunkIndex 计算 pointID）
+func DeleteSegmentVector(collectionName string, documentID int64, chunkIndex int) error {
+	client, err := getQdrantClient()
+	if err != nil {
+		return err
+	}
+
+	ctx := context.Background()
+	pointID := uint64(documentID)*100000 + uint64(chunkIndex)
+
+	_, err = client.Delete(ctx, &qdrant.DeletePoints{
+		CollectionName: collectionName,
+		Points: qdrant.NewPointsSelector(qdrant.NewIDNum(pointID)),
+	})
+	if err != nil {
+		return fmt.Errorf("删除分段向量失败: %w", err)
+	}
+
+	log.Printf("[INFO] Qdrant: 已删除分段向量 (Collection: %s, pointID: %d)", collectionName, pointID)
+	return nil
+}
+
 // DeleteDocumentVectors 删除指定文档的所有向量
 func DeleteDocumentVectors(collectionName string, documentID int64) error {
 	client, err := getQdrantClient()

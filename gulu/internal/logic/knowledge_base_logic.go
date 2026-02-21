@@ -689,11 +689,17 @@ func (l *KnowledgeBaseLogic) UpdateSegment(kbID, segID int64, req *UpdateSegment
 	}
 
 	updates := map[string]interface{}{"updated_at": time.Now()}
-	needReEmbed := false
+
+	finalEnabled := seg.Enabled
+	enabledChanged := false
+	contentChanged := false
+	newContent := seg.Content
 
 	if req.Enabled != nil {
-		updates["enabled"] = *req.Enabled
-		if *req.Enabled {
+		finalEnabled = *req.Enabled
+		enabledChanged = seg.Enabled != finalEnabled
+		updates["enabled"] = finalEnabled
+		if finalEnabled {
 			updates["status"] = "active"
 		} else {
 			updates["status"] = "disabled"
@@ -702,16 +708,20 @@ func (l *KnowledgeBaseLogic) UpdateSegment(kbID, segID int64, req *UpdateSegment
 	if req.Content != nil && *req.Content != seg.Content {
 		updates["content"] = *req.Content
 		updates["word_count"] = utf8.RuneCountInString(*req.Content)
-		needReEmbed = true
+		contentChanged = true
+		newContent = *req.Content
 	}
 
 	if err := db.Model(&model.TKnowledgeSegment{}).Where("id = ?", segID).Updates(updates).Error; err != nil {
 		return err
 	}
 
-	// 内容变更需要重新生成向量
-	if needReEmbed {
-		go l.reEmbedSegment(kbID, segID, *req.Content)
+	if enabledChanged && !finalEnabled {
+		go l.deleteSegmentVector(kbID, seg.DocumentID, seg.Position)
+	} else if enabledChanged && finalEnabled {
+		go l.reEmbedSegment(kbID, segID, newContent)
+	} else if contentChanged && finalEnabled {
+		go l.reEmbedSegment(kbID, segID, newContent)
 	}
 
 	return nil
@@ -752,6 +762,23 @@ func (l *KnowledgeBaseLogic) reEmbedSegment(kbID, segID int64, content string) {
 			Content:    content,
 		}
 		UpsertVectors(*kb.QdrantCollection, []VectorPoint{point})
+	}
+}
+
+func (l *KnowledgeBaseLogic) deleteSegmentVector(kbID, documentID int64, position int) {
+	db := svc.Ctx.DB
+
+	var kb model.TKnowledgeBase
+	if err := db.Where("id = ?", kbID).First(&kb).Error; err != nil {
+		return
+	}
+
+	if kb.QdrantCollection == nil || *kb.QdrantCollection == "" {
+		return
+	}
+
+	if err := DeleteSegmentVector(*kb.QdrantCollection, documentID, position); err != nil {
+		log.Printf("[ERROR] 删除分段向量失败 (kbID=%d, docID=%d, pos=%d): %v", kbID, documentID, position, err)
 	}
 }
 

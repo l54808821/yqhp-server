@@ -75,7 +75,7 @@ storage:
   local:
     base_path: ./data/knowledge
 
-# Qdrant 向量数据库配置
+# Qdrant 向量数据库配置 http://localhost:6333/dashboard
 qdrant:
   host: 127.0.0.1
   port: 6334           # gRPC 端口
@@ -83,7 +83,7 @@ qdrant:
   use_tls: false       # 是否使用 TLS
   collection_prefix: "kb_"  # Collection 名称前缀
 
-# Neo4j 图数据库配置（Phase 3 - 图知识库）
+# Neo4j 图数据库配置（Phase 3 - 图知识库）http://localhost:7474
 neo4j:
   enabled: true
   uri: bolt://127.0.0.1:7687

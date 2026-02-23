@@ -24,6 +24,8 @@ const (
 	SelectionModeCapability SelectionMode = "capability"
 	// SelectionModeAuto uses automatic load balancing.
 	SelectionModeAuto SelectionMode = "auto"
+	// SelectionModeLocal forces local standalone execution regardless of global config.
+	SelectionModeLocal SelectionMode = "local"
 )
 
 // ExecutionSegment defines a portion of the total execution.

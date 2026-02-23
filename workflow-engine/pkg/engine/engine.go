@@ -8,7 +8,9 @@ import (
 	"sync"
 	"time"
 
+	"yqhp/workflow-engine/api/rest"
 	"yqhp/workflow-engine/internal/master"
+	"yqhp/workflow-engine/pkg/logger"
 	"yqhp/workflow-engine/pkg/types"
 )
 
@@ -36,11 +38,12 @@ func DefaultConfig() *Config {
 
 // Engine 工作流引擎
 type Engine struct {
-	config   *Config
-	master   *master.WorkflowMaster
-	registry master.SlaveRegistry
-	started  bool
-	mu       sync.RWMutex
+	config     *Config
+	master     *master.WorkflowMaster
+	registry   master.SlaveRegistry
+	restServer *rest.Server
+	started    bool
+	mu         sync.RWMutex
 }
 
 // New 创建新的工作流引擎
@@ -84,6 +87,21 @@ func (e *Engine) Start() error {
 		return fmt.Errorf("启动 Master 失败: %w", err)
 	}
 
+	// 启动 REST API 服务器（Slave 注册/心跳等接口）
+	if e.config.HTTPAddress != "" {
+		restCfg := &rest.Config{
+			Address:    e.config.HTTPAddress,
+			EnableCORS: true,
+		}
+		e.restServer = rest.NewServer(e.master, e.registry, restCfg)
+		go func() {
+			logger.Info("Workflow Engine REST API 启动", "address", e.config.HTTPAddress)
+			if err := e.restServer.Start(); err != nil {
+				logger.Error("REST API 服务器启动失败", "error", err)
+			}
+		}()
+	}
+
 	e.started = true
 	return nil
 }
@@ -99,6 +117,13 @@ func (e *Engine) Stop() error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+
+	// 停止 REST API 服务器
+	if e.restServer != nil {
+		if err := e.restServer.Shutdown(); err != nil {
+			logger.Warn("停止 REST API 服务器失败", "error", err)
+		}
+	}
 
 	// 停止 Master
 	if e.master != nil {
@@ -128,6 +153,18 @@ func (e *Engine) GetSlaves(ctx context.Context) ([]*types.SlaveInfo, error) {
 	}
 
 	return e.master.GetSlaves(ctx)
+}
+
+// WatchSlaves 监听 Slave 事件（注册、注销、上线等）
+func (e *Engine) WatchSlaves(ctx context.Context) (<-chan *types.SlaveEvent, error) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	if e.registry == nil {
+		return nil, fmt.Errorf("引擎未启动")
+	}
+
+	return e.registry.WatchSlaves(ctx)
 }
 
 // SubmitWorkflow 提交工作流执行

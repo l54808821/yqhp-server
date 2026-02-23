@@ -258,6 +258,12 @@ func (e *StreamExecutor) executeLocal(ctx context.Context, wf *types.Workflow, s
 		return fmt.Errorf("工作流引擎未初始化")
 	}
 
+	// 强制本地执行：设置 TargetSlaves 为 local 模式，
+	// 让 master 使用内置 TaskEngine 执行而非分发到远程 Slave
+	wf.Options.TargetSlaves = &types.SlaveSelector{
+		Mode: types.SelectionModeLocal,
+	}
+
 	// 设置回调到工作流
 	wf.Callback = callback
 

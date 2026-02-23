@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -12,11 +13,14 @@ import (
 	commonRedis "yqhp/common/redis"
 	"yqhp/gulu/internal/auth"
 	"yqhp/gulu/internal/config"
+	"yqhp/gulu/internal/logic"
 	"yqhp/gulu/internal/router"
 	"yqhp/gulu/internal/svc"
 	"yqhp/gulu/internal/workflow"
+	"yqhp/workflow-engine/pkg/types"
 
 	"github.com/gofiber/fiber/v2"
+	"go.uber.org/zap"
 )
 
 func main() {
@@ -67,6 +71,8 @@ func main() {
 	}
 	if cfg.WorkflowEngine.Embedded {
 		logger.Info("内置工作流引擎已启动")
+		// 启动 Slave 事件监听，自动同步到数据库
+		go watchAndSyncSlaves()
 	} else {
 		logger.Info("使用外部工作流引擎: " + cfg.WorkflowEngine.ExternalURL)
 	}
@@ -108,4 +114,40 @@ func main() {
 		log.Printf("服务器关闭失败: %v", err)
 	}
 	log.Println("服务器已关闭")
+}
+
+// watchAndSyncSlaves 监听 Slave 注册事件，自动同步到数据库
+func watchAndSyncSlaves() {
+	engine := workflow.GetEngine()
+	if engine == nil {
+		return
+	}
+
+	ctx := context.Background()
+	events, err := engine.WatchSlaves(ctx)
+	if err != nil {
+		logger.Warn("监听 Slave 事件失败: " + err.Error())
+		return
+	}
+
+	logger.Info("开始监听 Slave 注册事件")
+	for event := range events {
+		if event.Type == types.SlaveEventRegistered && event.Slave != nil {
+			logger.Info("检测到新 Slave 注册，自动同步", zap.String("slave_id", event.SlaveID))
+			executorLogic := logic.NewExecutorLogic(ctx)
+			_, err := executorLogic.Register(&logic.RegisterExecutorReq{
+				SlaveID:      event.SlaveID,
+				Name:         event.SlaveID,
+				Address:      event.Slave.Address,
+				Type:         string(event.Slave.Type),
+				Capabilities: event.Slave.Capabilities,
+				Labels:       event.Slave.Labels,
+			})
+			if err != nil {
+				logger.Warn("自动同步 Slave 失败", zap.String("slave_id", event.SlaveID), zap.Error(err))
+			} else {
+				logger.Info("自动同步 Slave 成功", zap.String("slave_id", event.SlaveID))
+			}
+		}
+	}
 }

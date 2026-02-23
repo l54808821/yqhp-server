@@ -434,6 +434,25 @@ func isValidExecutorType(t string) bool {
 	return t == "performance" || t == "normal" || t == "debug"
 }
 
+// findOrphanedExecutor 查找孤儿执行机记录
+// 孤儿记录 = 数据库中存在但运行时状态为离线的记录（Slave 重启生成了新 ID，旧记录已离线）
+func (l *ExecutorLogic) findOrphanedExecutor() *model.TExecutor {
+	q := query.Use(svc.Ctx.DB)
+	e := q.TExecutor
+	allExecutors, err := e.WithContext(l.ctx).Where(e.IsDelete.Is(false)).Order(e.UpdatedAt.Desc()).Find()
+	if err != nil {
+		return nil
+	}
+
+	for _, ex := range allExecutors {
+		info := l.mergeWithRuntimeStatus(ex)
+		if !info.IsOnline {
+			return ex
+		}
+	}
+	return nil
+}
+
 // RegisterExecutorReq 执行机注册请求（自动注册 / 手动简化注册）
 type RegisterExecutorReq struct {
 	SlaveID      string            `json:"slave_id" validate:"required"`
@@ -453,14 +472,23 @@ func (l *ExecutorLogic) Register(req *RegisterExecutorReq) (*ExecutorInfo, error
 	q := query.Use(svc.Ctx.DB)
 	e := q.TExecutor
 
+	// 1. 按 slave_id 精确匹配
 	existing, err := e.WithContext(l.ctx).Where(e.SlaveID.Eq(req.SlaveID), e.IsDelete.Is(false)).First()
-	if err == nil && existing != nil {
-		// 已存在：更新信息
+
+	if err != nil {
+		// 2. slave_id 没匹配到，查找孤儿记录（slave_id 已不在引擎中的旧记录）
+		// 这处理了 Slave 重启后生成新 ID 的情况
+		existing = l.findOrphanedExecutor()
+	}
+
+	if existing != nil {
+		// 已存在：更新 slave_id 和其他信息
 		now := time.Now()
 		updates := map[string]interface{}{
 			"updated_at": now,
+			"slave_id":   req.SlaveID,
 		}
-		if req.Name != "" && req.Name != existing.Name {
+		if req.Name != "" {
 			updates["name"] = req.Name
 		}
 		if req.Type != "" && req.Type != existing.Type {
@@ -471,6 +499,7 @@ func (l *ExecutorLogic) Register(req *RegisterExecutorReq) (*ExecutorInfo, error
 			updates["labels"] = string(labelsBytes)
 		}
 		e.WithContext(l.ctx).Where(e.ID.Eq(existing.ID)).Updates(updates)
+		existing.SlaveID = req.SlaveID
 		return l.mergeWithRuntimeStatus(existing), nil
 	}
 
@@ -538,8 +567,8 @@ func (l *ExecutorLogic) ListAvailable() ([]*ExecutorInfo, error) {
 // ExecutorStrategy 执行策略
 type ExecutorStrategy struct {
 	Strategy   string            `json:"strategy"`    // local, manual, auto
-	ExecutorID int64             `json:"executor_id"`  // manual 模式下指定的执行机 ID
-	Labels     map[string]string `json:"labels"`       // auto 模式下的标签匹配
+	ExecutorID int64             `json:"executor_id"` // manual 模式下指定的执行机 ID
+	Labels     map[string]string `json:"labels"`      // auto 模式下的标签匹配
 }
 
 // SelectByStrategy 根据策略选择执行机

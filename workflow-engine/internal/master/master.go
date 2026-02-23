@@ -302,8 +302,12 @@ func (m *WorkflowMaster) scheduleExecution(ctx context.Context, execInfo *Execut
 	var slaves []*types.SlaveInfo
 	var err error
 
-	if m.config.StandaloneMode {
-		// 在单机模式下，创建一个虚拟的本地 Slave
+	selector := execInfo.Workflow.Options.TargetSlaves
+	useLocal := m.config.StandaloneMode ||
+		(selector != nil && selector.Mode == types.SelectionModeLocal)
+
+	if useLocal {
+		// 本地执行：创建虚拟的本地 Slave
 		slaves = []*types.SlaveInfo{{
 			ID:           "local",
 			Type:         types.SlaveTypeWorker,
@@ -311,8 +315,7 @@ func (m *WorkflowMaster) scheduleExecution(ctx context.Context, execInfo *Execut
 			Capabilities: []string{"http_executor", "script_executor"},
 		}}
 	} else {
-		// 根据工作流选项选择 Slave
-		selector := execInfo.Workflow.Options.TargetSlaves
+		// 分布式执行：根据选择策略选择 Slave
 		if selector == nil {
 			selector = &types.SlaveSelector{Mode: types.SelectionModeAuto}
 		}
@@ -373,11 +376,13 @@ func (m *WorkflowMaster) runExecution(ctx context.Context, execInfo *ExecutionIn
 	}()
 
 	// 根据模式选择执行方式
-	if m.config.StandaloneMode {
-		// 单机模式：本地执行
+	targetSelector := execInfo.Workflow.Options.TargetSlaves
+	useLocal := m.config.StandaloneMode ||
+		(targetSelector != nil && targetSelector.Mode == types.SelectionModeLocal)
+
+	if useLocal {
 		m.simulateExecution(execCtx, execInfo)
 	} else {
-		// 分布式模式：分发到 Slave 执行
 		m.distributeExecution(execCtx, execInfo)
 	}
 }

@@ -472,21 +472,26 @@ func (s *Server) executeRemoteStream(ctx context.Context, wf *types.Workflow, sl
 	logger.Debug("executeRemoteStream 开始", "workflow_id", wf.ID, "slave_id", slaveID)
 
 	// 获取 Slave 信息
-	slave, err := s.registry.Get(slaveID)
+	_, err := s.registry.GetSlave(ctx, slaveID)
 	if err != nil {
 		return fmt.Errorf("获取 Slave 失败: %w", err)
 	}
 
-	if slave.State != "online" {
-		return fmt.Errorf("Slave 不可用: %s (状态: %s)", slaveID, slave.State)
+	slaveStatus, err := s.registry.GetSlaveStatus(ctx, slaveID)
+	if err != nil || slaveStatus.State != types.SlaveStateOnline {
+		state := "unknown"
+		if slaveStatus != nil {
+			state = string(slaveStatus.State)
+		}
+		return fmt.Errorf("Slave 不可用: %s (状态: %s)", slaveID, state)
 	}
 
 	// 创建任务分配
 	task := &TaskAssignment{
-		TaskID:     uuid.New().String(),
-		WorkflowID: wf.ID,
-		Workflow:   wf,
-		Segment: ExecutionSegment{
+		TaskID:      uuid.New().String(),
+		ExecutionID: wf.ID,
+		Workflow:    wf,
+		Segment: &ExecutionSegment{
 			Start: 0,
 			End:   1,
 		},
@@ -511,7 +516,6 @@ func (s *Server) executeRemoteStream(ctx context.Context, wf *types.Workflow, sl
 	}
 
 	// 等待执行完成（通过轮询状态或 WebSocket）
-	// 这里简化处理，实际应该通过回调机制
 	return s.waitForRemoteCompletion(ctx, task.TaskID, session, writer)
 }
 
@@ -520,21 +524,26 @@ func (s *Server) executeRemoteBlocking(ctx context.Context, wf *types.Workflow, 
 	logger.Debug("executeRemoteBlocking 开始", "workflow_id", wf.ID, "slave_id", slaveID)
 
 	// 获取 Slave 信息
-	slave, err := s.registry.Get(slaveID)
+	_, err := s.registry.GetSlave(ctx, slaveID)
 	if err != nil {
 		return fmt.Errorf("获取 Slave 失败: %w", err)
 	}
 
-	if slave.State != "online" {
-		return fmt.Errorf("Slave 不可用: %s (状态: %s)", slaveID, slave.State)
+	slaveStatus, err := s.registry.GetSlaveStatus(ctx, slaveID)
+	if err != nil || slaveStatus.State != types.SlaveStateOnline {
+		state := "unknown"
+		if slaveStatus != nil {
+			state = string(slaveStatus.State)
+		}
+		return fmt.Errorf("Slave 不可用: %s (状态: %s)", slaveID, state)
 	}
 
 	// 创建任务分配
 	task := &TaskAssignment{
-		TaskID:     uuid.New().String(),
-		WorkflowID: wf.ID,
-		Workflow:   wf,
-		Segment: ExecutionSegment{
+		TaskID:      uuid.New().String(),
+		ExecutionID: wf.ID,
+		Workflow:    wf,
+		Segment: &ExecutionSegment{
 			Start: 0,
 			End:   1,
 		},

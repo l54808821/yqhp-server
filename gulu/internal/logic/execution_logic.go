@@ -162,6 +162,21 @@ func (l *ExecutionLogic) Execute(req *ExecuteWorkflowReq, userID int64) (*model.
 		// 转换为 workflow-engine 的工作流类型
 		weWorkflow := workflow.ConvertToEngineWorkflow(def, executionID)
 
+		// 设置执行机指定（TargetSlaves）
+		if req.ExecutorID > 0 {
+			executorLogic := NewExecutorLogic(l.ctx)
+			execInfo, execErr := executorLogic.GetByID(req.ExecutorID)
+			if execErr != nil {
+				return nil, fmt.Errorf("指定的执行机不存在: %v", execErr)
+			}
+			if execInfo.SlaveID != "" {
+				weWorkflow.Options.TargetSlaves = &types.SlaveSelector{
+					Mode:     types.SelectionModeManual,
+					SlaveIDs: []string{execInfo.SlaveID},
+				}
+			}
+		}
+
 		// 提交执行
 		engineExecutionID, submitErr := engine.SubmitWorkflow(l.ctx, weWorkflow)
 		if submitErr != nil {

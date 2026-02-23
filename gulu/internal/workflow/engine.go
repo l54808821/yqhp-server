@@ -116,6 +116,18 @@ func (e *Engine) GetSlaves(ctx context.Context) ([]*types.SlaveInfo, error) {
 	return e.embeddedEngine.GetSlaves(ctx)
 }
 
+// WatchSlaves 监听 Slave 事件
+func (e *Engine) WatchSlaves(ctx context.Context) (<-chan *types.SlaveEvent, error) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	if e.embeddedEngine == nil {
+		return nil, nil
+	}
+
+	return e.embeddedEngine.WatchSlaves(ctx)
+}
+
 // SubmitWorkflow 提交工作流执行
 func (e *Engine) SubmitWorkflow(ctx context.Context, workflow *types.Workflow) (string, error) {
 	e.mu.RLock()

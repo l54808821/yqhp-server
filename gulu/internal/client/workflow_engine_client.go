@@ -108,19 +108,32 @@ func (c *WorkflowEngineClient) getExecutorListEmbedded() ([]ExecutorStatus, erro
 		return nil, fmt.Errorf("工作流引擎未初始化")
 	}
 
-	slaves, err := engine.GetSlaves(context.Background())
+	ctx := context.Background()
+	slaves, err := engine.GetSlaves(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	result := make([]ExecutorStatus, 0, len(slaves))
 	for _, slave := range slaves {
-		result = append(result, ExecutorStatus{
+		es := ExecutorStatus{
 			SlaveID:      slave.ID,
 			Address:      slave.Address,
 			Capabilities: slave.Capabilities,
-			State:        "online", // 内置模式下，能获取到的都是在线的
-		})
+			State:        "offline",
+		}
+
+		if status, err := engine.GetSlaveStatus(ctx, slave.ID); err == nil && status != nil {
+			es.State = string(status.State)
+			es.Load = status.Load
+			es.ActiveTasks = status.ActiveTasks
+			es.LastSeen = status.LastSeen
+			if status.Metrics != nil {
+				es.CurrentVUs = status.Metrics.ActiveVUs
+			}
+		}
+
+		result = append(result, es)
 	}
 
 	return result, nil
@@ -168,19 +181,32 @@ func (c *WorkflowEngineClient) getExecutorStatusEmbedded(slaveID string) (*Execu
 		return nil, fmt.Errorf("工作流引擎未初始化")
 	}
 
-	slaves, err := engine.GetSlaves(context.Background())
+	ctx := context.Background()
+	slaves, err := engine.GetSlaves(ctx)
 	if err != nil {
 		return nil, err
 	}
 
 	for _, slave := range slaves {
 		if slave.ID == slaveID {
-			return &ExecutorStatus{
+			es := &ExecutorStatus{
 				SlaveID:      slave.ID,
 				Address:      slave.Address,
 				Capabilities: slave.Capabilities,
-				State:        "online",
-			}, nil
+				State:        "offline",
+			}
+
+			if status, err := engine.GetSlaveStatus(ctx, slave.ID); err == nil && status != nil {
+				es.State = string(status.State)
+				es.Load = status.Load
+				es.ActiveTasks = status.ActiveTasks
+				es.LastSeen = status.LastSeen
+				if status.Metrics != nil {
+					es.CurrentVUs = status.Metrics.ActiveVUs
+				}
+			}
+
+			return es, nil
 		}
 	}
 

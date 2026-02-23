@@ -116,6 +116,18 @@ func (e *Engine) GetSlaves(ctx context.Context) ([]*types.SlaveInfo, error) {
 	return e.embeddedEngine.GetSlaves(ctx)
 }
 
+// GetSlaveStatus 获取单个 Slave 的运行时状态
+func (e *Engine) GetSlaveStatus(ctx context.Context, slaveID string) (*types.SlaveStatus, error) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	if e.embeddedEngine == nil {
+		return nil, nil
+	}
+
+	return e.embeddedEngine.GetSlaveStatus(ctx, slaveID)
+}
+
 // WatchSlaves 监听 Slave 事件
 func (e *Engine) WatchSlaves(ctx context.Context) (<-chan *types.SlaveEvent, error) {
 	e.mu.RLock()

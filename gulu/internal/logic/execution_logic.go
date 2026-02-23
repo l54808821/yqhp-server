@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	commonUtils "yqhp/common/utils"
@@ -14,6 +15,9 @@ import (
 	"yqhp/gulu/internal/workflow"
 	"yqhp/workflow-engine/pkg/types"
 )
+
+// engineIDMap 维护 gulu executionID -> engine executionID 的映射（用于实时指标查询）
+var engineIDMap sync.Map
 
 // ExecutionLogic 执行逻辑
 type ExecutionLogic struct {
@@ -27,10 +31,36 @@ func NewExecutionLogic(ctx context.Context) *ExecutionLogic {
 
 // ExecuteWorkflowReq 执行工作流请求
 type ExecuteWorkflowReq struct {
-	WorkflowID int64  `json:"workflow_id" validate:"required"`
-	EnvID      int64  `json:"env_id" validate:"required"`
-	ExecutorID int64  `json:"executor_id"` // 可选，指定执行机ID
-	Mode       string `json:"mode"`        // 执行模式: debug, execute（默认 execute）
+	WorkflowID        int64              `json:"workflow_id" validate:"required"`
+	EnvID             int64              `json:"env_id" validate:"required"`
+	ExecutorID        int64              `json:"executor_id"`        // 可选，指定执行机ID
+	Mode              string             `json:"mode"`               // 执行模式: debug, execute（默认 execute）
+	PerformanceConfig *PerformanceConfig `json:"performance_config"` // 可选，压测配置（覆盖工作流定义中的配置）
+}
+
+// PerformanceConfig 压测配置
+type PerformanceConfig struct {
+	Mode       string            `json:"mode"`                 // constant-vus, ramping-vus 等
+	VUs        int               `json:"vus,omitempty"`        // 虚拟用户数
+	Duration   string            `json:"duration,omitempty"`   // 持续时间，如 "30s", "5m"
+	Iterations int               `json:"iterations,omitempty"` // 迭代次数
+	Stages     []PerfStage       `json:"stages,omitempty"`     // 阶梯配置
+	Thresholds []PerfThreshold   `json:"thresholds,omitempty"` // 性能阈值
+	HTTPEngine string            `json:"httpEngine,omitempty"` // fasthttp 或 standard
+	Tags       map[string]string `json:"tags,omitempty"`       // 全局标签
+}
+
+// PerfStage 阶梯配置
+type PerfStage struct {
+	Duration string `json:"duration"`
+	Target   int    `json:"target"`
+	Name     string `json:"name,omitempty"`
+}
+
+// PerfThreshold 性能阈值
+type PerfThreshold struct {
+	Metric    string `json:"metric"`
+	Condition string `json:"condition"`
 }
 
 // ExecutionListReq 执行记录列表请求
@@ -162,6 +192,19 @@ func (l *ExecutionLogic) Execute(req *ExecuteWorkflowReq, userID int64) (*model.
 		// 转换为 workflow-engine 的工作流类型
 		weWorkflow := workflow.ConvertToEngineWorkflow(def, executionID)
 
+		// 应用压测配置
+		perfConfig := req.PerformanceConfig
+		if perfConfig == nil {
+			perfConfig = extractPerformanceConfigFromDefinition(wf.Definition)
+		}
+		if perfConfig != nil {
+			applyPerformanceConfig(weWorkflow, perfConfig)
+			fmt.Printf("[Execute] 已应用压测配置: mode=%s, vus=%d, duration=%v, iterations=%d, stages=%d\n",
+				weWorkflow.Options.ExecutionMode, weWorkflow.Options.VUs, weWorkflow.Options.Duration, weWorkflow.Options.Iterations, len(weWorkflow.Options.Stages))
+		} else {
+			fmt.Printf("[Execute] 未找到压测配置，使用默认值: vus=%d, iterations=%d\n", weWorkflow.Options.VUs, weWorkflow.Options.Iterations)
+		}
+
 		// 设置执行机指定（TargetSlaves）
 		if req.ExecutorID > 0 {
 			executorLogic := NewExecutorLogic(l.ctx)
@@ -190,9 +233,16 @@ func (l *ExecutionLogic) Execute(req *ExecuteWorkflowReq, userID int64) (*model.
 
 		fmt.Printf("工作流已提交，引擎执行ID: %s\n", engineExecutionID)
 
-		// 启动后台协程监控执行状态（使用安全的 goroutine，防止 panic 导致服务崩溃）
+		// 保存 gulu executionID -> engine executionID 的映射
+		engineIDMap.Store(executionID, engineExecutionID)
+
+		// 启动后台协程监控执行状态
 		commonUtils.SafeGoWithName("monitor-execution-"+engineExecutionID, func() {
 			l.monitorExecution(execution.ID, engineExecutionID, engine)
+			// 延迟清除映射，给查询留足时间
+			time.AfterFunc(10*time.Minute, func() {
+				engineIDMap.Delete(executionID)
+			})
 		})
 	}
 
@@ -254,10 +304,40 @@ func (l *ExecutionLogic) monitorExecution(dbID int64, executionID string, engine
 				continue
 			}
 
-			// 如果是终态，更新并退出
+			// 如果是终态，获取最终指标并存储报告
 			if dbStatus == ExecutionStatusCompleted || dbStatus == ExecutionStatusFailed || dbStatus == ExecutionStatusStopped {
 				fmt.Printf("执行完成: %s -> %s\n", executionID, dbStatus)
-				l.updateExecutionStatus(dbID, dbStatus, state.EndTime, nil)
+
+				reportData := map[string]interface{}{
+					"status": dbStatus,
+				}
+
+				// 收集引擎错误信息
+				if len(state.Errors) > 0 {
+					errMsgs := make([]string, len(state.Errors))
+					for i, e := range state.Errors {
+						errMsgs[i] = e.Message
+					}
+					reportData["errors"] = errMsgs
+					fmt.Printf("执行错误: %v\n", errMsgs)
+				}
+
+				// 收集最终指标
+				metrics, metricsErr := engine.GetMetrics(context.Background(), executionID)
+				if metricsErr == nil && metrics != nil {
+					reportData["total_vus"] = metrics.TotalVUs
+					reportData["total_iterations"] = metrics.TotalIterations
+					reportData["duration"] = formatEngineDuration(metrics.Duration)
+					reportData["step_metrics"] = metrics.StepMetrics
+				}
+
+				var resultStr *string
+				if reportJSON, jsonErr := json.Marshal(reportData); jsonErr == nil {
+					s := string(reportJSON)
+					resultStr = &s
+				}
+
+				l.updateExecutionStatus(dbID, dbStatus, state.EndTime, resultStr)
 				return
 			}
 		}
@@ -369,6 +449,139 @@ func (l *ExecutionLogic) GetLogs(id int64) (string, error) {
 		return *execution.Logs, nil
 	}
 	return "", nil
+}
+
+// ExecutionMetricsResp 执行指标响应
+type ExecutionMetricsResp struct {
+	ExecutionID     string                       `json:"execution_id"`
+	Status          string                       `json:"status"`
+	TotalVUs        int                          `json:"total_vus"`
+	TotalIterations int64                        `json:"total_iterations"`
+	Duration        string                       `json:"duration"`
+	StartTime       *time.Time                   `json:"start_time"`
+	EndTime         *time.Time                   `json:"end_time"`
+	DurationMs      *int64                       `json:"duration_ms"`
+	StepMetrics     map[string]*StepMetricsResp  `json:"step_metrics,omitempty"`
+	Errors          []string                     `json:"errors,omitempty"`
+}
+
+// StepMetricsResp 步骤指标响应
+type StepMetricsResp struct {
+	StepID       string            `json:"step_id"`
+	Count        int64             `json:"count"`
+	SuccessCount int64             `json:"success_count"`
+	FailureCount int64             `json:"failure_count"`
+	Duration     *DurationMetrics  `json:"duration,omitempty"`
+}
+
+// DurationMetrics 耗时指标
+type DurationMetrics struct {
+	Min string `json:"min"`
+	Max string `json:"max"`
+	Avg string `json:"avg"`
+	P50 string `json:"p50"`
+	P90 string `json:"p90"`
+	P95 string `json:"p95"`
+	P99 string `json:"p99"`
+}
+
+// GetMetrics 获取执行的实时指标
+func (l *ExecutionLogic) GetMetrics(id int64) (*ExecutionMetricsResp, error) {
+	execution, err := l.GetByID(id)
+	if err != nil {
+		return nil, errors.New("执行记录不存在")
+	}
+
+	resp := &ExecutionMetricsResp{
+		ExecutionID: execution.ExecutionID,
+		Status:      execution.Status,
+		StartTime:   execution.StartTime,
+		EndTime:     execution.EndTime,
+		DurationMs:  execution.Duration,
+	}
+
+	// 如果已有 DB 存储的 result，解析其中的错误信息
+	if execution.Result != nil && *execution.Result != "" {
+		var savedResult map[string]interface{}
+		if jsonErr := json.Unmarshal([]byte(*execution.Result), &savedResult); jsonErr == nil {
+			if errs, ok := savedResult["errors"].([]interface{}); ok {
+				for _, e := range errs {
+					if s, ok := e.(string); ok {
+						resp.Errors = append(resp.Errors, s)
+					}
+				}
+			}
+		}
+	}
+
+	engine := workflow.GetEngine()
+	if engine == nil {
+		return resp, nil
+	}
+
+	// 查找引擎真实执行 ID（gulu ID 和 engine ID 不同）
+	engineExecID := execution.ExecutionID
+	if mapped, ok := engineIDMap.Load(execution.ExecutionID); ok {
+		engineExecID = mapped.(string)
+	}
+
+	// 从引擎获取实时执行状态（包含错误信息）
+	state, _ := engine.GetExecutionStatus(context.Background(), engineExecID)
+	if state != nil && len(state.Errors) > 0 {
+		resp.Errors = make([]string, len(state.Errors))
+		for i, e := range state.Errors {
+			resp.Errors[i] = e.Message
+		}
+	}
+
+	metrics, err := engine.GetMetrics(context.Background(), engineExecID)
+	if err != nil || metrics == nil {
+		return resp, nil
+	}
+
+	resp.TotalVUs = metrics.TotalVUs
+	resp.TotalIterations = metrics.TotalIterations
+	resp.Duration = formatEngineDuration(metrics.Duration)
+
+	if len(metrics.StepMetrics) > 0 {
+		resp.StepMetrics = make(map[string]*StepMetricsResp)
+		for id, sm := range metrics.StepMetrics {
+			stepResp := &StepMetricsResp{
+				StepID:       sm.StepID,
+				Count:        sm.Count,
+				SuccessCount: sm.SuccessCount,
+				FailureCount: sm.FailureCount,
+			}
+			if sm.Duration != nil {
+				stepResp.Duration = &DurationMetrics{
+					Min: formatEngineDuration(sm.Duration.Min),
+					Max: formatEngineDuration(sm.Duration.Max),
+					Avg: formatEngineDuration(sm.Duration.Avg),
+					P50: formatEngineDuration(sm.Duration.P50),
+					P90: formatEngineDuration(sm.Duration.P90),
+					P95: formatEngineDuration(sm.Duration.P95),
+					P99: formatEngineDuration(sm.Duration.P99),
+				}
+			}
+			resp.StepMetrics[id] = stepResp
+		}
+	}
+
+	return resp, nil
+}
+
+// formatEngineDuration 格式化引擎返回的 Duration
+func formatEngineDuration(d time.Duration) string {
+	if d == 0 {
+		return "0s"
+	}
+	if d < time.Millisecond {
+		return fmt.Sprintf("%.2fµs", float64(d)/float64(time.Microsecond))
+	}
+	if d < time.Second {
+		return fmt.Sprintf("%.2fms", float64(d)/float64(time.Millisecond))
+	}
+	return fmt.Sprintf("%.2fs", float64(d)/float64(time.Second))
 }
 
 // Stop 停止执行
@@ -720,4 +933,94 @@ func ConvertToEngineWorkflowStopOnErrorWithContext(ctx context.Context, definiti
 	}
 
 	return workflow.ConvertToEngineWorkflowForDebug(&def, executionID), nil
+}
+
+// extractPerformanceConfigFromDefinition 从工作流定义 JSON 中提取压测配置
+func extractPerformanceConfigFromDefinition(definition string) *PerformanceConfig {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(definition), &raw); err != nil {
+		return nil
+	}
+
+	perfRaw, ok := raw["performanceConfig"]
+	if !ok {
+		return nil
+	}
+
+	var cfg PerformanceConfig
+	if err := json.Unmarshal(perfRaw, &cfg); err != nil {
+		return nil
+	}
+
+	return &cfg
+}
+
+// applyPerformanceConfig 将压测配置应用到引擎工作流的 Options 上
+func applyPerformanceConfig(wf *types.Workflow, cfg *PerformanceConfig) {
+	if wf == nil || cfg == nil {
+		return
+	}
+
+	// 设置执行模式
+	if cfg.Mode != "" {
+		wf.Options.ExecutionMode = types.ExecutionMode(cfg.Mode)
+	}
+
+	// 设置 VU 数
+	if cfg.VUs > 0 {
+		wf.Options.VUs = cfg.VUs
+	}
+
+	// 解析并设置持续时间
+	if cfg.Duration != "" {
+		if d, err := time.ParseDuration(cfg.Duration); err == nil {
+			wf.Options.Duration = d
+			// 基于时长的执行，iterations 设为 0（无限迭代，靠 duration 控制结束）
+			wf.Options.Iterations = 0
+		}
+	}
+
+	// 显式设置迭代次数（覆盖上面的 duration 默认值）
+	if cfg.Iterations > 0 {
+		wf.Options.Iterations = cfg.Iterations
+	}
+
+	// 设置阶梯配置
+	if len(cfg.Stages) > 0 {
+		stages := make([]types.Stage, len(cfg.Stages))
+		for i, s := range cfg.Stages {
+			var d time.Duration
+			if s.Duration != "" {
+				d, _ = time.ParseDuration(s.Duration)
+			}
+			stages[i] = types.Stage{
+				Duration: d,
+				Target:   s.Target,
+				Name:     s.Name,
+			}
+		}
+		wf.Options.Stages = stages
+	}
+
+	// 设置阈值
+	if len(cfg.Thresholds) > 0 {
+		thresholds := make([]types.Threshold, len(cfg.Thresholds))
+		for i, t := range cfg.Thresholds {
+			thresholds[i] = types.Threshold{
+				Metric:    t.Metric,
+				Condition: t.Condition,
+			}
+		}
+		wf.Options.Thresholds = thresholds
+	}
+
+	// 设置 HTTP 引擎类型
+	if cfg.HTTPEngine != "" {
+		wf.Options.HTTPEngine = types.HTTPEngineType(cfg.HTTPEngine)
+	}
+
+	// 设置标签
+	if len(cfg.Tags) > 0 {
+		wf.Options.Tags = cfg.Tags
+	}
 }

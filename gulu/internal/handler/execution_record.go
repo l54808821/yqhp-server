@@ -159,6 +159,23 @@ func ExecutionGetStatus(c *fiber.Ctx) error {
 	})
 }
 
+// ExecutionGetMetrics 获取执行实时指标
+// GET /api/execution-records/:id/metrics
+func ExecutionGetMetrics(c *fiber.Ctx) error {
+	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	if err != nil {
+		return response.Error(c, "无效的执行记录ID")
+	}
+
+	executionLogic := logic.NewExecutionLogic(c.UserContext())
+	metrics, err := executionLogic.GetMetrics(id)
+	if err != nil {
+		return response.Error(c, err.Error())
+	}
+
+	return response.Success(c, metrics)
+}
+
 // ExecutionStop 停止执行
 // DELETE /api/executions/:id
 func ExecutionStop(c *fiber.Ctx) error {

@@ -534,6 +534,10 @@ func (m *WorkflowMaster) simulateExecution(ctx context.Context, execInfo *Execut
 			} else {
 				execInfo.State.Status = result.Status
 			}
+			// 复制任务执行错误到状态
+			if len(result.Errors) > 0 {
+				execInfo.State.Errors = append(execInfo.State.Errors, result.Errors...)
+			}
 			// 存储最终指标
 			if result.Metrics != nil {
 				totalIterations := result.Iterations

@@ -245,6 +245,7 @@ func Setup(app *fiber.App) {
 	executionRecords.Get("/:id", handler.ExecutionGetByID)
 	executionRecords.Get("/:id/logs", handler.ExecutionGetLogs)
 	executionRecords.Get("/:id/status", handler.ExecutionGetStatus)
+	executionRecords.Get("/:id/metrics", handler.ExecutionGetMetrics)
 	executionRecords.Delete("/:id", handler.ExecutionStop)
 	executionRecords.Post("/:id/pause", handler.ExecutionPause)
 	executionRecords.Post("/:id/resume", handler.ExecutionResume)

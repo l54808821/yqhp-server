@@ -2,6 +2,7 @@ package handler
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -57,10 +58,6 @@ type ExecuteRequest struct {
 	SelectedSteps []string `json:"selectedSteps,omitempty"`
 	// 超时时间（秒）
 	Timeout int `json:"timeout,omitempty"`
-	// 执行器类型
-	ExecutorType string `json:"executorType,omitempty"`
-	// 指定的 Slave ID
-	SlaveID string `json:"slaveId,omitempty"`
 	// 是否使用 SSE 流式响应
 	Stream bool `json:"stream,omitempty"`
 	// 是否持久化执行记录
@@ -149,7 +146,7 @@ func (h *StreamExecutionHandler) Execute(c *fiber.Ctx) error {
 	}
 
 	// 准备执行上下文（无 workflowID，直接使用定义）
-	execCtx, err := h.prepareExecutionFromDefinition(c, workflowDef, req.EnvID, req.Variables, mode, shouldPersist(req.Persist), req.ExecutorType, req.SlaveID, req.Timeout, req.SessionID)
+	execCtx, err := h.prepareExecutionFromDefinition(c, workflowDef, req.EnvID, req.Variables, mode, shouldPersist(req.Persist), req.Timeout, req.SessionID)
 	if err != nil {
 		if execErr, ok := err.(*executionError); ok {
 			if execErr.code == "NOT_FOUND" {
@@ -172,7 +169,7 @@ func (h *StreamExecutionHandler) Execute(c *fiber.Ctx) error {
 }
 
 // prepareExecutionFromDefinition 从工作流定义准备执行上下文
-func (h *StreamExecutionHandler) prepareExecutionFromDefinition(c *fiber.Ctx, definition interface{}, envID int64, variables map[string]interface{}, mode string, persist bool, executorType string, slaveID string, timeout int, sessionID string) (*ExecutionContext, error) {
+func (h *StreamExecutionHandler) prepareExecutionFromDefinition(c *fiber.Ctx, definition interface{}, envID int64, variables map[string]interface{}, mode string, persist bool, timeout int, sessionID string) (*ExecutionContext, error) {
 	userID := middleware.GetCurrentUserID(c)
 
 	// 生成会话 ID
@@ -276,50 +273,21 @@ func (h *StreamExecutionHandler) prepareExecutionFromDefinition(c *fiber.Ctx, de
 		}
 	}
 
-	// 如果未显式指定远程执行器，尝试从工作流定义中的 executorConfig 读取
-	if (executorType == "" || executorType == "local") && slaveID == "" {
-		if wfMap, ok := definition.(map[string]interface{}); ok {
-			if ecRaw, ok := wfMap["executorConfig"]; ok {
-				if ec, ok := ecRaw.(map[string]interface{}); ok {
-					if strategy, ok := ec["strategy"].(string); ok {
-						executorLogic := logic.NewExecutorLogic(c.UserContext())
-						execStrategy := &logic.ExecutorStrategy{Strategy: strategy}
-						if eid, ok := ec["executor_id"].(float64); ok {
-							execStrategy.ExecutorID = int64(eid)
-						}
-						if labels, ok := ec["labels"].(map[string]interface{}); ok {
-							execStrategy.Labels = make(map[string]string)
-							for k, v := range labels {
-								if vs, ok := v.(string); ok {
-									execStrategy.Labels[k] = vs
-								}
-							}
-						}
-						selected, err := executorLogic.SelectByStrategy(execStrategy)
-						if err != nil {
-							if strategy == "manual" {
-								return nil, &executionError{code: "EXECUTOR_ERROR", message: "指定的执行机不可用: " + err.Error()}
-							}
-							logger.Warn("执行策略选择失败，回退到本地执行", "error", err)
-						} else if selected != nil {
-							// 通过 master 任务分发到指定 Slave（而非直连 Slave SSE），
-							// 在工作流 Options.TargetSlaves 上设置目标，保持 executeLocal 路径
-							slaveID = selected.SlaveID
-						}
-					}
-				}
-			}
-		}
+	// 解析执行机策略，设置 TargetSlaves
+	targetSlaves, err := resolveTargetSlaves(definition, c.UserContext())
+	if err != nil {
+		return nil, &executionError{code: "EXECUTOR_ERROR", message: err.Error()}
+	}
+	if targetSlaves != nil {
+		engineWf.Options.TargetSlaves = targetSlaves
 	}
 
 	// 创建执行请求
 	execReq := &executor.ExecuteRequest{
-		WorkflowID:   0,
-		EnvID:        envID,
-		Variables:    variables,
-		Timeout:      timeout,
-		ExecutorType: executor.ExecutorType(executorType),
-		SlaveID:      slaveID,
+		WorkflowID: 0,
+		EnvID:      envID,
+		Variables:  variables,
+		Timeout:    timeout,
 	}
 
 	return &ExecutionContext{
@@ -464,6 +432,63 @@ func (h *StreamExecutionHandler) updateExecutionStatus(execCtx *ExecutionContext
 	} else if execErr != nil {
 		writer.WriteErrorCode(sse.ErrExecutorError, "执行失败", execErr.Error())
 	}
+}
+
+// resolveTargetSlaves 从工作流定义中的 executorConfig 解析执行机策略，
+// 返回对应的 SlaveSelector。返回 nil 表示使用本地执行。
+func resolveTargetSlaves(definition interface{}, ctx context.Context) (*types.SlaveSelector, error) {
+	wfMap, ok := definition.(map[string]interface{})
+	if !ok {
+		return nil, nil
+	}
+
+	ecRaw, ok := wfMap["executorConfig"]
+	if !ok {
+		return nil, nil
+	}
+
+	ec, ok := ecRaw.(map[string]interface{})
+	if !ok {
+		return nil, nil
+	}
+
+	strategy, ok := ec["strategy"].(string)
+	if !ok || strategy == "" || strategy == "local" {
+		return nil, nil
+	}
+
+	executorLogic := logic.NewExecutorLogic(ctx)
+	execStrategy := &logic.ExecutorStrategy{Strategy: strategy}
+
+	if eid, ok := ec["executor_id"].(float64); ok {
+		execStrategy.ExecutorID = int64(eid)
+	}
+	if labels, ok := ec["labels"].(map[string]interface{}); ok {
+		execStrategy.Labels = make(map[string]string)
+		for k, v := range labels {
+			if vs, ok := v.(string); ok {
+				execStrategy.Labels[k] = vs
+			}
+		}
+	}
+
+	selected, err := executorLogic.SelectByStrategy(execStrategy)
+	if err != nil {
+		if strategy == "manual" {
+			return nil, fmt.Errorf("指定的执行机不可用: %s", err.Error())
+		}
+		logger.Warn("执行策略选择失败，回退到本地执行", "error", err)
+		return nil, nil
+	}
+
+	if selected == nil {
+		return nil, nil
+	}
+
+	return &types.SlaveSelector{
+		Mode:     types.SelectionModeManual,
+		SlaveIDs: []string{selected.SlaveID},
+	}, nil
 }
 
 // StopExecution 停止执行

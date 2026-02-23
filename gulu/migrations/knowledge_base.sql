@@ -5,8 +5,6 @@ DROP TABLE IF EXISTS `t_knowledge_query`;
 DROP TABLE IF EXISTS `t_knowledge_segment`;
 DROP TABLE IF EXISTS `t_knowledge_document`;
 DROP TABLE IF EXISTS `t_knowledge_base`;
-DROP TABLE IF EXISTS `t_knowledge_entity`;
-DROP TABLE IF EXISTS `t_knowledge_relation`;
 
 -- 知识库主表（精简版：分块+检索配置合并到 config JSON）
 CREATE TABLE `t_knowledge_base` (
@@ -109,40 +107,5 @@ CREATE TABLE `t_knowledge_query` (
   INDEX `idx_query_created_at` (`created_at`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='知识库查询历史';
 
--- 知识图谱实体表
-CREATE TABLE `t_knowledge_entity` (
-  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
-  `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  `knowledge_base_id` BIGINT UNSIGNED NOT NULL,
-  `document_id` BIGINT UNSIGNED NOT NULL,
-  `name` VARCHAR(255) NOT NULL,
-  `entity_type` VARCHAR(100) NOT NULL,
-  `description` TEXT DEFAULT NULL,
-  `properties` JSON DEFAULT NULL,
-  `neo4j_node_id` VARCHAR(64) DEFAULT NULL,
-  `mention_count` INT DEFAULT 1,
-  PRIMARY KEY (`id`),
-  INDEX `idx_entity_kb_id` (`knowledge_base_id`),
-  INDEX `idx_entity_doc_id` (`document_id`),
-  INDEX `idx_entity_name` (`name`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='知识图谱实体表';
-
--- 知识图谱关系表
-CREATE TABLE `t_knowledge_relation` (
-  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
-  `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
-  `knowledge_base_id` BIGINT UNSIGNED NOT NULL,
-  `document_id` BIGINT UNSIGNED NOT NULL,
-  `source_entity_id` BIGINT UNSIGNED NOT NULL,
-  `target_entity_id` BIGINT UNSIGNED NOT NULL,
-  `relation_type` VARCHAR(100) NOT NULL,
-  `description` TEXT DEFAULT NULL,
-  `properties` JSON DEFAULT NULL,
-  `neo4j_rel_id` VARCHAR(64) DEFAULT NULL,
-  `weight` FLOAT DEFAULT 1.0,
-  PRIMARY KEY (`id`),
-  INDEX `idx_rel_kb_id` (`knowledge_base_id`),
-  INDEX `idx_rel_source` (`source_entity_id`),
-  INDEX `idx_rel_target` (`target_entity_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='知识图谱关系表';
+-- 知识图谱实体和关系数据统一存储在 Neo4j 中，不再使用 MySQL 表
+-- 如需清理旧表：DROP TABLE IF EXISTS t_knowledge_entity, t_knowledge_relation;

@@ -102,7 +102,7 @@ type GraphRelation struct {
 }
 
 // CreateOrMergeEntity 创建或合并实体节点（使用 MERGE 避免重复）
-func CreateOrMergeEntity(ctx context.Context, kbID int64, entity GraphEntity) (string, error) {
+func CreateOrMergeEntity(ctx context.Context, kbID int64, docID int64, entity GraphEntity, description string) (string, error) {
 	driver, err := getNeo4jDriver()
 	if err != nil {
 		return "", err
@@ -116,14 +116,18 @@ func CreateOrMergeEntity(ctx context.Context, kbID int64, entity GraphEntity) (s
 
 	result, err := session.Run(ctx,
 		`MERGE (n:Entity {name: $name, type: $type, kb_id: $kbID})
-		 ON CREATE SET n.properties = $properties, n.created_at = datetime()
-		 ON MATCH SET n.properties = $properties, n.updated_at = datetime()
+		 ON CREATE SET n.doc_id = $docID, n.description = $description,
+		               n.properties = $properties, n.created_at = datetime()
+		 ON MATCH SET n.description = $description, n.properties = $properties,
+		              n.updated_at = datetime()
 		 RETURN elementId(n) AS nodeId`,
 		map[string]interface{}{
-			"name":       entity.Name,
-			"type":       entity.Type,
-			"kbID":       kbID,
-			"properties": string(propsJSON),
+			"name":        entity.Name,
+			"type":        entity.Type,
+			"kbID":        kbID,
+			"docID":       docID,
+			"description": description,
+			"properties":  string(propsJSON),
 		},
 	)
 	if err != nil {
@@ -139,7 +143,7 @@ func CreateOrMergeEntity(ctx context.Context, kbID int64, entity GraphEntity) (s
 }
 
 // CreateRelation 创建关系
-func CreateRelation(ctx context.Context, kbID int64, rel GraphRelation) (string, error) {
+func CreateRelation(ctx context.Context, kbID int64, rel GraphRelation, description string) (string, error) {
 	driver, err := getNeo4jDriver()
 	if err != nil {
 		return "", err
@@ -155,17 +159,18 @@ func CreateRelation(ctx context.Context, kbID int64, rel GraphRelation) (string,
 		`MATCH (s:Entity {name: $sourceName, type: $sourceType, kb_id: $kbID})
 		 MATCH (t:Entity {name: $targetName, type: $targetType, kb_id: $kbID})
 		 MERGE (s)-[r:RELATES_TO {type: $relType}]->(t)
-		 ON CREATE SET r.properties = $properties, r.created_at = datetime()
-		 ON MATCH SET r.properties = $properties, r.updated_at = datetime()
+		 ON CREATE SET r.description = $description, r.properties = $properties, r.created_at = datetime()
+		 ON MATCH SET r.description = $description, r.properties = $properties, r.updated_at = datetime()
 		 RETURN elementId(r) AS relId`,
 		map[string]interface{}{
-			"sourceName": rel.SourceName,
-			"sourceType": rel.SourceType,
-			"targetName": rel.TargetName,
-			"targetType": rel.TargetType,
-			"kbID":       kbID,
-			"relType":    rel.RelationType,
-			"properties": string(propsJSON),
+			"sourceName":  rel.SourceName,
+			"sourceType":  rel.SourceType,
+			"targetName":  rel.TargetName,
+			"targetType":  rel.TargetType,
+			"kbID":        kbID,
+			"relType":     rel.RelationType,
+			"description": description,
+			"properties":  string(propsJSON),
 		},
 	)
 	if err != nil {
@@ -345,6 +350,151 @@ func DeleteDocumentGraph(ctx context.Context, kbID int64, docID int64) error {
 	}
 
 	return nil
+}
+
+// -----------------------------------------------
+// 图谱列表查询（替代 MySQL 查询）
+// -----------------------------------------------
+
+// Neo4jEntityInfo 从 Neo4j 查询的实体信息（给前端列表展示）
+type Neo4jEntityInfo struct {
+	Name        string `json:"name"`
+	EntityType  string `json:"entity_type"`
+	Description string `json:"description"`
+}
+
+// Neo4jRelationInfo 从 Neo4j 查询的关系信息（给前端列表展示）
+type Neo4jRelationInfo struct {
+	SourceName   string `json:"source_name"`
+	SourceType   string `json:"source_type"`
+	TargetName   string `json:"target_name"`
+	TargetType   string `json:"target_type"`
+	RelationType string `json:"relation_type"`
+	Description  string `json:"description"`
+}
+
+// ListEntitiesFromNeo4j 从 Neo4j 查询知识库的所有实体
+func ListEntitiesFromNeo4j(ctx context.Context, kbID int64) ([]*Neo4jEntityInfo, error) {
+	driver, err := getNeo4jDriver()
+	if err != nil {
+		return nil, err
+	}
+
+	database := getNeo4jDatabase()
+	session := driver.NewSession(ctx, neo4j.SessionConfig{DatabaseName: database})
+	defer session.Close(ctx)
+
+	result, err := session.Run(ctx,
+		`MATCH (n:Entity {kb_id: $kbID})
+		 RETURN n.name AS name, n.type AS type, n.description AS description
+		 ORDER BY n.name
+		 LIMIT 200`,
+		map[string]interface{}{"kbID": kbID},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("查询实体列表失败: %w", err)
+	}
+
+	var entities []*Neo4jEntityInfo
+	for result.Next(ctx) {
+		record := result.Record()
+		name, _ := record.Get("name")
+		typ, _ := record.Get("type")
+		desc, _ := record.Get("description")
+
+		entity := &Neo4jEntityInfo{
+			Name:       fmt.Sprintf("%v", name),
+			EntityType: fmt.Sprintf("%v", typ),
+		}
+		if desc != nil {
+			entity.Description = fmt.Sprintf("%v", desc)
+		}
+		entities = append(entities, entity)
+	}
+	return entities, nil
+}
+
+// ListRelationsFromNeo4j 从 Neo4j 查询知识库的所有关系
+func ListRelationsFromNeo4j(ctx context.Context, kbID int64) ([]*Neo4jRelationInfo, error) {
+	driver, err := getNeo4jDriver()
+	if err != nil {
+		return nil, err
+	}
+
+	database := getNeo4jDatabase()
+	session := driver.NewSession(ctx, neo4j.SessionConfig{DatabaseName: database})
+	defer session.Close(ctx)
+
+	result, err := session.Run(ctx,
+		`MATCH (s:Entity {kb_id: $kbID})-[r:RELATES_TO]->(t:Entity {kb_id: $kbID})
+		 RETURN s.name AS source, s.type AS sourceType,
+		        t.name AS target, t.type AS targetType,
+		        r.type AS relType, r.description AS description
+		 LIMIT 500`,
+		map[string]interface{}{"kbID": kbID},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("查询关系列表失败: %w", err)
+	}
+
+	var relations []*Neo4jRelationInfo
+	for result.Next(ctx) {
+		record := result.Record()
+		source, _ := record.Get("source")
+		sourceType, _ := record.Get("sourceType")
+		target, _ := record.Get("target")
+		targetType, _ := record.Get("targetType")
+		relType, _ := record.Get("relType")
+		desc, _ := record.Get("description")
+
+		rel := &Neo4jRelationInfo{
+			SourceName:   fmt.Sprintf("%v", source),
+			SourceType:   fmt.Sprintf("%v", sourceType),
+			TargetName:   fmt.Sprintf("%v", target),
+			TargetType:   fmt.Sprintf("%v", targetType),
+			RelationType: fmt.Sprintf("%v", relType),
+		}
+		if desc != nil {
+			rel.Description = fmt.Sprintf("%v", desc)
+		}
+		relations = append(relations, rel)
+	}
+	return relations, nil
+}
+
+// CountGraphData 从 Neo4j 获取实体和关系数量
+func CountGraphData(ctx context.Context, kbID int64) (entityCount int, relationCount int, err error) {
+	driver, err := getNeo4jDriver()
+	if err != nil {
+		return 0, 0, err
+	}
+
+	database := getNeo4jDatabase()
+	session := driver.NewSession(ctx, neo4j.SessionConfig{DatabaseName: database})
+	defer session.Close(ctx)
+
+	result, err := session.Run(ctx,
+		`MATCH (n:Entity {kb_id: $kbID})
+		 OPTIONAL MATCH (n)-[r:RELATES_TO]->()
+		 RETURN count(DISTINCT n) AS entityCount, count(DISTINCT r) AS relationCount`,
+		map[string]interface{}{"kbID": kbID},
+	)
+	if err != nil {
+		return 0, 0, fmt.Errorf("统计图谱数据失败: %w", err)
+	}
+
+	if result.Next(ctx) {
+		record := result.Record()
+		ec, _ := record.Get("entityCount")
+		rc, _ := record.Get("relationCount")
+		if ecInt, ok := ec.(int64); ok {
+			entityCount = int(ecInt)
+		}
+		if rcInt, ok := rc.(int64); ok {
+			relationCount = int(rcInt)
+		}
+	}
+	return entityCount, relationCount, nil
 }
 
 // FormatGraphAsContext 将图谱搜索结果格式化为 LLM 可读的上下文文本

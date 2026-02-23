@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"yqhp/gulu/internal/model"
-	"yqhp/gulu/internal/svc"
 )
 
 // GraphProcessor 图知识库处理器
@@ -44,10 +43,9 @@ type ExtractedRelation struct {
 }
 
 // ProcessDocument 处理图知识库的文档
-// 1. 提取文本 2. 分块 3. LLM 抽取实体和关系 4. 写入 Neo4j 5. 同时写入向量库
+// 1. LLM 抽取实体和关系 2. 写入 Neo4j（唯一数据源）
 func (g *GraphProcessor) ProcessDocument(kb *model.TKnowledgeBase, doc *model.TKnowledgeDocument, text string, chunks []string) error {
 	ctx := context.Background()
-	db := svc.Ctx.DB
 
 	if kb.GraphExtractModelID == nil || *kb.GraphExtractModelID == 0 {
 		return fmt.Errorf("图知识库未配置实体抽取模型")
@@ -79,7 +77,7 @@ func (g *GraphProcessor) ProcessDocument(kb *model.TKnowledgeBase, doc *model.TK
 		allRelations = append(allRelations, graph.Relations...)
 	}
 
-	// 实体去重
+	// 实体去重（保留描述更长的版本）
 	entityMap := make(map[string]*ExtractedEntity)
 	for i := range allEntities {
 		key := allEntities[i].Name + "|" + allEntities[i].Type
@@ -92,81 +90,35 @@ func (g *GraphProcessor) ProcessDocument(kb *model.TKnowledgeBase, doc *model.TK
 		}
 	}
 
-	// 写入 Neo4j 和 MySQL
+	// 写入 Neo4j
 	entityCount := 0
 	for _, entity := range entityMap {
-		nodeID, err := CreateOrMergeEntity(ctx, kb.ID, GraphEntity{
+		_, err := CreateOrMergeEntity(ctx, kb.ID, doc.ID, GraphEntity{
 			Name: entity.Name,
 			Type: entity.Type,
-		})
+		}, entity.Description)
 		if err != nil {
 			log.Printf("[WARN] 写入实体失败: %v", err)
 			continue
 		}
-
-		now := time.Now()
-		desc := entity.Description
-		dbEntity := &model.TKnowledgeEntity{
-			CreatedAt:       &now,
-			UpdatedAt:       &now,
-			KnowledgeBaseID: kb.ID,
-			DocumentID:      doc.ID,
-			Name:            entity.Name,
-			EntityType:      entity.Type,
-			Description:     &desc,
-			Neo4jNodeID:     &nodeID,
-			MentionCount:    1,
-		}
-		db.Create(dbEntity)
 		entityCount++
 	}
 
 	relationCount := 0
 	for _, rel := range allRelations {
-		relID, err := CreateRelation(ctx, kb.ID, GraphRelation{
+		_, err := CreateRelation(ctx, kb.ID, GraphRelation{
 			SourceName:   rel.Source,
 			SourceType:   g.findEntityType(allEntities, rel.Source),
 			TargetName:   rel.Target,
 			TargetType:   g.findEntityType(allEntities, rel.Target),
 			RelationType: rel.RelationType,
-		})
+		}, rel.Description)
 		if err != nil {
 			log.Printf("[WARN] 写入关系失败: %v", err)
 			continue
 		}
-
-		var sourceID, targetID int64
-		db.Model(&model.TKnowledgeEntity{}).
-			Where("knowledge_base_id = ? AND name = ?", kb.ID, rel.Source).
-			Select("id").Scan(&sourceID)
-		db.Model(&model.TKnowledgeEntity{}).
-			Where("knowledge_base_id = ? AND name = ?", kb.ID, rel.Target).
-			Select("id").Scan(&targetID)
-
-		if sourceID > 0 && targetID > 0 {
-			now := time.Now()
-			desc := rel.Description
-			dbRel := &model.TKnowledgeRelation{
-				CreatedAt:       &now,
-				KnowledgeBaseID: kb.ID,
-				DocumentID:      doc.ID,
-				SourceEntityID:  sourceID,
-				TargetEntityID:  targetID,
-				RelationType:    rel.RelationType,
-				Description:     &desc,
-				Neo4jRelID:      &relID,
-				Weight:          1.0,
-			}
-			db.Create(dbRel)
-			relationCount++
-		}
+		relationCount++
 	}
-
-	// 更新统计
-	db.Model(&model.TKnowledgeBase{}).Where("id = ?", kb.ID).Updates(map[string]interface{}{
-		"entity_count":   entityCount,
-		"relation_count": relationCount,
-	})
 
 	log.Printf("[INFO] 图谱构建完成: docID=%d, entities=%d, relations=%d", doc.ID, entityCount, relationCount)
 	return nil

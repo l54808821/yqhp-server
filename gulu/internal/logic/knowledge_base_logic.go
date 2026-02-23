@@ -369,8 +369,6 @@ func (l *KnowledgeBaseLogic) Delete(id int64) error {
 		db.Where("knowledge_base_id = ?", id).Delete(&model.TKnowledgeSegment{})
 		db.Where("knowledge_base_id = ?", id).Delete(&model.TKnowledgeDocument{})
 		db.Where("knowledge_base_id = ?", id).Delete(&model.TKnowledgeQuery{})
-		db.Where("knowledge_base_id = ?", id).Delete(&model.TKnowledgeEntity{})
-		db.Where("knowledge_base_id = ?", id).Delete(&model.TKnowledgeRelation{})
 		GetFileStorage().DeleteDir(id)
 	})
 
@@ -518,11 +516,6 @@ func (l *KnowledgeBaseLogic) DeleteDocument(kbID, docID int64) error {
 	db.Where("id = ?", docID).Delete(&model.TKnowledgeDocument{})
 	db.Where("document_id = ?", docID).Delete(&model.TKnowledgeSegment{})
 
-	if kb.Type == "graph" {
-		db.Where("document_id = ? AND knowledge_base_id = ?", docID, kbID).Delete(&model.TKnowledgeEntity{})
-		db.Where("document_id = ? AND knowledge_base_id = ?", docID, kbID).Delete(&model.TKnowledgeRelation{})
-	}
-
 	safeGo(func() {
 		if kb.QdrantCollection != nil && *kb.QdrantCollection != "" {
 			if err := DeleteDocumentVectors(*kb.QdrantCollection, docID); err != nil {
@@ -555,11 +548,6 @@ func (l *KnowledgeBaseLogic) BatchDeleteDocuments(kbID int64, docIDs []int64) er
 
 	db.Where("id IN ? AND knowledge_base_id = ?", docIDs, kbID).Delete(&model.TKnowledgeDocument{})
 	db.Where("document_id IN ? AND knowledge_base_id = ?", docIDs, kbID).Delete(&model.TKnowledgeSegment{})
-
-	if kb.Type == "graph" {
-		db.Where("document_id IN ? AND knowledge_base_id = ?", docIDs, kbID).Delete(&model.TKnowledgeEntity{})
-		db.Where("document_id IN ? AND knowledge_base_id = ?", docIDs, kbID).Delete(&model.TKnowledgeRelation{})
-	}
 
 	safeGo(func() {
 		for _, doc := range docs {
@@ -1514,80 +1502,57 @@ func IsTextFileType(fileType string) bool {
 // -----------------------------------------------
 
 type GraphEntityInfo struct {
-	ID           int64  `json:"id"`
-	Name         string `json:"name"`
-	EntityType   string `json:"entity_type"`
-	Description  string `json:"description"`
-	MentionCount int    `json:"mention_count"`
+	Name        string `json:"name"`
+	EntityType  string `json:"entity_type"`
+	Description string `json:"description"`
 }
 
 type GraphRelationInfo struct {
-	ID           int64   `json:"id"`
-	SourceName   string  `json:"source_name"`
-	TargetName   string  `json:"target_name"`
-	RelationType string  `json:"relation_type"`
-	Description  string  `json:"description"`
-	Weight       float64 `json:"weight"`
+	SourceName   string `json:"source_name"`
+	TargetName   string `json:"target_name"`
+	RelationType string `json:"relation_type"`
+	Description  string `json:"description"`
 }
 
 func (l *KnowledgeBaseLogic) ListGraphEntities(kbID int64) ([]*GraphEntityInfo, error) {
-	db := svc.Ctx.DB
-	var entities []model.TKnowledgeEntity
-	if err := db.Where("knowledge_base_id = ?", kbID).
-		Order("mention_count DESC").Limit(200).
-		Find(&entities).Error; err != nil {
+	if !IsNeo4jEnabled() {
+		return nil, errors.New("Neo4j 未启用")
+	}
+
+	entities, err := ListEntitiesFromNeo4j(l.ctx, kbID)
+	if err != nil {
 		return nil, err
 	}
 
 	result := make([]*GraphEntityInfo, 0, len(entities))
 	for _, e := range entities {
-		info := &GraphEntityInfo{
-			ID:           e.ID,
-			Name:         e.Name,
-			EntityType:   e.EntityType,
-			MentionCount: e.MentionCount,
-		}
-		if e.Description != nil {
-			info.Description = *e.Description
-		}
-		result = append(result, info)
+		result = append(result, &GraphEntityInfo{
+			Name:        e.Name,
+			EntityType:  e.EntityType,
+			Description: e.Description,
+		})
 	}
 	return result, nil
 }
 
 func (l *KnowledgeBaseLogic) ListGraphRelations(kbID int64) ([]*GraphRelationInfo, error) {
-	db := svc.Ctx.DB
-
-	type relWithNames struct {
-		model.TKnowledgeRelation
-		SourceName string `gorm:"column:source_name"`
-		TargetName string `gorm:"column:target_name"`
+	if !IsNeo4jEnabled() {
+		return nil, errors.New("Neo4j 未启用")
 	}
 
-	var relations []relWithNames
-	if err := db.Table("t_knowledge_relation r").
-		Select("r.*, se.name as source_name, te.name as target_name").
-		Joins("LEFT JOIN t_knowledge_entity se ON se.id = r.source_entity_id").
-		Joins("LEFT JOIN t_knowledge_entity te ON te.id = r.target_entity_id").
-		Where("r.knowledge_base_id = ?", kbID).
-		Limit(500).
-		Find(&relations).Error; err != nil {
+	relations, err := ListRelationsFromNeo4j(l.ctx, kbID)
+	if err != nil {
 		return nil, err
 	}
 
 	result := make([]*GraphRelationInfo, 0, len(relations))
 	for _, r := range relations {
-		info := &GraphRelationInfo{
-			ID:           r.ID,
+		result = append(result, &GraphRelationInfo{
 			SourceName:   r.SourceName,
 			TargetName:   r.TargetName,
 			RelationType: r.RelationType,
-			Weight:       r.Weight,
-		}
-		if r.Description != nil {
-			info.Description = *r.Description
-		}
-		result = append(result, info)
+			Description:  r.Description,
+		})
 	}
 	return result, nil
 }

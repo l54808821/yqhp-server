@@ -518,10 +518,20 @@ func (l *KnowledgeBaseLogic) DeleteDocument(kbID, docID int64) error {
 	db.Where("id = ?", docID).Delete(&model.TKnowledgeDocument{})
 	db.Where("document_id = ?", docID).Delete(&model.TKnowledgeSegment{})
 
+	if kb.Type == "graph" {
+		db.Where("document_id = ? AND knowledge_base_id = ?", docID, kbID).Delete(&model.TKnowledgeEntity{})
+		db.Where("document_id = ? AND knowledge_base_id = ?", docID, kbID).Delete(&model.TKnowledgeRelation{})
+	}
+
 	safeGo(func() {
 		if kb.QdrantCollection != nil && *kb.QdrantCollection != "" {
 			if err := DeleteDocumentVectors(*kb.QdrantCollection, docID); err != nil {
 				log.Printf("[WARN] 清理文档向量失败: docID=%d, err=%v", docID, err)
+			}
+		}
+		if kb.Type == "graph" && IsNeo4jEnabled() {
+			if err := DeleteDocumentGraph(context.Background(), kbID, docID); err != nil {
+				log.Printf("[WARN] 清理文档图谱失败: docID=%d, err=%v", docID, err)
 			}
 		}
 		if doc.FilePath != nil && *doc.FilePath != "" {
@@ -546,10 +556,20 @@ func (l *KnowledgeBaseLogic) BatchDeleteDocuments(kbID int64, docIDs []int64) er
 	db.Where("id IN ? AND knowledge_base_id = ?", docIDs, kbID).Delete(&model.TKnowledgeDocument{})
 	db.Where("document_id IN ? AND knowledge_base_id = ?", docIDs, kbID).Delete(&model.TKnowledgeSegment{})
 
+	if kb.Type == "graph" {
+		db.Where("document_id IN ? AND knowledge_base_id = ?", docIDs, kbID).Delete(&model.TKnowledgeEntity{})
+		db.Where("document_id IN ? AND knowledge_base_id = ?", docIDs, kbID).Delete(&model.TKnowledgeRelation{})
+	}
+
 	safeGo(func() {
 		for _, doc := range docs {
 			if kb.QdrantCollection != nil && *kb.QdrantCollection != "" {
 				DeleteDocumentVectors(*kb.QdrantCollection, doc.ID)
+			}
+			if kb.Type == "graph" && IsNeo4jEnabled() {
+				if err := DeleteDocumentGraph(context.Background(), kbID, doc.ID); err != nil {
+					log.Printf("[WARN] 清理文档图谱失败: docID=%d, err=%v", doc.ID, err)
+				}
 			}
 			if doc.FilePath != nil && *doc.FilePath != "" {
 				GetFileStorage().Delete(*doc.FilePath)

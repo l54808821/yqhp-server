@@ -124,6 +124,7 @@ CREATE TABLE IF NOT EXISTS `t_workflow` (
     `definition` LONGTEXT NOT NULL COMMENT '工作流定义(JSON格式)',
     `status` TINYINT DEFAULT 1 COMMENT '状态: 1-启用 0-禁用',
     `workflow_type` VARCHAR(20) DEFAULT 'normal' COMMENT '工作流类型: normal(普通流程), performance(压测流程), data_generation(造数流程)',
+    `executor_config` JSON DEFAULT NULL COMMENT '执行机配置: {"strategy":"auto|manual|local","executor_id":null,"labels":{"env":"prod"}}',
     PRIMARY KEY (`id`),
     INDEX `idx_t_workflow_project_id` (`project_id`),
     INDEX `idx_t_workflow_is_delete` (`is_delete`),

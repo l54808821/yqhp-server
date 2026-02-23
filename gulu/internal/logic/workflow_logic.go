@@ -23,21 +23,23 @@ func NewWorkflowLogic(ctx context.Context) *WorkflowLogic {
 
 // CreateWorkflowReq 创建工作流请求
 type CreateWorkflowReq struct {
-	ProjectID    int64  `json:"project_id" validate:"required"`
-	Name         string `json:"name" validate:"required,max=100"`
-	Description  string `json:"description" validate:"max=500"`
-	Definition   string `json:"definition" validate:"required"` // JSON 格式
-	Status       int32  `json:"status"`
-	WorkflowType string `json:"workflow_type"` // normal, performance, data_generation
+	ProjectID      int64  `json:"project_id" validate:"required"`
+	Name           string `json:"name" validate:"required,max=100"`
+	Description    string `json:"description" validate:"max=500"`
+	Definition     string `json:"definition" validate:"required"` // JSON 格式
+	Status         int32  `json:"status"`
+	WorkflowType   string `json:"workflow_type"`   // normal, performance, data_generation
+	ExecutorConfig string `json:"executor_config"` // JSON: {"strategy":"auto|manual|local","executor_id":null,"labels":{}}
 }
 
 // UpdateWorkflowReq 更新工作流请求
 type UpdateWorkflowReq struct {
-	Name         string `json:"name" validate:"max=100"`
-	Description  string `json:"description" validate:"max=500"`
-	Definition   string `json:"definition"` // JSON 格式
-	Status       int32  `json:"status"`
-	WorkflowType string `json:"workflow_type"` // normal, performance, data_generation
+	Name           string `json:"name" validate:"max=100"`
+	Description    string `json:"description" validate:"max=500"`
+	Definition     string `json:"definition"` // JSON 格式
+	Status         int32  `json:"status"`
+	WorkflowType   string `json:"workflow_type"`   // normal, performance, data_generation
+	ExecutorConfig string `json:"executor_config"` // JSON: {"strategy":"auto|manual|local","executor_id":null,"labels":{}}
 }
 
 // WorkflowListReq 工作流列表请求
@@ -74,19 +76,25 @@ func (l *WorkflowLogic) Create(req *CreateWorkflowReq, userID int64) (*model.TWo
 		return nil, errors.New("无效的工作流类型")
 	}
 
+	var executorConfig *string
+	if req.ExecutorConfig != "" {
+		executorConfig = &req.ExecutorConfig
+	}
+
 	wf := &model.TWorkflow{
-		CreatedAt:    &now,
-		UpdatedAt:    &now,
-		IsDelete:     &isDelete,
-		CreatedBy:    &userID,
-		UpdatedBy:    &userID,
-		ProjectID:    req.ProjectID,
-		Name:         req.Name,
-		Description:  &req.Description,
-		Version:      &version,
-		Definition:   req.Definition,
-		Status:       &status,
-		WorkflowType: &workflowType,
+		CreatedAt:      &now,
+		UpdatedAt:      &now,
+		IsDelete:       &isDelete,
+		CreatedBy:      &userID,
+		UpdatedBy:      &userID,
+		ProjectID:      req.ProjectID,
+		Name:           req.Name,
+		Description:    &req.Description,
+		Version:        &version,
+		Definition:     req.Definition,
+		Status:         &status,
+		WorkflowType:   &workflowType,
+		ExecutorConfig: executorConfig,
 	}
 
 	q := query.Use(svc.Ctx.DB)
@@ -143,6 +151,9 @@ func (l *WorkflowLogic) Update(id int64, req *UpdateWorkflowReq, userID int64) e
 			return errors.New("无效的工作流类型")
 		}
 		updates["workflow_type"] = req.WorkflowType
+	}
+	if req.ExecutorConfig != "" {
+		updates["executor_config"] = req.ExecutorConfig
 	}
 	updates["status"] = req.Status
 

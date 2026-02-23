@@ -159,6 +159,42 @@ func ExecutorSync(c *fiber.Ctx) error {
 	})
 }
 
+// ExecutorRegister 注册执行机（自动注册 / 手动简化注册）
+// POST /api/executors/register
+func ExecutorRegister(c *fiber.Ctx) error {
+	var req logic.RegisterExecutorReq
+	if err := c.BodyParser(&req); err != nil {
+		return response.Error(c, "参数解析失败")
+	}
+
+	if req.SlaveID == "" && req.Address == "" {
+		return response.Error(c, "SlaveID 或地址不能为空")
+	}
+	if req.SlaveID == "" {
+		req.SlaveID = req.Address
+	}
+
+	executorLogic := logic.NewExecutorLogic(c.UserContext())
+	info, err := executorLogic.Register(&req)
+	if err != nil {
+		return response.Error(c, err.Error())
+	}
+
+	return response.Success(c, info)
+}
+
+// ExecutorListAvailable 获取可用的执行机列表（启用且带运行时状态）
+// GET /api/executors/available
+func ExecutorListAvailable(c *fiber.Ctx) error {
+	executorLogic := logic.NewExecutorLogic(c.UserContext())
+	list, err := executorLogic.ListAvailable()
+	if err != nil {
+		return response.Error(c, err.Error())
+	}
+
+	return response.Success(c, list)
+}
+
 // ExecutorListByLabels 根据标签筛选执行机
 // GET /api/executors/by-labels
 func ExecutorListByLabels(c *fiber.Ctx) error {

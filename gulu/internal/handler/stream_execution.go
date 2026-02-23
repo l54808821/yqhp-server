@@ -276,6 +276,38 @@ func (h *StreamExecutionHandler) prepareExecutionFromDefinition(c *fiber.Ctx, de
 		}
 	}
 
+	// 如果未指定执行器类型，尝试从工作流定义中的 executorConfig 读取
+	if executorType == "" && slaveID == "" {
+		if wfMap, ok := definition.(map[string]interface{}); ok {
+			if ecRaw, ok := wfMap["executorConfig"]; ok {
+				if ec, ok := ecRaw.(map[string]interface{}); ok {
+					if strategy, ok := ec["strategy"].(string); ok {
+						executorLogic := logic.NewExecutorLogic(c.UserContext())
+						execStrategy := &logic.ExecutorStrategy{Strategy: strategy}
+						if eid, ok := ec["executor_id"].(float64); ok {
+							execStrategy.ExecutorID = int64(eid)
+						}
+						if labels, ok := ec["labels"].(map[string]interface{}); ok {
+							execStrategy.Labels = make(map[string]string)
+							for k, v := range labels {
+								if vs, ok := v.(string); ok {
+									execStrategy.Labels[k] = vs
+								}
+							}
+						}
+						selected, err := executorLogic.SelectByStrategy(execStrategy)
+						if err != nil {
+							logger.Warn("执行策略选择失败，回退到本地执行", "error", err)
+						} else if selected != nil {
+							executorType = "remote"
+							slaveID = selected.SlaveID
+						}
+					}
+				}
+			}
+		}
+	}
+
 	// 创建执行请求
 	execReq := &executor.ExecuteRequest{
 		WorkflowID:   0,

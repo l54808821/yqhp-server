@@ -433,3 +433,169 @@ func MatchLabels(executorLabels, filterLabels map[string]string) bool {
 func isValidExecutorType(t string) bool {
 	return t == "performance" || t == "normal" || t == "debug"
 }
+
+// RegisterExecutorReq 执行机注册请求（自动注册 / 手动简化注册）
+type RegisterExecutorReq struct {
+	SlaveID      string            `json:"slave_id" validate:"required"`
+	Name         string            `json:"name"`
+	Address      string            `json:"address"`
+	Type         string            `json:"type"`
+	Capabilities []string          `json:"capabilities"`
+	Labels       map[string]string `json:"labels"`
+}
+
+// Register 注册执行机（已存在则更新状态，不存在则自动创建）
+func (l *ExecutorLogic) Register(req *RegisterExecutorReq) (*ExecutorInfo, error) {
+	if req.SlaveID == "" {
+		return nil, errors.New("SlaveID 不能为空")
+	}
+
+	q := query.Use(svc.Ctx.DB)
+	e := q.TExecutor
+
+	existing, err := e.WithContext(l.ctx).Where(e.SlaveID.Eq(req.SlaveID), e.IsDelete.Is(false)).First()
+	if err == nil && existing != nil {
+		// 已存在：更新信息
+		now := time.Now()
+		updates := map[string]interface{}{
+			"updated_at": now,
+		}
+		if req.Name != "" && req.Name != existing.Name {
+			updates["name"] = req.Name
+		}
+		if req.Type != "" && req.Type != existing.Type {
+			updates["type"] = req.Type
+		}
+		if len(req.Labels) > 0 {
+			labelsBytes, _ := json.Marshal(req.Labels)
+			updates["labels"] = string(labelsBytes)
+		}
+		e.WithContext(l.ctx).Where(e.ID.Eq(existing.ID)).Updates(updates)
+		return l.mergeWithRuntimeStatus(existing), nil
+	}
+
+	// 不存在：自动创建
+	name := req.Name
+	if name == "" {
+		name = req.SlaveID
+	}
+	executorType := req.Type
+	if executorType == "" {
+		executorType = "normal"
+	}
+
+	now := time.Now()
+	isDelete := false
+	defaultStatus := int32(1)
+	defaultPriority := int32(0)
+
+	var labelsJSON *string
+	if len(req.Labels) > 0 {
+		labelsBytes, _ := json.Marshal(req.Labels)
+		s := string(labelsBytes)
+		labelsJSON = &s
+	}
+
+	executor := &model.TExecutor{
+		CreatedAt: &now,
+		UpdatedAt: &now,
+		IsDelete:  &isDelete,
+		SlaveID:   req.SlaveID,
+		Name:      name,
+		Type:      executorType,
+		Labels:    labelsJSON,
+		Status:    &defaultStatus,
+		Priority:  &defaultPriority,
+	}
+
+	if err := q.TExecutor.WithContext(l.ctx).Create(executor); err != nil {
+		return nil, err
+	}
+
+	return l.mergeWithRuntimeStatus(executor), nil
+}
+
+// ListAvailable 获取可用的执行机列表（启用且在线的，带运行时状态）
+func (l *ExecutorLogic) ListAvailable() ([]*ExecutorInfo, error) {
+	q := query.Use(svc.Ctx.DB)
+	e := q.TExecutor
+
+	status := int32(1)
+	list, err := e.WithContext(l.ctx).Where(e.IsDelete.Is(false), e.Status.Eq(status)).Order(e.Priority.Desc()).Find()
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]*ExecutorInfo, 0)
+	for _, executor := range list {
+		info := l.mergeWithRuntimeStatus(executor)
+		result = append(result, info)
+	}
+
+	return result, nil
+}
+
+// ExecutorStrategy 执行策略
+type ExecutorStrategy struct {
+	Strategy   string            `json:"strategy"`    // local, manual, auto
+	ExecutorID int64             `json:"executor_id"`  // manual 模式下指定的执行机 ID
+	Labels     map[string]string `json:"labels"`       // auto 模式下的标签匹配
+}
+
+// SelectByStrategy 根据策略选择执行机
+func (l *ExecutorLogic) SelectByStrategy(strategy *ExecutorStrategy) (*ExecutorInfo, error) {
+	if strategy == nil {
+		return nil, nil
+	}
+
+	switch strategy.Strategy {
+	case "local", "":
+		return nil, nil
+	case "manual":
+		if strategy.ExecutorID <= 0 {
+			return nil, errors.New("手动模式下必须指定执行机 ID")
+		}
+		info, err := l.GetByID(strategy.ExecutorID)
+		if err != nil {
+			return nil, errors.New("指定的执行机不存在")
+		}
+		if info.Status != 1 {
+			return nil, errors.New("指定的执行机已禁用")
+		}
+		if info.State != "online" && info.State != "busy" {
+			return nil, errors.New("指定的执行机不在线")
+		}
+		return info, nil
+	case "auto":
+		return l.selectBestExecutor(strategy.Labels)
+	default:
+		return nil, nil
+	}
+}
+
+// selectBestExecutor 自动选择最优执行机（负载最低、标签匹配的在线执行机）
+func (l *ExecutorLogic) selectBestExecutor(labels map[string]string) (*ExecutorInfo, error) {
+	available, err := l.ListAvailable()
+	if err != nil {
+		return nil, err
+	}
+
+	var best *ExecutorInfo
+	for _, info := range available {
+		if info.State != "online" && info.State != "busy" {
+			continue
+		}
+		if len(labels) > 0 && !matchLabels(info.Labels, labels) {
+			continue
+		}
+		if best == nil || info.Load < best.Load {
+			best = info
+		}
+	}
+
+	if best == nil {
+		return nil, errors.New("没有可用的执行机")
+	}
+
+	return best, nil
+}

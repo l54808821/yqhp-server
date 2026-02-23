@@ -276,8 +276,8 @@ func (h *StreamExecutionHandler) prepareExecutionFromDefinition(c *fiber.Ctx, de
 		}
 	}
 
-	// 如果未指定执行器类型，尝试从工作流定义中的 executorConfig 读取
-	if executorType == "" && slaveID == "" {
+	// 如果未显式指定远程执行器，尝试从工作流定义中的 executorConfig 读取
+	if (executorType == "" || executorType == "local") && slaveID == "" {
 		if wfMap, ok := definition.(map[string]interface{}); ok {
 			if ecRaw, ok := wfMap["executorConfig"]; ok {
 				if ec, ok := ecRaw.(map[string]interface{}); ok {
@@ -297,9 +297,13 @@ func (h *StreamExecutionHandler) prepareExecutionFromDefinition(c *fiber.Ctx, de
 						}
 						selected, err := executorLogic.SelectByStrategy(execStrategy)
 						if err != nil {
+							if strategy == "manual" {
+								return nil, &executionError{code: "EXECUTOR_ERROR", message: "指定的执行机不可用: " + err.Error()}
+							}
 							logger.Warn("执行策略选择失败，回退到本地执行", "error", err)
 						} else if selected != nil {
-							executorType = "remote"
+							// 通过 master 任务分发到指定 Slave（而非直连 Slave SSE），
+							// 在工作流 Options.TargetSlaves 上设置目标，保持 executeLocal 路径
 							slaveID = selected.SlaveID
 						}
 					}

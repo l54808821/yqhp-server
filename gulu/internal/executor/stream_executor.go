@@ -121,13 +121,21 @@ func (e *StreamExecutor) ExecuteStream(ctx context.Context, req *ExecuteRequest,
 		}
 	}
 
+	// 如果指定了 SlaveID，通过 master 分发到指定 Slave
+	if req.SlaveID != "" {
+		wf.Options.TargetSlaves = &types.SlaveSelector{
+			Mode:     types.SelectionModeManual,
+			SlaveIDs: []string{req.SlaveID},
+		}
+	}
+
 	// 根据执行器类型选择执行方式
 	var execErr error
 	switch req.ExecutorType {
 	case ExecutorTypeRemote:
 		execErr = e.executeRemote(ctx, req, wf, callback)
 	default:
-		logger.Debug("开始本地执行")
+		logger.Debug("开始本地执行", "slaveID", req.SlaveID)
 		execErr = e.executeLocal(ctx, wf, session, callback)
 		logger.Debug("本地执行完成", "error", execErr)
 	}
@@ -198,6 +206,14 @@ func (e *StreamExecutor) ExecuteBlocking(ctx context.Context, req *ExecuteReques
 		}
 	}
 
+	// 如果指定了 SlaveID，通过 master 分发到指定 Slave
+	if req.SlaveID != "" {
+		wf.Options.TargetSlaves = &types.SlaveSelector{
+			Mode:     types.SelectionModeManual,
+			SlaveIDs: []string{req.SlaveID},
+		}
+	}
+
 	// 执行
 	var execErr error
 	switch req.ExecutorType {
@@ -258,10 +274,11 @@ func (e *StreamExecutor) executeLocal(ctx context.Context, wf *types.Workflow, s
 		return fmt.Errorf("工作流引擎未初始化")
 	}
 
-	// 强制本地执行：设置 TargetSlaves 为 local 模式，
-	// 让 master 使用内置 TaskEngine 执行而非分发到远程 Slave
-	wf.Options.TargetSlaves = &types.SlaveSelector{
-		Mode: types.SelectionModeLocal,
+	// 如果未指定目标 Slave，强制本地执行
+	if wf.Options.TargetSlaves == nil {
+		wf.Options.TargetSlaves = &types.SlaveSelector{
+			Mode: types.SelectionModeLocal,
+		}
 	}
 
 	// 设置回调到工作流

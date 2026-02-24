@@ -163,22 +163,22 @@ func (c *MetricsCollector) RecordStep(stepID string, result *types.StepResult) {
 	}
 
 	// 发送样本到输出通道
+	// 指标名包含 step_id 后缀，让 MetricsEngine 按步骤分别聚合
 	if c.emitter != nil {
 		tags := map[string]string{
 			"step_id": stepID,
 		}
 
-		// 步骤执行计数
-		c.emitter.EmitCounter("step_reqs", 1, tags)
+		c.emitter.EmitCounter("step_reqs_"+stepID, 1, tags)
+		c.emitter.EmitTrend("step_duration_"+stepID, float64(duration.Milliseconds()), tags)
 
-		// 步骤执行时长
+		failed := result.Status != types.ResultStatusSuccess
+		c.emitter.EmitRate("step_failed_"+stepID, failed, tags)
+
+		// 全局聚合指标（用于 time-series 计算）
 		c.emitter.EmitTrend("step_duration", float64(duration.Milliseconds()), tags)
+		c.emitter.EmitRate("step_failed", failed, tags)
 
-		// 步骤成功率
-		success := result.Status == types.ResultStatusSuccess
-		c.emitter.EmitRate("step_failed", !success, tags)
-
-		// 发送自定义指标
 		for k, v := range result.Metrics {
 			c.emitter.EmitGauge("custom_"+k, v, tags)
 		}

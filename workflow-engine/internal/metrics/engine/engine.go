@@ -261,7 +261,8 @@ func (me *MetricsEngine) StartTimeSeriesCollection(
 				if m := me.ObservedMetrics["step_failed"]; m != nil && m.Sink != nil {
 					stats := m.Sink.Format(0)
 					if total := stats["passes"] + stats["fails"]; total > 0 {
-						point.ErrorRate = stats["fails"] / total * 100
+						// "passes" = Trues = value!=0 的次数 = 失败次数（因为 failed=true → value=1）
+						point.ErrorRate = stats["passes"] / total * 100
 					}
 				}
 

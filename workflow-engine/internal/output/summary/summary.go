@@ -271,8 +271,9 @@ func (o *Output) buildStepDetails(durationSec float64) []*types.StepDetailReport
 
 		if sink, ok := o.stepFailures[stepID]; ok {
 			stats := sink.Format(0)
-			d.SuccessCount = int64(stats["passes"])
-			d.FailureCount = int64(stats["fails"])
+			// "passes" = Trues = failed=true 的次数 = 失败次数
+			d.FailureCount = int64(stats["passes"])
+			d.SuccessCount = int64(stats["fails"])
 			if d.Count > 0 {
 				d.ErrorRate = float64(d.FailureCount) / float64(d.Count) * 100
 			}

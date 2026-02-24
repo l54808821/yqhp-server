@@ -502,6 +502,7 @@ func (m *WorkflowMaster) simulateExecution(ctx context.Context, execInfo *Execut
 				ExecutionID:     execInfo.ID,
 				TotalIterations: currentIterations,
 				TotalVUs:        activeVUs,
+				Duration:        time.Since(startTime),
 				StepMetrics:     currentMetrics.StepMetrics,
 			}
 			execInfo.mu.Unlock()

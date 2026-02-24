@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gorilla/websocket"
 
 	"yqhp/workflow-engine/pkg/types"
 )
@@ -87,13 +88,19 @@ type Client struct {
 	reconnecting     atomic.Bool
 	reconnectAttempt atomic.Int32
 
-	// Heartbeat management
+	// Heartbeat management (HTTP mode)
 	heartbeatCtx    context.Context
 	heartbeatCancel context.CancelFunc
 
-	// Task polling
+	// Task polling (HTTP mode)
 	taskPollCtx    context.Context
 	taskPollCancel context.CancelFunc
+
+	// WebSocket connection (replaces heartbeat + task polling when active)
+	wsConn      *websocket.Conn
+	wsSend      chan []byte
+	wsDone      chan struct{}
+	wsCloseOnce sync.Once
 
 	// Result buffering for network resilience
 	resultBuffer  chan *BufferedResult

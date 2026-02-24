@@ -846,8 +846,14 @@ func (s *Server) cleanupSlaveQueues(slaveID string) {
 	s.commandQueuesMu.Unlock()
 }
 
-// AssignTask 分配任务给 Slave
+// AssignTask 分配任务给 Slave（优先 WebSocket 推送，回退到 channel 队列）
 func (s *Server) AssignTask(slaveID string, task *TaskAssignment) error {
+	if s.wsHub != nil && s.wsHub.HasConn(slaveID) {
+		if err := s.wsHub.PushTask(slaveID, task); err == nil {
+			return nil
+		}
+	}
+
 	s.taskQueuesMu.Lock()
 	queue, ok := s.taskQueues[slaveID]
 	if !ok {
@@ -864,8 +870,14 @@ func (s *Server) AssignTask(slaveID string, task *TaskAssignment) error {
 	}
 }
 
-// SendCommand 发送命令给 Slave
+// SendCommand 发送命令给 Slave（优先 WebSocket 推送，回退到 channel 队列）
 func (s *Server) SendCommand(slaveID string, cmd *ControlCommand) error {
+	if s.wsHub != nil && s.wsHub.HasConn(slaveID) {
+		if err := s.wsHub.PushCommand(slaveID, cmd); err == nil {
+			return nil
+		}
+	}
+
 	s.commandQueuesMu.Lock()
 	queue, ok := s.commandQueues[slaveID]
 	if !ok {

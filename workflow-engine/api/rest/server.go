@@ -23,7 +23,10 @@ type Server struct {
 	registry master.SlaveRegistry
 	config   *Config
 
-	// 任务和命令队列管理
+	// WebSocket hub for slave communication (preferred over polling)
+	wsHub *SlaveWSHub
+
+	// Channel-based queues (fallback when slave is not connected via WebSocket)
 	taskQueues      map[string]chan *TaskAssignment // slaveID -> task queue
 	taskQueuesMu    sync.RWMutex
 	commandQueues   map[string]chan *ControlCommand // slaveID -> command queue
@@ -108,6 +111,8 @@ func NewServer(m master.Master, registry master.SlaveRegistry, config *Config) *
 		taskQueues:    make(map[string]chan *TaskAssignment),
 		commandQueues: make(map[string]chan *ControlCommand),
 	}
+
+	server.wsHub = NewSlaveWSHub(server)
 
 	server.setupMiddleware()
 	server.setupRoutes()
@@ -244,12 +249,15 @@ func (s *Server) setupRoutes() {
 	// Metrics routes
 	api.Get("/executions/:id/metrics", s.getMetrics)
 
+	// Slave WebSocket 路由（必须在 /slaves/:id 之前注册，避免被参数路由吞掉）
+	s.setupSlaveWSRoute()
+
 	// Slave routes
 	api.Get("/slaves", s.listSlaves)
 	api.Get("/slaves/:id", s.getSlave)
 	api.Post("/slaves/:id/drain", s.drainSlave)
 
-	// Slave 通信路由 (HTTP REST API)
+	// Slave 通信路由 (HTTP REST API，WebSocket 不可用时的回退)
 	api.Post("/slaves/register", s.registerSlave)
 	api.Post("/slaves/:id/heartbeat", s.slaveHeartbeat)
 	api.Get("/slaves/:id/tasks", s.getSlaveTasks)
@@ -264,7 +272,7 @@ func (s *Server) setupRoutes() {
 	// 执行路由（统一执行入口，支持单步和流程执行，支持 SSE 和阻塞）
 	s.setupExecuteRoutes()
 
-	// WebSocket routes
+	// WebSocket routes (metrics streaming)
 	s.setupWebSocketRoutes()
 }
 

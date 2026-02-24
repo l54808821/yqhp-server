@@ -497,25 +497,11 @@ func (s *Server) executeRemoteStream(ctx context.Context, wf *types.Workflow, sl
 		},
 	}
 
-	// 发送任务到 Slave
-	s.taskQueuesMu.Lock()
-	queue, ok := s.taskQueues[slaveID]
-	if !ok {
-		queue = make(chan *TaskAssignment, 100)
-		s.taskQueues[slaveID] = queue
+	if err := s.AssignTask(slaveID, task); err != nil {
+		return fmt.Errorf("发送任务到 Slave 失败: %w", err)
 	}
-	s.taskQueuesMu.Unlock()
+	logger.Debug("任务已发送到 Slave", "slave_id", slaveID, "task_id", task.TaskID)
 
-	select {
-	case queue <- task:
-		logger.Debug("任务已发送到 Slave", "slave_id", slaveID, "task_id", task.TaskID)
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-		return fmt.Errorf("Slave 任务队列已满: %s", slaveID)
-	}
-
-	// 等待执行完成（通过轮询状态或 WebSocket）
 	return s.waitForRemoteCompletion(ctx, task.TaskID, session, writer)
 }
 
@@ -549,25 +535,11 @@ func (s *Server) executeRemoteBlocking(ctx context.Context, wf *types.Workflow, 
 		},
 	}
 
-	// 发送任务到 Slave
-	s.taskQueuesMu.Lock()
-	queue, ok := s.taskQueues[slaveID]
-	if !ok {
-		queue = make(chan *TaskAssignment, 100)
-		s.taskQueues[slaveID] = queue
+	if err := s.AssignTask(slaveID, task); err != nil {
+		return fmt.Errorf("发送任务到 Slave 失败: %w", err)
 	}
-	s.taskQueuesMu.Unlock()
+	logger.Debug("任务已发送到 Slave", "slave_id", slaveID, "task_id", task.TaskID)
 
-	select {
-	case queue <- task:
-		logger.Debug("任务已发送到 Slave", "slave_id", slaveID, "task_id", task.TaskID)
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-		return fmt.Errorf("Slave 任务队列已满: %s", slaveID)
-	}
-
-	// 等待执行完成
 	return s.waitForRemoteBlockingCompletion(ctx, task.TaskID, session)
 }
 

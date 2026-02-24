@@ -177,7 +177,7 @@ func (s *WorkerSlave) Stop(ctx context.Context) error {
 	return err
 }
 
-// Connect 连接到 Master 节点。
+// Connect 连接到 Master 节点（优先 WebSocket，回退 HTTP 轮询）。
 // Requirements: 12.1
 func (s *WorkerSlave) Connect(ctx context.Context, masterAddr string) error {
 	s.mu.Lock()
@@ -189,7 +189,6 @@ func (s *WorkerSlave) Connect(ctx context.Context, masterAddr string) error {
 
 	s.masterAddr = masterAddr
 
-	// 创建 HTTP 客户端配置
 	clientCfg := &httpclient.Config{
 		MasterURL:         masterAddr,
 		SlaveID:           s.config.ID,
@@ -210,14 +209,12 @@ func (s *WorkerSlave) Connect(ctx context.Context, masterAddr string) error {
 		},
 	}
 
-	// 创建 HTTP 客户端
 	s.httpClient = httpclient.NewClient(clientCfg)
 
-	// 设置任务处理回调
+	// 设置回调（WebSocket 和 HTTP 轮询共用同一套回调）
 	s.httpClient.SetTaskHandler(func(ctx context.Context, task *types.TaskAssignment) error {
 		fmt.Printf("收到任务: %s, 执行ID: %s\n", task.TaskID, task.ExecutionID)
 
-		// 转换任务格式
 		internalTask := &types.Task{
 			ID:          task.TaskID,
 			ExecutionID: task.ExecutionID,
@@ -236,7 +233,6 @@ func (s *WorkerSlave) Connect(ctx context.Context, masterAddr string) error {
 			return err
 		}
 
-		// 发送结果回 Master
 		bufferedResult := &httpclient.BufferedResult{
 			TaskID:      result.TaskID,
 			ExecutionID: result.ExecutionID,
@@ -254,45 +250,59 @@ func (s *WorkerSlave) Connect(ctx context.Context, masterAddr string) error {
 			}
 		}
 
-		if err := s.httpClient.SendTaskResult(bufferedResult); err != nil {
-			fmt.Printf("发送任务结果失败: %v\n", err)
-			return err
+		// 优先 WebSocket 发送，回退 HTTP
+		if s.httpClient.IsWebSocket() {
+			if err := s.httpClient.WSSendTaskResult(bufferedResult); err != nil {
+				fmt.Printf("WS 发送任务结果失败: %v\n", err)
+			}
+		} else {
+			if err := s.httpClient.SendTaskResult(bufferedResult); err != nil {
+				fmt.Printf("发送任务结果失败: %v\n", err)
+				return err
+			}
 		}
 		fmt.Printf("任务完成: %s, 状态: %s\n", result.TaskID, result.Status)
 		return nil
 	})
 
-	// 设置命令处理回调
 	s.httpClient.SetCommandHandler(func(ctx context.Context, cmd *types.ControlCommand) error {
 		fmt.Printf("收到命令: %s, 执行ID: %s\n", cmd.Type, cmd.ExecutionID)
-		// TODO: 处理控制命令（停止、暂停、恢复等）
 		return nil
 	})
 
-	// 设置断开连接回调
 	s.httpClient.SetDisconnectHandler(func(err error) {
 		fmt.Printf("与 Master 断开连接: %v\n", err)
 		s.connected.Store(false)
 	})
 
-	// 设置重连回调
 	s.httpClient.SetReconnectHandler(func() {
 		fmt.Println("已重新连接到 Master")
 		s.connected.Store(true)
 	})
 
-	// 连接到 Master
+	// ── 优先 WebSocket ──
+	if err := s.httpClient.ConnectWS(ctx); err != nil {
+		fmt.Printf("WebSocket 连接失败，回退 HTTP 轮询: %v\n", err)
+		return s.connectHTTPFallback(ctx)
+	}
+
+	fmt.Println("已通过 WebSocket 连接到 Master（无轮询）")
+	s.connected.Store(true)
+	s.state.Store(types.SlaveStateOnline)
+	return nil
+}
+
+// connectHTTPFallback 回退到传统 HTTP 轮询模式。
+func (s *WorkerSlave) connectHTTPFallback(ctx context.Context) error {
 	if err := s.httpClient.Connect(ctx); err != nil {
 		return fmt.Errorf("连接 Master 失败: %w", err)
 	}
 
-	// 注册到 Master
 	if err := s.httpClient.Register(ctx); err != nil {
 		s.httpClient.Disconnect(ctx)
 		return fmt.Errorf("注册到 Master 失败: %w", err)
 	}
 
-	// 启动心跳
 	s.heartbeatCtx, s.heartbeatCancel = context.WithCancel(context.Background())
 	if err := s.httpClient.StartHeartbeat(s.heartbeatCtx, func() *types.APISlaveStatusInfo {
 		status := s.GetStatus()
@@ -313,15 +323,12 @@ func (s *WorkerSlave) Connect(ctx context.Context, masterAddr string) error {
 		return fmt.Errorf("启动心跳失败: %w", err)
 	}
 
-	// 启动任务轮询
 	if err := s.httpClient.StartTaskPolling(s.heartbeatCtx); err != nil {
 		fmt.Printf("启动任务轮询失败: %v\n", err)
-		// 任务轮询启动失败不是致命错误
 	}
 
 	s.connected.Store(true)
 	s.state.Store(types.SlaveStateOnline)
-
 	return nil
 }
 
@@ -334,15 +341,17 @@ func (s *WorkerSlave) Disconnect(ctx context.Context) error {
 		return nil
 	}
 
-	// 停止心跳
 	if s.heartbeatCancel != nil {
 		s.heartbeatCancel()
 	}
 
-	// 断开 HTTP 连接
 	if s.httpClient != nil {
-		if err := s.httpClient.Disconnect(ctx); err != nil {
-			return fmt.Errorf("断开 HTTP 连接失败: %w", err)
+		if s.httpClient.IsWebSocket() {
+			s.httpClient.DisconnectWS()
+		} else {
+			if err := s.httpClient.Disconnect(ctx); err != nil {
+				return fmt.Errorf("断开连接失败: %w", err)
+			}
 		}
 	}
 

@@ -168,7 +168,7 @@ func ExecutionGetMetrics(c *fiber.Ctx) error {
 	}
 
 	executionLogic := logic.NewExecutionLogic(c.UserContext())
-	metrics, err := executionLogic.GetMetrics(id)
+	metrics, err := executionLogic.GetRealtimeMetrics(id)
 	if err != nil {
 		return response.Error(c, err.Error())
 	}

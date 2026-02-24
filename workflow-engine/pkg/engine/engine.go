@@ -10,9 +10,11 @@ import (
 
 	"yqhp/workflow-engine/api/rest"
 	"yqhp/workflow-engine/internal/master"
+	"yqhp/workflow-engine/pkg/controlsurface"
 	"yqhp/workflow-engine/pkg/logger"
 	"yqhp/workflow-engine/pkg/types"
 )
+
 
 // Config 引擎配置
 type Config struct {
@@ -237,6 +239,82 @@ func (e *Engine) ListExecutions(ctx context.Context) ([]*types.ExecutionState, e
 	}
 
 	return e.master.ListExecutions(ctx)
+}
+
+// GetPerformanceReport retrieves the final performance test report from a ControlSurface.
+func (e *Engine) GetPerformanceReport(ctx context.Context, executionID string) (*types.PerformanceTestReport, error) {
+	cs := controlsurface.Get(executionID)
+	if cs == nil {
+		return nil, fmt.Errorf("no control surface for execution %s", executionID)
+	}
+	return cs.FinalReport, nil
+}
+
+// GetRealtimeMetrics retrieves a realtime metrics snapshot.
+func (e *Engine) GetRealtimeMetrics(ctx context.Context, executionID string) (interface{}, error) {
+	cs := controlsurface.Get(executionID)
+	if cs == nil {
+		return nil, fmt.Errorf("no control surface for execution %s", executionID)
+	}
+	if cs.MetricsEngine == nil {
+		return nil, nil
+	}
+
+	status := "running"
+	if cs.GetStatus != nil {
+		s := cs.GetStatus()
+		status = s.Status
+	}
+
+	return cs.MetricsEngine.BuildRealtimeMetrics(status, cs.GetVUs, cs.GetIterations, cs.GetErrors), nil
+}
+
+// GetTimeSeries retrieves time-series data for charting.
+func (e *Engine) GetTimeSeries(ctx context.Context, executionID string) (interface{}, error) {
+	cs := controlsurface.Get(executionID)
+	if cs == nil {
+		return nil, fmt.Errorf("no control surface for execution %s", executionID)
+	}
+	if cs.MetricsEngine == nil {
+		return nil, nil
+	}
+	return cs.MetricsEngine.GetTimeSeriesData(), nil
+}
+
+// ScaleVUs adjusts the VU count for a running execution.
+func (e *Engine) ScaleVUs(ctx context.Context, executionID string, vus int) error {
+	cs := controlsurface.Get(executionID)
+	if cs == nil {
+		return fmt.Errorf("no control surface for execution %s", executionID)
+	}
+	if cs.ScaleVUs == nil {
+		return fmt.Errorf("scale not supported for execution %s", executionID)
+	}
+	return cs.ScaleVUs(vus)
+}
+
+// PauseExecution pauses a running execution.
+func (e *Engine) PauseExecution(ctx context.Context, executionID string) error {
+	cs := controlsurface.Get(executionID)
+	if cs == nil {
+		return fmt.Errorf("no control surface for execution %s", executionID)
+	}
+	if cs.PauseExecution == nil {
+		return fmt.Errorf("pause not supported for execution %s", executionID)
+	}
+	return cs.PauseExecution()
+}
+
+// ResumeExecution resumes a paused execution.
+func (e *Engine) ResumeExecution(ctx context.Context, executionID string) error {
+	cs := controlsurface.Get(executionID)
+	if cs == nil {
+		return fmt.Errorf("no control surface for execution %s", executionID)
+	}
+	if cs.ResumeExecution == nil {
+		return fmt.Errorf("resume not supported for execution %s", executionID)
+	}
+	return cs.ResumeExecution()
 }
 
 // ExecuteWorkflowBlocking 阻塞式执行工作流

@@ -422,7 +422,7 @@ func (m *WorkflowMaster) simulateExecution(ctx context.Context, execInfo *Execut
 			WorkflowName: execInfo.Workflow.Name,
 			Tags:         execInfo.Workflow.Options.Tags,
 		}
-		if err := taskEngine.SetupOutputs(ctx, execInfo.Workflow.Options.Outputs, outputParams); err != nil {
+		if err := taskEngine.SetupMetricsPipeline(ctx, execInfo.ID, execInfo.Workflow.Options.Outputs, outputParams); err != nil {
 			logger.Debug("simulateExecution] 配置输出失败: %v\n", err)
 			// 输出配置失败不影响执行，继续执行
 		}

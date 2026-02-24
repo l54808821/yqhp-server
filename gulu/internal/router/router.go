@@ -250,6 +250,13 @@ func Setup(app *fiber.App) {
 	executionRecords.Post("/:id/pause", handler.ExecutionPause)
 	executionRecords.Post("/:id/resume", handler.ExecutionResume)
 
+	// Performance testing routes (k6-style API)
+	executionRecords.Get("/:id/realtime", handler.ExecutionGetRealtimeMetrics)
+	executionRecords.Get("/:id/report", handler.ExecutionGetReport)
+	executionRecords.Get("/:id/timeseries", handler.ExecutionGetTimeSeries)
+	executionRecords.Post("/:id/scale", handler.ExecutionScaleVUs)
+	executionRecords.Get("/:id/metrics/stream", handler.ExecutionMetricsStream)
+
 	// 统一执行接口（RESTful 风格）
 	// POST   /api/executions              - 创建执行（支持 SSE 和阻塞模式）
 	// GET    /api/executions/:sessionId   - 获取执行状态

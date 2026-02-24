@@ -9,6 +9,9 @@ import (
 
 	"yqhp/workflow-engine/internal/executor"
 	"yqhp/workflow-engine/internal/hook"
+	metricsengine "yqhp/workflow-engine/internal/metrics/engine"
+	summaryoutput "yqhp/workflow-engine/internal/output/summary"
+	"yqhp/workflow-engine/pkg/controlsurface"
 	"yqhp/workflow-engine/pkg/logger"
 	"yqhp/workflow-engine/pkg/metrics"
 	"yqhp/workflow-engine/pkg/output"
@@ -16,7 +19,8 @@ import (
 )
 
 // TaskEngine 处理工作流任务执行。
-// Requirements: 6.1, 6.3, 6.4
+// Orchestration follows k6's cmd/run.go pattern:
+// VU goroutines → samplesChan → OutputManager → [Outputs + MetricsEngine + Summary]
 type TaskEngine struct {
 	registry   *executor.Registry
 	hookRunner *hook.Runner
@@ -27,18 +31,28 @@ type TaskEngine struct {
 	activeVUs  atomic.Int32
 	iterations atomic.Int64
 
-	// 指标收集
+	// 指标收集 (feeds samples into the pipeline)
 	collector *MetricsCollector
 
-	// 输出管理
+	// k6-style metrics pipeline
+	metricsEngine *metricsengine.MetricsEngine
+	summaryOutput *summaryoutput.Output
 	outputManager *output.Manager
 	samplesChan   chan metrics.SampleContainer
 	outputWait    func()
 	outputFinish  func(error)
 
+	// 控制面
+	controlSurface *controlsurface.ControlSurface
+
 	// 状态
-	running atomic.Bool
-	mu      sync.RWMutex
+	running    atomic.Bool
+	paused     atomic.Bool
+	pauseCh    chan struct{}
+	errors     []string
+	errorsMu   sync.Mutex
+	cancelFunc context.CancelFunc
+	mu         sync.RWMutex
 }
 
 // NewTaskEngine 创建一个新的任务引擎。
@@ -52,59 +66,139 @@ func NewTaskEngine(registry *executor.Registry, maxVUs int) *TaskEngine {
 	}
 }
 
-// SetupOutputs 配置输出插件
-func (e *TaskEngine) SetupOutputs(ctx context.Context, configs []types.OutputConfig, params output.Params) error {
-	if len(configs) == 0 {
-		return nil
-	}
-
-	// 创建输出实例
-	outputs, err := output.CreateOutputsFromConfig(ctx, configs, params)
-	if err != nil {
-		return err
-	}
-
-	// 创建样本通道
+// SetupMetricsPipeline sets up the k6-style metrics pipeline:
+// samplesChan → OutputManager → [configured outputs + MetricsEngine Ingester + Summary Output]
+func (e *TaskEngine) SetupMetricsPipeline(ctx context.Context, executionID string, configs []types.OutputConfig, params output.Params) error {
+	// 1. Create samplesChan
 	e.samplesChan = output.NewSamplesChannel(1000)
 
-	// 设置收集器的样本通道
+	// 2. Create configured outputs (InfluxDB, Kafka, etc.)
+	var outputs []output.Output
+	if len(configs) > 0 {
+		configured, err := output.CreateOutputsFromConfig(ctx, configs, params)
+		if err != nil {
+			return err
+		}
+		outputs = append(outputs, configured...)
+	}
+
+	// 3. Create MetricsEngine + Ingester (as an Output in the pipeline)
+	registry := metrics.NewRegistry()
+	e.metricsEngine = metricsengine.NewMetricsEngine(registry)
+	ingester := e.metricsEngine.CreateIngester()
+	outputs = append(outputs, ingester)
+
+	// 4. Create Summary Output (also an Output in the pipeline)
+	e.summaryOutput = summaryoutput.New()
+	outputs = append(outputs, e.summaryOutput)
+
+	// 5. Connect MetricsCollector's sample emitter to the pipeline
 	e.collector.SetSamplesChannel(e.samplesChan, params.Tags)
 
-	// 创建输出管理器
+	// 6. Create and start Output Manager
 	e.outputManager = output.NewManager(outputs, params.Logger)
-
-	// 启动输出管理器
 	wait, finish, err := e.outputManager.Start(e.samplesChan)
 	if err != nil {
 		return err
 	}
-
 	e.outputWait = wait
 	e.outputFinish = finish
+
+	// 7. Start time-series collection (1s snapshots)
+	e.metricsEngine.StartTimeSeriesCollection(
+		func() int64 { return int64(e.activeVUs.Load()) },
+		func() int64 { return e.iterations.Load() },
+	)
+
+	// 8. Register ControlSurface for REST API access
+	e.controlSurface = &controlsurface.ControlSurface{
+		RunCtx:        ctx,
+		MetricsEngine: e.metricsEngine,
+		SummaryOutput: e.summaryOutput,
+		SamplesChan:   e.samplesChan,
+		GetStatus: func() *controlsurface.ExecutionStatus {
+			status := "running"
+			if !e.running.Load() {
+				status = "completed"
+			}
+			if e.paused.Load() {
+				status = "paused"
+			}
+			return &controlsurface.ExecutionStatus{
+				Status:     status,
+				Running:    e.running.Load(),
+				Paused:     e.paused.Load(),
+				VUs:        int64(e.activeVUs.Load()),
+				Iterations: e.iterations.Load(),
+			}
+		},
+		ScaleVUs:        e.ScaleVUs,
+		StopExecution:   func() error { e.running.Store(false); if e.cancelFunc != nil { e.cancelFunc() }; return nil },
+		PauseExecution:  func() error { e.paused.Store(true); return nil },
+		ResumeExecution: func() error { e.paused.Store(false); if e.pauseCh != nil { select { case e.pauseCh <- struct{}{}: default: } }; return nil },
+		GetVUs:          func() int64 { return int64(e.activeVUs.Load()) },
+		GetIterations:   func() int64 { return e.iterations.Load() },
+		GetErrors:       func() []string { e.errorsMu.Lock(); defer e.errorsMu.Unlock(); r := make([]string, len(e.errors)); copy(r, e.errors); return r },
+	}
+	controlsurface.Register(executionID, e.controlSurface)
 
 	return nil
 }
 
-// GetSamplesChannel 获取样本通道（用于外部发送指标）
+// ScaleVUs dynamically adjusts the number of active VUs.
+func (e *TaskEngine) ScaleVUs(newVUs int) error {
+	if newVUs < 0 {
+		return fmt.Errorf("VU count cannot be negative")
+	}
+	if newVUs > e.maxVUs {
+		return fmt.Errorf("VU count %d exceeds max %d", newVUs, e.maxVUs)
+	}
+	e.mu.Lock()
+	e.maxVUs = newVUs
+	e.mu.Unlock()
+	logger.Info("VUs scaled to %d", newVUs)
+	return nil
+}
+
+// addError records an execution error.
+func (e *TaskEngine) addError(msg string) {
+	e.errorsMu.Lock()
+	e.errors = append(e.errors, msg)
+	e.errorsMu.Unlock()
+}
+
+// GetSamplesChannel returns the samples channel for external metric emission.
 func (e *TaskEngine) GetSamplesChannel() chan metrics.SampleContainer {
 	return e.samplesChan
 }
 
-// Execute 执行任务并返回结果。
-// Requirements: 6.1, 6.3, 6.4
+// Execute runs a task with the full k6-style metrics pipeline.
+// Pipeline: VU goroutines → samplesChan → OutputManager → [Outputs + MetricsEngine + Summary]
 func (e *TaskEngine) Execute(ctx context.Context, task *types.Task) (*types.TaskResult, error) {
 	if task == nil || task.Workflow == nil {
-		return nil, fmt.Errorf("无效任务: task 或 workflow 为空")
+		return nil, fmt.Errorf("invalid task: task or workflow is nil")
 	}
 
-	logger.Debug("TaskEngine.Execute] 开始执行任务: %s, 工作流: %s\n", task.ID, task.Workflow.Name)
-	logger.Debug("TaskEngine.Execute] 步骤数: %d\n", len(task.Workflow.Steps))
-	for i, step := range task.Workflow.Steps {
-		logger.Debug("TaskEngine.Execute] 步骤[%d]: id=%s, type=%s, name=%s\n", i, step.ID, step.Type, step.Name)
-	}
+	logger.Debug("TaskEngine.Execute] starting task: %s, workflow: %s", task.ID, task.Workflow.Name)
+
+	// Create cancellable context for stop support
+	execCtx, cancel := context.WithCancel(ctx)
+	e.cancelFunc = cancel
+	defer cancel()
 
 	e.running.Store(true)
-	defer e.running.Store(false)
+	e.errors = nil
+
+	// Setup metrics pipeline if not already set up
+	if e.samplesChan == nil {
+		if err := e.SetupMetricsPipeline(execCtx, task.ExecutionID, task.Workflow.Options.Outputs, output.Params{
+			ExecutionID:  task.ExecutionID,
+			WorkflowName: task.Workflow.Name,
+			Tags:         task.Workflow.Options.Tags,
+		}); err != nil {
+			logger.Warn("Failed to setup metrics pipeline: %v", err)
+		}
+	}
 
 	result := &types.TaskResult{
 		TaskID:      task.ID,
@@ -113,33 +207,52 @@ func (e *TaskEngine) Execute(ctx context.Context, task *types.Task) (*types.Task
 		Errors:      make([]types.ExecutionError, 0),
 	}
 
-	// 根据工作流选项确定执行参数
 	opts := task.Workflow.Options
 	vus := e.calculateVUs(opts, task.Segment)
 	iterations := e.calculateIterations(opts, task.Segment)
 	duration := opts.Duration
 
-	logger.Debug("TaskEngine.Execute] 执行参数: vus=%d, iterations=%d, duration=%v, mode=%s\n", vus, iterations, duration, opts.ExecutionMode)
+	logger.Debug("TaskEngine.Execute] params: vus=%d, iterations=%d, duration=%v, mode=%s", vus, iterations, duration, opts.ExecutionMode)
 
-	// 根据模式执行
+	// Run the execution mode
 	var execErr error
 	switch opts.ExecutionMode {
 	case types.ModeConstantVUs, "":
-		logger.Debug("TaskEngine.Execute] 使用 ConstantVUs 模式执行")
-		execErr = e.executeConstantVUs(ctx, task, vus, duration, iterations)
+		execErr = e.executeConstantVUs(execCtx, task, vus, duration, iterations)
 	case types.ModeRampingVUs:
-		execErr = e.executeRampingVUs(ctx, task, opts.Stages)
+		execErr = e.executeRampingVUs(execCtx, task, opts.Stages)
 	case types.ModePerVUIterations:
-		execErr = e.executePerVUIterations(ctx, task, vus, iterations)
+		execErr = e.executePerVUIterations(execCtx, task, vus, iterations)
 	case types.ModeSharedIterations:
-		execErr = e.executeSharedIterations(ctx, task, vus, iterations)
+		execErr = e.executeSharedIterations(execCtx, task, vus, iterations)
 	default:
-		execErr = e.executeConstantVUs(ctx, task, vus, duration, iterations)
+		execErr = e.executeConstantVUs(execCtx, task, vus, duration, iterations)
 	}
 
-	logger.Debug("TaskEngine.Execute] 执行完成, execErr=%v\n", execErr)
+	e.running.Store(false)
 
+	// --- Pipeline shutdown (k6 pattern) ---
+
+	// 1. Stop time-series collection
+	if e.metricsEngine != nil {
+		e.metricsEngine.StopTimeSeriesCollection()
+	}
+
+	// 2. Close samples channel to signal end of metrics
+	if e.samplesChan != nil {
+		close(e.samplesChan)
+		e.samplesChan = nil
+	}
+
+	// 3. Wait for all outputs to flush
+	if e.outputWait != nil {
+		e.outputWait()
+	}
+
+	// 4. Determine final status
+	status := "completed"
 	if execErr != nil {
+		status = "failed"
 		result.Status = types.ExecutionStatusFailed
 		result.Errors = append(result.Errors, types.ExecutionError{
 			Code:      types.ErrCodeExecution,
@@ -150,31 +263,50 @@ func (e *TaskEngine) Execute(ctx context.Context, task *types.Task) (*types.Task
 		result.Status = types.ExecutionStatusCompleted
 	}
 
-	// 收集最终指标
-	result.Metrics = e.collector.GetMetrics()
+	// 5. Generate final report from Summary Output
+	if e.summaryOutput != nil && e.metricsEngine != nil {
+		report := e.summaryOutput.GenerateReport(
+			e.metricsEngine,
+			task.ExecutionID,
+			task.Workflow.ID,
+			task.Workflow.Name,
+			status,
+			e.iterations.Load(),
+			vus,
+		)
+		result.Report = report
 
-	// 设置迭代次数
+		// Store report in ControlSurface for REST API access
+		if e.controlSurface != nil {
+			e.controlSurface.FinalReport = report
+		}
+	}
+
+	// 6. Stop outputs
+	if e.outputFinish != nil {
+		e.outputFinish(execErr)
+	}
+
+	// 7. Collect legacy metrics (for backward compat during transition)
+	result.Metrics = e.collector.GetMetrics()
 	result.Iterations = e.iterations.Load()
 
-	logger.Debug("TaskEngine.Execute] 返回结果: status=%s, iterations=%d\n", result.Status, result.Iterations)
+	logger.Debug("TaskEngine.Execute] completed: status=%s, iterations=%d", result.Status, result.Iterations)
+
+	// Note: ControlSurface is intentionally NOT unregistered here so that
+	// the final report can still be retrieved via REST API after completion.
+	// It will be cleaned up when a new execution starts or after a timeout.
 
 	return result, execErr
 }
 
-// Stop 停止任务引擎。
+// Stop stops the task engine gracefully.
 func (e *TaskEngine) Stop(ctx context.Context) error {
 	e.running.Store(false)
+	if e.cancelFunc != nil {
+		e.cancelFunc()
+	}
 	e.vuPool.StopAll()
-
-	// 关闭样本通道并等待输出完成
-	if e.samplesChan != nil {
-		close(e.samplesChan)
-		e.samplesChan = nil
-	}
-	if e.outputFinish != nil {
-		e.outputFinish(nil)
-	}
-
 	return nil
 }
 
@@ -521,13 +653,11 @@ func (e *TaskEngine) runVU(ctx context.Context, task *types.Task, vu *types.Virt
 			logger.Debug("runVU] VU %d 执行迭代 %d\n", vu.ID, iteration)
 			err := e.executeWorkflowIteration(ctx, task, vu)
 			if err != nil {
-				logger.Debug("runVU] VU %d 迭代 %d 执行失败: %v\n", vu.ID, iteration, err)
-				// 对于持续运行模式（maxIterations=0），迭代失败不退出，继续下一次迭代
-				// 对于固定迭代次数模式，迭代失败则退出
+				logger.Debug("runVU] VU %d iteration %d failed: %v", vu.ID, iteration, err)
+				e.addError(fmt.Sprintf("VU %d iter %d: %v", vu.ID, iteration, err))
 				if maxIterations > 0 {
 					return err
 				}
-				// 持续运行模式下，记录错误但继续执行
 			}
 
 			iteration++

@@ -144,9 +144,17 @@ func (l *ExecutionLogic) Execute(req *ExecuteWorkflowReq, userID int64) (*model.
 
 	// 合并环境配置到工作流（从 t_config_definition 和 t_config 表读取）
 	merger := workflow.NewConfigMerger(l.ctx, req.EnvID)
-	_, err = merger.MergeToWorkflow(def)
+	mergedDef, err := merger.MergeToWorkflow(def)
 	if err != nil {
 		return nil, errors.New("配置合并失败: " + err.Error())
+	}
+	def = mergedDef
+
+	// 解析步骤中的环境配置引用（域名、数据库等）
+	// 调试流程在 stream_execution.go 中做了这一步，压测流程也必须做
+	mergedConfig, _ := merger.Merge()
+	if mergedConfig != nil {
+		workflow.ResolveEnvConfigReferences(def.Steps, mergedConfig)
 	}
 
 	// 创建执行记录
@@ -256,85 +264,56 @@ func (l *ExecutionLogic) Execute(req *ExecuteWorkflowReq, userID int64) (*model.
 	return execution, nil
 }
 
-// monitorExecution 监控执行状态并更新数据库
+// monitorExecution monitors execution status and stores the final report.
+// Now simplified: the engine handles all metrics/report generation internally.
+// Gulu just monitors status and saves the final report to DB.
 func (l *ExecutionLogic) monitorExecution(dbID int64, executionID string, engine *workflow.Engine) {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
-	timeout := time.After(30 * time.Minute) // 最大监控30分钟
+	timeout := time.After(30 * time.Minute)
 
 	for {
 		select {
 		case <-timeout:
-			// 超时，标记为失败
 			l.updateExecutionStatus(dbID, ExecutionStatusFailed, nil, nil)
 			return
 		case <-ticker.C:
-			// 获取执行状态
 			state, err := engine.GetExecutionStatus(context.Background(), executionID)
-			if err != nil {
-				fmt.Printf("获取执行状态失败: %v\n", err)
-				continue
-			}
-			if state == nil {
-				fmt.Printf("执行状态为空: %s\n", executionID)
+			if err != nil || state == nil {
 				continue
 			}
 
-			// 根据状态更新数据库
-			statusStr := string(state.Status)
-			fmt.Printf("执行状态: %s -> %s\n", executionID, statusStr)
-
-			var dbStatus string
-			switch statusStr {
-			case "pending":
-				dbStatus = ExecutionStatusPending
-			case "running":
-				dbStatus = ExecutionStatusRunning
-			case "completed":
-				dbStatus = ExecutionStatusCompleted
-			case "failed":
-				dbStatus = ExecutionStatusFailed
-			case "aborted", "stopped":
-				dbStatus = ExecutionStatusStopped
-			case "paused":
-				dbStatus = ExecutionStatusPaused
-			default:
-				fmt.Printf("未知状态: %s\n", statusStr)
+			dbStatus := mapEngineStatus(string(state.Status))
+			if dbStatus == "" {
 				continue
 			}
 
-			// 如果是终态，获取最终指标并存储报告
-			if dbStatus == ExecutionStatusCompleted || dbStatus == ExecutionStatusFailed || dbStatus == ExecutionStatusStopped {
-				fmt.Printf("执行完成: %s -> %s\n", executionID, dbStatus)
-
-				reportData := map[string]interface{}{
-					"status": dbStatus,
-				}
-
-				// 收集引擎错误信息
-				if len(state.Errors) > 0 {
-					errMsgs := make([]string, len(state.Errors))
-					for i, e := range state.Errors {
-						errMsgs[i] = e.Message
-					}
-					reportData["errors"] = errMsgs
-					fmt.Printf("执行错误: %v\n", errMsgs)
-				}
-
-				// 收集最终指标
-				metrics, metricsErr := engine.GetMetrics(context.Background(), executionID)
-				if metricsErr == nil && metrics != nil {
-					reportData["total_vus"] = metrics.TotalVUs
-					reportData["total_iterations"] = metrics.TotalIterations
-					reportData["duration"] = formatEngineDuration(metrics.Duration)
-					reportData["step_metrics"] = metrics.StepMetrics
-				}
+			// Terminal state: fetch the final report from the engine and save to DB
+			if isTerminalStatus(dbStatus) {
+				// Try to get the full performance report from engine
+				report, reportErr := engine.GetPerformanceReport(context.Background(), executionID)
 
 				var resultStr *string
-				if reportJSON, jsonErr := json.Marshal(reportData); jsonErr == nil {
-					s := string(reportJSON)
-					resultStr = &s
+				if reportErr == nil && report != nil {
+					if reportJSON, jsonErr := json.Marshal(report); jsonErr == nil {
+						s := string(reportJSON)
+						resultStr = &s
+					}
+				} else {
+					// Fallback: save basic status info
+					fallback := map[string]interface{}{"status": dbStatus}
+					if len(state.Errors) > 0 {
+						msgs := make([]string, len(state.Errors))
+						for i, e := range state.Errors {
+							msgs[i] = e.Message
+						}
+						fallback["errors"] = msgs
+					}
+					if j, e := json.Marshal(fallback); e == nil {
+						s := string(j)
+						resultStr = &s
+					}
 				}
 
 				l.updateExecutionStatus(dbID, dbStatus, state.EndTime, resultStr)
@@ -342,6 +321,29 @@ func (l *ExecutionLogic) monitorExecution(dbID int64, executionID string, engine
 			}
 		}
 	}
+}
+
+func mapEngineStatus(s string) string {
+	switch s {
+	case "pending":
+		return ExecutionStatusPending
+	case "running":
+		return ExecutionStatusRunning
+	case "completed":
+		return ExecutionStatusCompleted
+	case "failed":
+		return ExecutionStatusFailed
+	case "aborted", "stopped":
+		return ExecutionStatusStopped
+	case "paused":
+		return ExecutionStatusPaused
+	default:
+		return ""
+	}
+}
+
+func isTerminalStatus(s string) bool {
+	return s == ExecutionStatusCompleted || s == ExecutionStatusFailed || s == ExecutionStatusStopped
 }
 
 // updateExecutionStatus 更新执行状态
@@ -451,140 +453,93 @@ func (l *ExecutionLogic) GetLogs(id int64) (string, error) {
 	return "", nil
 }
 
-// ExecutionMetricsResp 执行指标响应
-type ExecutionMetricsResp struct {
-	ExecutionID     string                       `json:"execution_id"`
-	Status          string                       `json:"status"`
-	TotalVUs        int                          `json:"total_vus"`
-	TotalIterations int64                        `json:"total_iterations"`
-	Duration        string                       `json:"duration"`
-	StartTime       *time.Time                   `json:"start_time"`
-	EndTime         *time.Time                   `json:"end_time"`
-	DurationMs      *int64                       `json:"duration_ms"`
-	StepMetrics     map[string]*StepMetricsResp  `json:"step_metrics,omitempty"`
-	Errors          []string                     `json:"errors,omitempty"`
-}
-
-// StepMetricsResp 步骤指标响应
-type StepMetricsResp struct {
-	StepID       string            `json:"step_id"`
-	Count        int64             `json:"count"`
-	SuccessCount int64             `json:"success_count"`
-	FailureCount int64             `json:"failure_count"`
-	Duration     *DurationMetrics  `json:"duration,omitempty"`
-}
-
-// DurationMetrics 耗时指标
-type DurationMetrics struct {
-	Min string `json:"min"`
-	Max string `json:"max"`
-	Avg string `json:"avg"`
-	P50 string `json:"p50"`
-	P90 string `json:"p90"`
-	P95 string `json:"p95"`
-	P99 string `json:"p99"`
-}
-
-// GetMetrics 获取执行的实时指标
-func (l *ExecutionLogic) GetMetrics(id int64) (*ExecutionMetricsResp, error) {
+// GetRealtimeMetrics proxies realtime metrics from the engine.
+// The engine's MetricsEngine handles all aggregation; gulu just forwards.
+func (l *ExecutionLogic) GetRealtimeMetrics(id int64) (interface{}, error) {
 	execution, err := l.GetByID(id)
 	if err != nil {
 		return nil, errors.New("执行记录不存在")
 	}
 
-	resp := &ExecutionMetricsResp{
-		ExecutionID: execution.ExecutionID,
-		Status:      execution.Status,
-		StartTime:   execution.StartTime,
-		EndTime:     execution.EndTime,
-		DurationMs:  execution.Duration,
+	engine := workflow.GetEngine()
+	if engine == nil {
+		return nil, errors.New("引擎未启动")
 	}
 
-	// 如果已有 DB 存储的 result，解析其中的错误信息
+	engineExecID := l.resolveEngineID(execution.ExecutionID)
+	return engine.GetRealtimeMetrics(context.Background(), engineExecID)
+}
+
+// GetReport retrieves the final performance test report from the engine.
+func (l *ExecutionLogic) GetReport(id int64) (*types.PerformanceTestReport, error) {
+	execution, err := l.GetByID(id)
+	if err != nil {
+		return nil, errors.New("执行记录不存在")
+	}
+
+	// First try to get from DB (stored result)
 	if execution.Result != nil && *execution.Result != "" {
-		var savedResult map[string]interface{}
-		if jsonErr := json.Unmarshal([]byte(*execution.Result), &savedResult); jsonErr == nil {
-			if errs, ok := savedResult["errors"].([]interface{}); ok {
-				for _, e := range errs {
-					if s, ok := e.(string); ok {
-						resp.Errors = append(resp.Errors, s)
-					}
-				}
-			}
+		var report types.PerformanceTestReport
+		if err := json.Unmarshal([]byte(*execution.Result), &report); err == nil && report.ExecutionID != "" {
+			return &report, nil
 		}
+	}
+
+	// Fallback: get from engine (if still running or recently completed)
+	engine := workflow.GetEngine()
+	if engine == nil {
+		return nil, errors.New("报告尚未生成")
+	}
+
+	engineExecID := l.resolveEngineID(execution.ExecutionID)
+	return engine.GetPerformanceReport(context.Background(), engineExecID)
+}
+
+// ScaleVUs adjusts the VU count for a running execution.
+func (l *ExecutionLogic) ScaleVUs(id int64, vus int) error {
+	execution, err := l.GetByID(id)
+	if err != nil {
+		return errors.New("执行记录不存在")
+	}
+
+	if execution.Status != ExecutionStatusRunning {
+		return errors.New("只能调整运行中的执行")
 	}
 
 	engine := workflow.GetEngine()
 	if engine == nil {
-		return resp, nil
+		return errors.New("引擎未启动")
 	}
 
-	// 查找引擎真实执行 ID（gulu ID 和 engine ID 不同）
-	engineExecID := execution.ExecutionID
-	if mapped, ok := engineIDMap.Load(execution.ExecutionID); ok {
-		engineExecID = mapped.(string)
-	}
-
-	// 从引擎获取实时执行状态（包含错误信息）
-	state, _ := engine.GetExecutionStatus(context.Background(), engineExecID)
-	if state != nil && len(state.Errors) > 0 {
-		resp.Errors = make([]string, len(state.Errors))
-		for i, e := range state.Errors {
-			resp.Errors[i] = e.Message
-		}
-	}
-
-	metrics, err := engine.GetMetrics(context.Background(), engineExecID)
-	if err != nil || metrics == nil {
-		return resp, nil
-	}
-
-	resp.TotalVUs = metrics.TotalVUs
-	resp.TotalIterations = metrics.TotalIterations
-	resp.Duration = formatEngineDuration(metrics.Duration)
-
-	if len(metrics.StepMetrics) > 0 {
-		resp.StepMetrics = make(map[string]*StepMetricsResp)
-		for id, sm := range metrics.StepMetrics {
-			stepResp := &StepMetricsResp{
-				StepID:       sm.StepID,
-				Count:        sm.Count,
-				SuccessCount: sm.SuccessCount,
-				FailureCount: sm.FailureCount,
-			}
-			if sm.Duration != nil {
-				stepResp.Duration = &DurationMetrics{
-					Min: formatEngineDuration(sm.Duration.Min),
-					Max: formatEngineDuration(sm.Duration.Max),
-					Avg: formatEngineDuration(sm.Duration.Avg),
-					P50: formatEngineDuration(sm.Duration.P50),
-					P90: formatEngineDuration(sm.Duration.P90),
-					P95: formatEngineDuration(sm.Duration.P95),
-					P99: formatEngineDuration(sm.Duration.P99),
-				}
-			}
-			resp.StepMetrics[id] = stepResp
-		}
-	}
-
-	return resp, nil
+	engineExecID := l.resolveEngineID(execution.ExecutionID)
+	return engine.ScaleVUs(context.Background(), engineExecID, vus)
 }
 
-// formatEngineDuration 格式化引擎返回的 Duration
-func formatEngineDuration(d time.Duration) string {
-	if d == 0 {
-		return "0s"
+// GetTimeSeries retrieves the time-series data for charting.
+func (l *ExecutionLogic) GetTimeSeries(id int64) (interface{}, error) {
+	execution, err := l.GetByID(id)
+	if err != nil {
+		return nil, errors.New("执行记录不存在")
 	}
-	if d < time.Millisecond {
-		return fmt.Sprintf("%.2fµs", float64(d)/float64(time.Microsecond))
+
+	engine := workflow.GetEngine()
+	if engine == nil {
+		return nil, errors.New("引擎未启动")
 	}
-	if d < time.Second {
-		return fmt.Sprintf("%.2fms", float64(d)/float64(time.Millisecond))
-	}
-	return fmt.Sprintf("%.2fs", float64(d)/float64(time.Second))
+
+	engineExecID := l.resolveEngineID(execution.ExecutionID)
+	return engine.GetTimeSeries(context.Background(), engineExecID)
 }
 
-// Stop 停止执行
+// resolveEngineID maps a gulu execution ID to the engine's internal execution ID.
+func (l *ExecutionLogic) resolveEngineID(guluExecID string) string {
+	if mapped, ok := engineIDMap.Load(guluExecID); ok {
+		return mapped.(string)
+	}
+	return guluExecID
+}
+
+// Stop stops a running execution via the engine API.
 func (l *ExecutionLogic) Stop(id int64) error {
 	execution, err := l.GetByID(id)
 	if err != nil {
@@ -595,9 +550,11 @@ func (l *ExecutionLogic) Stop(id int64) error {
 		return errors.New("只能停止运行中或暂停的执行")
 	}
 
-	// TODO: 调用 workflow-engine 停止执行
-	// weClient := client.NewWorkflowEngineClient()
-	// weClient.StopExecution(execution.ExecutionID)
+	engine := workflow.GetEngine()
+	if engine != nil {
+		engineExecID := l.resolveEngineID(execution.ExecutionID)
+		_ = engine.StopExecution(context.Background(), engineExecID)
+	}
 
 	now := time.Now()
 	q := query.Use(svc.Ctx.DB)
@@ -618,7 +575,7 @@ func (l *ExecutionLogic) Stop(id int64) error {
 	return err
 }
 
-// Pause 暂停执行
+// Pause pauses a running execution via the engine API.
 func (l *ExecutionLogic) Pause(id int64) error {
 	execution, err := l.GetByID(id)
 	if err != nil {
@@ -629,9 +586,11 @@ func (l *ExecutionLogic) Pause(id int64) error {
 		return errors.New("只能暂停运行中的执行")
 	}
 
-	// TODO: 调用 workflow-engine 暂停执行
-	// weClient := client.NewWorkflowEngineClient()
-	// weClient.PauseExecution(execution.ExecutionID)
+	engine := workflow.GetEngine()
+	if engine != nil {
+		engineExecID := l.resolveEngineID(execution.ExecutionID)
+		_ = engine.PauseExecution(context.Background(), engineExecID)
+	}
 
 	now := time.Now()
 	q := query.Use(svc.Ctx.DB)
@@ -644,7 +603,7 @@ func (l *ExecutionLogic) Pause(id int64) error {
 	return err
 }
 
-// Resume 恢复执行
+// Resume resumes a paused execution via the engine API.
 func (l *ExecutionLogic) Resume(id int64) error {
 	execution, err := l.GetByID(id)
 	if err != nil {
@@ -655,9 +614,11 @@ func (l *ExecutionLogic) Resume(id int64) error {
 		return errors.New("只能恢复暂停的执行")
 	}
 
-	// TODO: 调用 workflow-engine 恢复执行
-	// weClient := client.NewWorkflowEngineClient()
-	// weClient.ResumeExecution(execution.ExecutionID)
+	engine := workflow.GetEngine()
+	if engine != nil {
+		engineExecID := l.resolveEngineID(execution.ExecutionID)
+		_ = engine.ResumeExecution(context.Background(), engineExecID)
+	}
 
 	now := time.Now()
 	q := query.Use(svc.Ctx.DB)

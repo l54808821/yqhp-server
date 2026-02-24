@@ -188,6 +188,78 @@ func (e *Engine) GetMetrics(ctx context.Context, executionID string) (*types.Agg
 	return e.embeddedEngine.GetMetrics(ctx, executionID)
 }
 
+// GetPerformanceReport retrieves the final performance report from the engine.
+func (e *Engine) GetPerformanceReport(ctx context.Context, executionID string) (*types.PerformanceTestReport, error) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	if e.embeddedEngine == nil {
+		return nil, nil
+	}
+
+	return e.embeddedEngine.GetPerformanceReport(ctx, executionID)
+}
+
+// GetRealtimeMetrics retrieves realtime metrics snapshot from the engine.
+func (e *Engine) GetRealtimeMetrics(ctx context.Context, executionID string) (interface{}, error) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	if e.embeddedEngine == nil {
+		return nil, nil
+	}
+
+	return e.embeddedEngine.GetRealtimeMetrics(ctx, executionID)
+}
+
+// GetTimeSeries retrieves time-series data from the engine.
+func (e *Engine) GetTimeSeries(ctx context.Context, executionID string) (interface{}, error) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	if e.embeddedEngine == nil {
+		return nil, nil
+	}
+
+	return e.embeddedEngine.GetTimeSeries(ctx, executionID)
+}
+
+// ScaleVUs adjusts the VU count for a running execution.
+func (e *Engine) ScaleVUs(ctx context.Context, executionID string, vus int) error {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	if e.embeddedEngine == nil {
+		return nil
+	}
+
+	return e.embeddedEngine.ScaleVUs(ctx, executionID, vus)
+}
+
+// PauseExecution pauses a running execution.
+func (e *Engine) PauseExecution(ctx context.Context, executionID string) error {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	if e.embeddedEngine == nil {
+		return nil
+	}
+
+	return e.embeddedEngine.PauseExecution(ctx, executionID)
+}
+
+// ResumeExecution resumes a paused execution.
+func (e *Engine) ResumeExecution(ctx context.Context, executionID string) error {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	if e.embeddedEngine == nil {
+		return nil
+	}
+
+	return e.embeddedEngine.ResumeExecution(ctx, executionID)
+}
+
 // ExecuteWorkflowBlocking 阻塞式执行工作流
 func (e *Engine) ExecuteWorkflowBlocking(ctx context.Context, req *types.ExecuteWorkflowRequest) (*types.ExecuteWorkflowResponse, error) {
 	e.mu.RLock()

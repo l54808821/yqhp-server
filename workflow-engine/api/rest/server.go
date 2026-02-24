@@ -274,6 +274,9 @@ func (s *Server) setupRoutes() {
 
 	// WebSocket routes (metrics streaming)
 	s.setupWebSocketRoutes()
+
+	// Performance testing API routes (k6-style ControlSurface)
+	s.setupPerfRoutes()
 }
 
 // Start starts the REST API server.

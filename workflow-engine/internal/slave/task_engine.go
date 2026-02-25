@@ -146,12 +146,15 @@ func (e *TaskEngine) SetupMetricsPipeline(ctx context.Context, executionID strin
 }
 
 // ScaleVUs dynamically adjusts the number of active VUs.
+const maxAllowedVUs = 100000
+
+// ScaleVUs dynamically adjusts the target number of VUs.
 func (e *TaskEngine) ScaleVUs(newVUs int) error {
 	if newVUs < 0 {
 		return fmt.Errorf("VU count cannot be negative")
 	}
-	if newVUs > e.maxVUs {
-		return fmt.Errorf("VU count %d exceeds max %d", newVUs, e.maxVUs)
+	if newVUs > maxAllowedVUs {
+		return fmt.Errorf("VU count %d exceeds hard limit %d", newVUs, maxAllowedVUs)
 	}
 	e.mu.Lock()
 	e.maxVUs = newVUs
@@ -372,15 +375,12 @@ func (e *TaskEngine) calculateIterations(opts types.ExecutionOptions, segment ty
 	return iterations
 }
 
-// executeConstantVUs 使用固定数量的 VU 执行。
-// Requirements: 6.1.1
+// executeConstantVUs runs VUs with support for dynamic scaling via ScaleVUs().
 func (e *TaskEngine) executeConstantVUs(ctx context.Context, task *types.Task, vus int, duration time.Duration, iterations int) error {
-	logger.Debug("executeConstantVUs] 开始: vus=%d, duration=%v, iterations=%d\n", vus, duration, iterations)
+	logger.Debug("executeConstantVUs] start: vus=%d, duration=%v, iterations=%d", vus, duration, iterations)
 
 	var wg sync.WaitGroup
-	errChan := make(chan error, vus)
 
-	// 如果指定了时长，创建带超时的上下文
 	execCtx := ctx
 	var cancel context.CancelFunc
 	if duration > 0 {
@@ -388,46 +388,106 @@ func (e *TaskEngine) executeConstantVUs(ctx context.Context, task *types.Task, v
 		defer cancel()
 	}
 
-	// 启动 VU
-	for i := 0; i < vus; i++ {
-		vu := e.vuPool.Acquire(i)
+	// Track per-VU cancel functions for dynamic scaling
+	var vuMu sync.Mutex
+	vuCancels := make(map[int]context.CancelFunc)
+	nextVUID := 0
+
+	// startVU launches a single VU goroutine and returns its ID
+	startVU := func() {
+		vuMu.Lock()
+		id := nextVUID
+		nextVUID++
+		vuMu.Unlock()
+
+		vu := e.vuPool.Acquire(id)
 		if vu == nil {
-			logger.Debug("executeConstantVUs] 无法获取 VU %d\n", i)
-			continue
+			vu = &types.VirtualUser{ID: id, StartTime: time.Now()}
 		}
+
+		vuCtx, vuCancel := context.WithCancel(execCtx)
+
+		vuMu.Lock()
+		vuCancels[id] = vuCancel
+		vuMu.Unlock()
 
 		wg.Add(1)
 		e.activeVUs.Add(1)
 
-		go func(vu *types.VirtualUser) {
+		go func(vu *types.VirtualUser, ctx context.Context, id int) {
 			defer wg.Done()
 			defer e.activeVUs.Add(-1)
 			defer e.vuPool.Release(vu)
+			defer func() {
+				vuMu.Lock()
+				delete(vuCancels, id)
+				vuMu.Unlock()
+			}()
 
-			logger.Debug("executeConstantVUs] VU %d 开始执行\n", vu.ID)
-			err := e.runVU(execCtx, task, vu, iterations)
-			logger.Debug("executeConstantVUs] VU %d 执行完成, err=%v\n", vu.ID, err)
-			if err != nil && err != context.Canceled && err != context.DeadlineExceeded {
-				errChan <- err
-			}
-		}(vu)
+			e.runVU(ctx, task, vu, iterations)
+		}(vu, vuCtx, id)
 	}
 
-	// 等待所有 VU 完成
-	logger.Debug("executeConstantVUs] 等待所有 VU 完成...")
-	wg.Wait()
-	close(errChan)
-	logger.Debug("executeConstantVUs] 所有 VU 已完成")
-
-	// 收集错误
-	var firstErr error
-	for err := range errChan {
-		if firstErr == nil {
-			firstErr = err
+	// stopOneVU cancels the highest-numbered VU
+	stopOneVU := func() {
+		vuMu.Lock()
+		defer vuMu.Unlock()
+		maxID := -1
+		for id := range vuCancels {
+			if id > maxID {
+				maxID = id
+			}
+		}
+		if maxID >= 0 {
+			if cancel, ok := vuCancels[maxID]; ok {
+				cancel()
+			}
 		}
 	}
 
-	return firstErr
+	// Launch initial VUs
+	for i := 0; i < vus; i++ {
+		startVU()
+	}
+
+	// VU controller: dynamically adjusts VU count based on maxVUs
+	controllerDone := make(chan struct{})
+	go func() {
+		defer close(controllerDone)
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+
+		for {
+			select {
+			case <-execCtx.Done():
+				return
+			case <-ticker.C:
+				e.mu.RLock()
+				target := e.maxVUs
+				e.mu.RUnlock()
+
+				current := int(e.activeVUs.Load())
+
+				if target > current {
+					for i := 0; i < target-current; i++ {
+						startVU()
+					}
+					logger.Debug("executeConstantVUs] scaled up: %d -> %d VUs", current, target)
+				} else if target < current {
+					for i := 0; i < current-target; i++ {
+						stopOneVU()
+					}
+					logger.Debug("executeConstantVUs] scaled down: %d -> %d VUs", current, target)
+				}
+			}
+		}
+	}()
+
+	// Wait for all VUs to finish (happens when context is cancelled/expired)
+	wg.Wait()
+	<-controllerDone
+
+	return nil
 }
 
 // executeRampingVUs 使用递增/递减的 VU 数量执行。

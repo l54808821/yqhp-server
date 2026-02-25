@@ -4,19 +4,22 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"yqhp/workflow-engine/pkg/types"
 )
 
 // ValidNodeTypes workflow-engine 支持的节点类型
 var ValidNodeTypes = map[string]bool{
-	"http":         true, // HTTP 请求
-	"script":       true, // 脚本执行
-	"condition":    true, // 条件判断
-	"loop":         true, // 循环
-	"database":     true, // 数据库操作
-	"wait":         true, // 等待/延时
-	"mq":           true, // MQ 操作
-	"ai":           true, // AI 调用
-	"ref_workflow": true, // 引用工作流
+	"http":         true,
+	"script":       true,
+	"condition":    true,
+	"loop":         true,
+	"database":     true,
+	"db":           true,
+	"wait":         true,
+	"mq":           true,
+	"ai":           true,
+	"ref_workflow": true,
 }
 
 // ValidationError 验证错误
@@ -54,10 +57,6 @@ func ValidateWithOptions(def *WorkflowDefinition, requireSteps bool) *Validation
 		return result
 	}
 
-	// 注意：definition 中的 name 是可选的，因为工作流名称已经在数据库表中存储
-	// 不再验证 def.Name
-
-	// 验证步骤（仅在执行时要求至少一个步骤）
 	if requireSteps && len(def.Steps) == 0 {
 		result.Valid = false
 		result.Errors = append(result.Errors, ValidationError{
@@ -66,7 +65,6 @@ func ValidateWithOptions(def *WorkflowDefinition, requireSteps bool) *Validation
 		})
 	}
 
-	// 验证每个步骤
 	stepIDs := make(map[string]bool)
 	for i, step := range def.Steps {
 		stepErrors := validateStep(&step, i, stepIDs)
@@ -79,12 +77,10 @@ func ValidateWithOptions(def *WorkflowDefinition, requireSteps bool) *Validation
 	return result
 }
 
-// validateStep 验证单个步骤
-func validateStep(step *Step, index int, stepIDs map[string]bool) []ValidationError {
+func validateStep(step *types.Step, index int, stepIDs map[string]bool) []ValidationError {
 	var errs []ValidationError
 	prefix := fmt.Sprintf("steps[%d]", index)
 
-	// 验证 ID
 	if strings.TrimSpace(step.ID) == "" {
 		errs = append(errs, ValidationError{
 			Field:   prefix + ".id",
@@ -100,7 +96,6 @@ func validateStep(step *Step, index int, stepIDs map[string]bool) []ValidationEr
 		stepIDs[step.ID] = true
 	}
 
-	// 验证类型
 	if strings.TrimSpace(step.Type) == "" {
 		errs = append(errs, ValidationError{
 			Field:   prefix + ".type",
@@ -113,7 +108,6 @@ func validateStep(step *Step, index int, stepIDs map[string]bool) []ValidationEr
 		})
 	}
 
-	// 验证名称
 	if strings.TrimSpace(step.Name) == "" {
 		errs = append(errs, ValidationError{
 			Field:   prefix + ".name",
@@ -121,7 +115,6 @@ func validateStep(step *Step, index int, stepIDs map[string]bool) []ValidationEr
 		})
 	}
 
-	// 根据类型验证特定配置
 	switch step.Type {
 	case "http":
 		errs = append(errs, validateHTTPStep(step, prefix)...)
@@ -131,7 +124,7 @@ func validateStep(step *Step, index int, stepIDs map[string]bool) []ValidationEr
 		errs = append(errs, validateConditionStep(step, prefix, stepIDs)...)
 	case "loop":
 		errs = append(errs, validateLoopStep(step, prefix)...)
-	case "database":
+	case "database", "db":
 		errs = append(errs, validateDatabaseStep(step, prefix)...)
 	case "wait":
 		errs = append(errs, validateWaitStep(step, prefix)...)
@@ -146,8 +139,7 @@ func validateStep(step *Step, index int, stepIDs map[string]bool) []ValidationEr
 	return errs
 }
 
-// validateHTTPStep 验证 HTTP 步骤
-func validateHTTPStep(step *Step, prefix string) []ValidationError {
+func validateHTTPStep(step *types.Step, prefix string) []ValidationError {
 	var errs []ValidationError
 
 	if step.Config == nil {
@@ -158,7 +150,6 @@ func validateHTTPStep(step *Step, prefix string) []ValidationError {
 		return errs
 	}
 
-	// 验证 method
 	if _, ok := step.Config["method"]; !ok {
 		errs = append(errs, ValidationError{
 			Field:   prefix + ".config.method",
@@ -166,7 +157,6 @@ func validateHTTPStep(step *Step, prefix string) []ValidationError {
 		})
 	}
 
-	// 验证 url 或 domain（兼容前端 domainCode 字段）
 	_, hasURL := step.Config["url"]
 	_, hasDomain := step.Config["domain"]
 	_, hasDomainCode := step.Config["domainCode"]
@@ -180,8 +170,7 @@ func validateHTTPStep(step *Step, prefix string) []ValidationError {
 	return errs
 }
 
-// validateScriptStep 验证脚本步骤
-func validateScriptStep(step *Step, prefix string) []ValidationError {
+func validateScriptStep(step *types.Step, prefix string) []ValidationError {
 	var errs []ValidationError
 
 	if step.Config == nil {
@@ -202,11 +191,9 @@ func validateScriptStep(step *Step, prefix string) []ValidationError {
 	return errs
 }
 
-// validateConditionStep 验证条件步骤
-func validateConditionStep(step *Step, prefix string, stepIDs map[string]bool) []ValidationError {
+func validateConditionStep(step *types.Step, prefix string, stepIDs map[string]bool) []ValidationError {
 	var errs []ValidationError
 
-	// 新结构：branches（不再强制依赖 config.type/expression）
 	if len(step.Branches) == 0 {
 		errs = append(errs, ValidationError{
 			Field:   prefix + ".branches",
@@ -234,7 +221,7 @@ func validateConditionStep(step *Step, prefix string, stepIDs map[string]bool) [
 			seenBranchIDs[br.ID] = true
 		}
 
-		kind := strings.TrimSpace(br.Kind)
+		kind := strings.TrimSpace(string(br.Kind))
 		if kind == "" {
 			kind = "if"
 		}
@@ -245,7 +232,6 @@ func validateConditionStep(step *Step, prefix string, stepIDs map[string]bool) [
 			})
 		}
 
-		// if/else_if 需要 expression，else 不需要
 		if kind != "else" {
 			if strings.TrimSpace(br.Expression) == "" {
 				errs = append(errs, ValidationError{
@@ -255,7 +241,6 @@ func validateConditionStep(step *Step, prefix string, stepIDs map[string]bool) [
 			}
 		}
 
-		// 验证分支步骤
 		for j, child := range br.Steps {
 			childErrs := validateStep(&child, j, stepIDs)
 			for _, e := range childErrs {
@@ -268,8 +253,7 @@ func validateConditionStep(step *Step, prefix string, stepIDs map[string]bool) [
 	return errs
 }
 
-// validateLoopStep 验证循环步骤
-func validateLoopStep(step *Step, prefix string) []ValidationError {
+func validateLoopStep(step *types.Step, prefix string) []ValidationError {
 	var errs []ValidationError
 
 	if step.Loop == nil {
@@ -280,7 +264,6 @@ func validateLoopStep(step *Step, prefix string) []ValidationError {
 		return errs
 	}
 
-	// 必须指定 count、items 或 condition 之一
 	if step.Loop.Count <= 0 && step.Loop.Items == "" && step.Loop.Condition == "" {
 		errs = append(errs, ValidationError{
 			Field:   prefix + ".loop",
@@ -291,8 +274,7 @@ func validateLoopStep(step *Step, prefix string) []ValidationError {
 	return errs
 }
 
-// validateDatabaseStep 验证数据库步骤
-func validateDatabaseStep(step *Step, prefix string) []ValidationError {
+func validateDatabaseStep(step *types.Step, prefix string) []ValidationError {
 	var errs []ValidationError
 
 	if step.Config == nil {
@@ -303,15 +285,15 @@ func validateDatabaseStep(step *Step, prefix string) []ValidationError {
 		return errs
 	}
 
-	// 验证 database_config
 	if _, ok := step.Config["database_config"]; !ok {
-		errs = append(errs, ValidationError{
-			Field:   prefix + ".config.database_config",
-			Message: "数据库步骤必须指定数据库配置",
-		})
+		if _, ok := step.Config["datasourceCode"]; !ok {
+			errs = append(errs, ValidationError{
+				Field:   prefix + ".config.database_config",
+				Message: "数据库步骤必须指定数据库配置",
+			})
+		}
 	}
 
-	// 验证 query
 	if _, ok := step.Config["query"]; !ok {
 		errs = append(errs, ValidationError{
 			Field:   prefix + ".config.query",
@@ -322,8 +304,7 @@ func validateDatabaseStep(step *Step, prefix string) []ValidationError {
 	return errs
 }
 
-// validateWaitStep 验证等待步骤
-func validateWaitStep(step *Step, prefix string) []ValidationError {
+func validateWaitStep(step *types.Step, prefix string) []ValidationError {
 	var errs []ValidationError
 
 	if step.Config == nil {
@@ -334,7 +315,6 @@ func validateWaitStep(step *Step, prefix string) []ValidationError {
 		return errs
 	}
 
-	// 验证 duration
 	if _, ok := step.Config["duration"]; !ok {
 		errs = append(errs, ValidationError{
 			Field:   prefix + ".config.duration",
@@ -345,8 +325,7 @@ func validateWaitStep(step *Step, prefix string) []ValidationError {
 	return errs
 }
 
-// validateMQStep 验证 MQ 步骤
-func validateMQStep(step *Step, prefix string) []ValidationError {
+func validateMQStep(step *types.Step, prefix string) []ValidationError {
 	var errs []ValidationError
 
 	if step.Config == nil {
@@ -357,7 +336,6 @@ func validateMQStep(step *Step, prefix string) []ValidationError {
 		return errs
 	}
 
-	// 验证 mq_config
 	if _, ok := step.Config["mq_config"]; !ok {
 		errs = append(errs, ValidationError{
 			Field:   prefix + ".config.mq_config",
@@ -365,7 +343,6 @@ func validateMQStep(step *Step, prefix string) []ValidationError {
 		})
 	}
 
-	// 验证 action
 	if _, ok := step.Config["action"]; !ok {
 		errs = append(errs, ValidationError{
 			Field:   prefix + ".config.action",
@@ -376,8 +353,7 @@ func validateMQStep(step *Step, prefix string) []ValidationError {
 	return errs
 }
 
-// validateAIStep 验证 AI 步骤
-func validateAIStep(step *Step, prefix string) []ValidationError {
+func validateAIStep(step *types.Step, prefix string) []ValidationError {
 	var errs []ValidationError
 
 	if step.Config == nil {
@@ -388,7 +364,6 @@ func validateAIStep(step *Step, prefix string) []ValidationError {
 		return errs
 	}
 
-	// 验证 prompt（AI 调用必须有提示词）
 	if _, ok := step.Config["prompt"]; !ok {
 		errs = append(errs, ValidationError{
 			Field:   prefix + ".config.prompt",
@@ -396,7 +371,6 @@ func validateAIStep(step *Step, prefix string) []ValidationError {
 		})
 	}
 
-	// 验证内置工具名称
 	if tools, ok := step.Config["tools"].([]any); ok {
 		knownTools := map[string]bool{
 			"http_request":      true,
@@ -417,7 +391,6 @@ func validateAIStep(step *Step, prefix string) []ValidationError {
 		}
 	}
 
-	// 验证 MCP 服务器 ID
 	if mcpServerIDs, ok := step.Config["mcp_server_ids"].([]any); ok {
 		for i, id := range mcpServerIDs {
 			if f, ok := id.(float64); ok {
@@ -436,7 +409,6 @@ func validateAIStep(step *Step, prefix string) []ValidationError {
 		}
 	}
 
-	// 验证最大工具调用轮次
 	if maxRounds, ok := step.Config["max_tool_rounds"].(float64); ok {
 		if maxRounds < 1 || maxRounds > 50 {
 			errs = append(errs, ValidationError{
@@ -449,8 +421,7 @@ func validateAIStep(step *Step, prefix string) []ValidationError {
 	return errs
 }
 
-// validateRefWorkflowStep 验证引用工作流步骤
-func validateRefWorkflowStep(step *Step, prefix string) []ValidationError {
+func validateRefWorkflowStep(step *types.Step, prefix string) []ValidationError {
 	var errs []ValidationError
 
 	if step.Config == nil {
@@ -461,7 +432,6 @@ func validateRefWorkflowStep(step *Step, prefix string) []ValidationError {
 		return errs
 	}
 
-	// 验证 workflow_id
 	wfID, ok := step.Config["workflow_id"]
 	if !ok || wfID == nil {
 		errs = append(errs, ValidationError{
@@ -487,11 +457,11 @@ func IsValidNodeType(nodeType string) bool {
 
 // GetValidNodeTypes 获取所有有效的节点类型
 func GetValidNodeTypes() string {
-	types := make([]string, 0, len(ValidNodeTypes))
+	nodeTypes := make([]string, 0, len(ValidNodeTypes))
 	for t := range ValidNodeTypes {
-		types = append(types, t)
+		nodeTypes = append(nodeTypes, t)
 	}
-	return strings.Join(types, ", ")
+	return strings.Join(nodeTypes, ", ")
 }
 
 // ValidateJSON 验证 JSON 格式的工作流定义

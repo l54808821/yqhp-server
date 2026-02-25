@@ -2,10 +2,12 @@ package workflow
 
 import (
 	"testing"
+
+	"yqhp/workflow-engine/pkg/types"
 )
 
 func TestValidateAIStep_ValidToolNames(t *testing.T) {
-	step := &Step{
+	step := &types.Step{
 		Config: map[string]interface{}{
 			"prompt": "test prompt",
 			"tools":  []any{"http_request", "var_read", "var_write", "json_parse"},
@@ -18,7 +20,7 @@ func TestValidateAIStep_ValidToolNames(t *testing.T) {
 }
 
 func TestValidateAIStep_UnknownToolName(t *testing.T) {
-	step := &Step{
+	step := &types.Step{
 		Config: map[string]interface{}{
 			"prompt": "test prompt",
 			"tools":  []any{"http_request", "unknown_tool"},
@@ -38,7 +40,7 @@ func TestValidateAIStep_UnknownToolName(t *testing.T) {
 }
 
 func TestValidateAIStep_ValidMCPServerIDs(t *testing.T) {
-	step := &Step{
+	step := &types.Step{
 		Config: map[string]interface{}{
 			"prompt":         "test prompt",
 			"mcp_server_ids": []any{float64(1), float64(5), float64(100)},
@@ -63,7 +65,7 @@ func TestValidateAIStep_InvalidMCPServerIDs(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			step := &Step{
+			step := &types.Step{
 				Config: map[string]interface{}{
 					"prompt":         "test prompt",
 					"mcp_server_ids": tt.ids,
@@ -86,7 +88,7 @@ func TestValidateAIStep_InvalidMCPServerIDs(t *testing.T) {
 
 func TestValidateAIStep_ValidMaxToolRounds(t *testing.T) {
 	for _, v := range []float64{1, 10, 25, 50} {
-		step := &Step{
+		step := &types.Step{
 			Config: map[string]interface{}{
 				"prompt":          "test prompt",
 				"max_tool_rounds": v,
@@ -101,7 +103,7 @@ func TestValidateAIStep_ValidMaxToolRounds(t *testing.T) {
 
 func TestValidateAIStep_InvalidMaxToolRounds(t *testing.T) {
 	for _, v := range []float64{0, -1, 51, 100} {
-		step := &Step{
+		step := &types.Step{
 			Config: map[string]interface{}{
 				"prompt":          "test prompt",
 				"max_tool_rounds": v,
@@ -122,7 +124,7 @@ func TestValidateAIStep_InvalidMaxToolRounds(t *testing.T) {
 }
 
 func TestValidateAIStep_NoToolFields_NoErrors(t *testing.T) {
-	step := &Step{
+	step := &types.Step{
 		Config: map[string]interface{}{
 			"prompt": "test prompt",
 		},

@@ -8,6 +8,7 @@ import (
 	"yqhp/gulu/internal/sse"
 	"yqhp/gulu/internal/workflow"
 	"yqhp/workflow-engine/pkg/logger"
+	"yqhp/workflow-engine/pkg/runner"
 	"yqhp/workflow-engine/pkg/types"
 )
 
@@ -46,13 +47,11 @@ type StepExecutionResult struct {
 }
 
 // StreamExecutor 流式执行器
-// 所有执行统一通过内置 master 提交，由 master 根据 TargetSlaves 决定本地执行或分发到远程 Slave。
 type StreamExecutor struct {
 	sessionManager *SessionManager
 	defaultTimeout time.Duration
 }
 
-// NewStreamExecutor 创建流式执行器
 func NewStreamExecutor(sessionManager *SessionManager, defaultTimeout time.Duration) *StreamExecutor {
 	if defaultTimeout == 0 {
 		defaultTimeout = 30 * time.Minute
@@ -82,7 +81,7 @@ func (e *StreamExecutor) ExecuteStream(ctx context.Context, req *ExecuteRequest,
 
 	mergeVariables(wf, req.Variables)
 
-	execErr := e.executeViaEngine(ctx, wf, session, callback)
+	execErr := e.executeViaRunner(ctx, wf, callback)
 
 	if execErr != nil {
 		if ctx.Err() == context.DeadlineExceeded {
@@ -130,7 +129,7 @@ func (e *StreamExecutor) ExecuteBlocking(ctx context.Context, req *ExecuteReques
 
 	mergeVariables(wf, req.Variables)
 
-	execErr := e.executeViaEngine(ctx, wf, session, callback)
+	execErr := e.executeViaRunner(ctx, wf, callback)
 
 	total, success, failed := session.GetStats()
 	status := "success"
@@ -162,11 +161,10 @@ func (e *StreamExecutor) ExecuteBlocking(ctx context.Context, req *ExecuteReques
 	}, nil
 }
 
-// executeViaEngine 通过内置 master 提交执行。
-// TargetSlaves 已在调用方设好：nil 表示本地执行，非 nil 表示分发到指定 Slave。
-func (e *StreamExecutor) executeViaEngine(ctx context.Context, wf *types.Workflow, session *Session, callback *SSECallback) error {
-	engine := workflow.GetEngine()
-	if engine == nil {
+// executeViaRunner uses the unified runner.Run to execute the workflow.
+func (e *StreamExecutor) executeViaRunner(ctx context.Context, wf *types.Workflow, callback *SSECallback) error {
+	eng := workflow.GetEngine()
+	if eng == nil {
 		return fmt.Errorf("工作流引擎未初始化")
 	}
 
@@ -177,12 +175,6 @@ func (e *StreamExecutor) executeViaEngine(ctx context.Context, wf *types.Workflo
 	}
 
 	wf.Callback = callback
-
-	execID, err := engine.SubmitWorkflow(ctx, wf)
-	if err != nil {
-		return fmt.Errorf("提交执行失败: %w", err)
-	}
-	logger.Debug("工作流已提交", "exec_id", execID, "target", wf.Options.TargetSlaves.Mode)
 
 	heartbeatDone := make(chan struct{})
 	go func() {
@@ -201,51 +193,18 @@ func (e *StreamExecutor) executeViaEngine(ctx context.Context, wf *types.Workflo
 	}()
 	defer close(heartbeatDone)
 
-	return e.waitForCompletion(ctx, engine, execID, session)
-}
+	result, err := runner.Run(ctx, runner.RunOptions{
+		Workflow: wf,
+		Engine:   eng,
+	})
 
-// waitForCompletion 轮询等待执行完成
-func (e *StreamExecutor) waitForCompletion(ctx context.Context, engine *workflow.Engine, execID string, session *Session) error {
-	ticker := time.NewTicker(200 * time.Millisecond)
-	defer ticker.Stop()
-
-	pollCount := 0
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			pollCount++
-
-			if session.GetStatus() == SessionStatusStopped {
-				engine.StopExecution(ctx, execID)
-				return fmt.Errorf("执行被停止")
-			}
-
-			state, err := engine.GetExecutionStatus(ctx, execID)
-			if err != nil {
-				if pollCount%25 == 0 {
-					logger.Warn("waitForCompletion: 获取状态失败", "error", err)
-				}
-				continue
-			}
-
-			switch state.Status {
-			case types.ExecutionStatusCompleted:
-				return nil
-			case types.ExecutionStatusFailed:
-				if len(state.Errors) > 0 {
-					return fmt.Errorf(state.Errors[0].Message)
-				}
-				return fmt.Errorf("执行失败")
-			case types.ExecutionStatusAborted:
-				return fmt.Errorf("执行被中止")
-			}
-		}
+	if result != nil {
+		logger.Debug("执行完成", "exec_id", result.ExecutionID, "status", result.Status)
 	}
+
+	return err
 }
 
-// withTimeout 创建带超时的上下文
 func (e *StreamExecutor) withTimeout(ctx context.Context, timeoutSec int) (context.Context, context.CancelFunc) {
 	timeout := e.defaultTimeout
 	if timeoutSec > 0 {
@@ -254,7 +213,6 @@ func (e *StreamExecutor) withTimeout(ctx context.Context, timeoutSec int) (conte
 	return context.WithTimeout(ctx, timeout)
 }
 
-// mergeVariables 将请求变量合并到工作流中
 func mergeVariables(wf *types.Workflow, variables map[string]interface{}) {
 	if variables == nil {
 		return
@@ -267,22 +225,18 @@ func mergeVariables(wf *types.Workflow, variables map[string]interface{}) {
 	}
 }
 
-// Stop 停止执行
 func (e *StreamExecutor) Stop(sessionID string) error {
 	return e.sessionManager.StopSession(sessionID)
 }
 
-// GetSession 获取会话
 func (e *StreamExecutor) GetSession(sessionID string) (*Session, bool) {
 	return e.sessionManager.GetSession(sessionID)
 }
 
-// IsRunning 检查会话是否在运行
 func (e *StreamExecutor) IsRunning(sessionID string) bool {
 	return e.sessionManager.IsRunning(sessionID)
 }
 
-// discardWriter 丢弃写入的数据（阻塞式执行用）
 type discardWriter struct{}
 
 func (d *discardWriter) Write(p []byte) (n int, err error) {

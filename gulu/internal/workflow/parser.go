@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 
+	"yqhp/workflow-engine/pkg/types"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -14,72 +16,16 @@ type WorkflowDefinition struct {
 	Version     int                    `json:"version,omitempty" yaml:"version,omitempty"`
 	Variables   map[string]interface{} `json:"variables,omitempty" yaml:"variables,omitempty"`
 	Params      []WorkflowParam        `json:"params,omitempty" yaml:"params,omitempty"`
-	Steps       []Step                 `json:"steps" yaml:"steps"`
+	Steps       []types.Step           `json:"steps" yaml:"steps"`
 }
 
 // WorkflowParam 工作流输入参数定义（用于子流程调用时的参数接口）
 type WorkflowParam struct {
 	Name         string `json:"name" yaml:"name"`
-	Type         string `json:"type" yaml:"type"`                                       // string, number, boolean, json
+	Type         string `json:"type" yaml:"type"`
 	DefaultValue string `json:"defaultValue,omitempty" yaml:"default_value,omitempty"`
 	Description  string `json:"description,omitempty" yaml:"description,omitempty"`
 	Required     bool   `json:"required,omitempty" yaml:"required,omitempty"`
-}
-
-// Step 工作流步骤
-type Step struct {
-	ID        string                 `json:"id" yaml:"id"`
-	Type      string                 `json:"type" yaml:"type"`
-	Name      string                 `json:"name" yaml:"name"`
-	Disabled  bool                   `json:"disabled,omitempty" yaml:"disabled,omitempty"` // 是否禁用
-	Config    map[string]interface{} `json:"config,omitempty" yaml:"config,omitempty"`
-	Timeout   string                 `json:"timeout,omitempty" yaml:"timeout,omitempty"`
-	OnError   string                 `json:"on_error,omitempty" yaml:"on_error,omitempty"`
-	Condition *ConditionConfig       `json:"condition,omitempty" yaml:"condition,omitempty"`
-	Loop      *LoopConfig            `json:"loop,omitempty" yaml:"loop,omitempty"`
-	Children  []Step                 `json:"children,omitempty" yaml:"children,omitempty"` // 子步骤（用于循环等控制器）
-	Branches  []ConditionBranch      `json:"branches,omitempty" yaml:"branches,omitempty"` // 条件分支（新结构）
-	// HTTP 节点特有：前后置处理器
-	PreProcessors  []ProcessorConfig `json:"preProcessors,omitempty" yaml:"preProcessors,omitempty"`
-	PostProcessors []ProcessorConfig `json:"postProcessors,omitempty" yaml:"postProcessors,omitempty"`
-}
-
-// ProcessorConfig 处理器配置
-type ProcessorConfig struct {
-	ID      string                 `json:"id" yaml:"id"`
-	Type    string                 `json:"type" yaml:"type"`
-	Enabled bool                   `json:"enabled" yaml:"enabled"`
-	Name    string                 `json:"name,omitempty" yaml:"name,omitempty"`
-	Config  map[string]interface{} `json:"config" yaml:"config"`
-}
-
-// ConditionBranch 条件分支（新结构）
-type ConditionBranch struct {
-	ID         string `json:"id" yaml:"id"`
-	Name       string `json:"name,omitempty" yaml:"name,omitempty"`
-	Kind       string `json:"kind" yaml:"kind"`                                 // if / else_if / else
-	Expression string `json:"expression,omitempty" yaml:"expression,omitempty"` // if/else_if 需要，else 不需要
-	Steps      []Step `json:"steps,omitempty" yaml:"steps,omitempty"`
-}
-
-// ConditionConfig 条件配置
-type ConditionConfig struct {
-	Expression string `json:"expression" yaml:"expression"`
-	Then       []Step `json:"then,omitempty" yaml:"then,omitempty"`
-	Else       []Step `json:"else,omitempty" yaml:"else,omitempty"`
-}
-
-// LoopConfig 循环配置
-type LoopConfig struct {
-	Mode              string `json:"mode" yaml:"mode"`                                                 // 循环模式: for, foreach, while
-	Count             int    `json:"count,omitempty" yaml:"count,omitempty"`                           // for 模式的迭代次数
-	Items             any    `json:"items,omitempty" yaml:"items,omitempty"`                           // foreach 模式的集合
-	ItemVar           string `json:"item_var,omitempty" yaml:"item_var,omitempty"`                     // foreach 模式的元素变量名
-	Condition         string `json:"condition,omitempty" yaml:"condition,omitempty"`                   // while 模式的条件表达式
-	MaxIterations     int    `json:"max_iterations,omitempty" yaml:"max_iterations,omitempty"`         // while 模式的最大迭代次数
-	BreakCondition    string `json:"break_condition,omitempty" yaml:"break_condition,omitempty"`       // 跳出条件
-	ContinueCondition string `json:"continue_condition,omitempty" yaml:"continue_condition,omitempty"` // 跳过条件
-	Steps             []Step `json:"steps,omitempty" yaml:"steps,omitempty"`                           // 循环体步骤
 }
 
 // ParseYAML 将 YAML 解析为工作流定义
@@ -93,6 +39,7 @@ func ParseYAML(yamlContent string) (*WorkflowDefinition, error) {
 		return nil, errors.New("YAML 解析失败: " + err.Error())
 	}
 
+	postProcessSteps(def.Steps)
 	return &def, nil
 }
 
@@ -121,6 +68,7 @@ func ParseJSON(jsonContent string) (*WorkflowDefinition, error) {
 		return nil, errors.New("JSON 解析失败: " + err.Error())
 	}
 
+	postProcessSteps(def.Steps)
 	return &def, nil
 }
 
@@ -154,4 +102,30 @@ func JSONToYAML(jsonContent string) (string, error) {
 		return "", err
 	}
 	return ToYAML(def)
+}
+
+// postProcessSteps 对解析后的步骤做后处理：
+// - 前端类型映射（"database" → "db"）
+func postProcessSteps(steps []types.Step) {
+	for i := range steps {
+		steps[i].Type = mapStepType(steps[i].Type)
+
+		if steps[i].Loop != nil {
+			postProcessSteps(steps[i].Loop.Steps)
+		}
+		postProcessSteps(steps[i].Children)
+		for j := range steps[i].Branches {
+			postProcessSteps(steps[i].Branches[j].Steps)
+		}
+	}
+}
+
+// mapStepType 将前端步骤类型映射为执行器类型
+func mapStepType(frontendType string) string {
+	switch frontendType {
+	case "database":
+		return "db"
+	default:
+		return frontendType
+	}
 }

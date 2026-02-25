@@ -14,6 +14,7 @@ import (
 	"yqhp/workflow-engine/internal/master"
 	"yqhp/workflow-engine/internal/parser"
 	"yqhp/workflow-engine/pkg/logger"
+	"yqhp/workflow-engine/pkg/runner"
 	"yqhp/workflow-engine/pkg/types"
 )
 
@@ -209,18 +210,36 @@ type RunResult struct {
 	Errors           []string
 }
 
-func executeWorkflowRun(ctx context.Context, workflow *types.Workflow, quietMode bool) (*RunResult, error) {
-	startTime := time.Now()
+// masterAdapter adapts master.WorkflowMaster to the runner.WorkflowEngine interface.
+type masterAdapter struct {
+	m *master.WorkflowMaster
+}
 
+func (a *masterAdapter) SubmitWorkflow(ctx context.Context, wf *types.Workflow) (string, error) {
+	return a.m.SubmitWorkflow(ctx, wf)
+}
+func (a *masterAdapter) GetExecutionStatus(ctx context.Context, id string) (*types.ExecutionState, error) {
+	return a.m.GetExecutionStatus(ctx, id)
+}
+func (a *masterAdapter) StopExecution(ctx context.Context, id string) error {
+	return a.m.StopExecution(ctx, id)
+}
+func (a *masterAdapter) GetMetrics(ctx context.Context, id string) (*types.AggregatedMetrics, error) {
+	return a.m.GetMetrics(ctx, id)
+}
+func (a *masterAdapter) GetPerformanceReport(ctx context.Context, id string) (*types.PerformanceTestReport, error) {
+	return nil, nil
+}
+
+func executeWorkflowRun(ctx context.Context, wf *types.Workflow, quietMode bool) (*RunResult, error) {
 	result := &RunResult{
-		WorkflowID:   workflow.ID,
-		WorkflowName: workflow.Name,
+		WorkflowID:   wf.ID,
+		WorkflowName: wf.Name,
 		Status:       "已完成",
-		TotalVUs:     workflow.Options.VUs,
+		TotalVUs:     wf.Options.VUs,
 		Errors:       []string{},
 	}
 
-	// 创建独立模式的 master
 	masterCfg := &master.Config{
 		StandaloneMode:          true,
 		MaxConcurrentExecutions: 1,
@@ -233,79 +252,53 @@ func executeWorkflowRun(ctx context.Context, workflow *types.Workflow, quietMode
 	aggregator := master.NewDefaultMetricsAggregator()
 
 	m := master.NewWorkflowMaster(masterCfg, registry, scheduler, aggregator)
-
-	// 启动 master
 	if err := m.Start(ctx); err != nil {
 		return nil, fmt.Errorf("启动执行引擎失败: %w", err)
 	}
 	defer m.Stop(context.Background())
 
-	// 提交工作流
-	executionID, err := m.SubmitWorkflow(ctx, workflow)
-	if err != nil {
-		return nil, fmt.Errorf("提交工作流失败: %w", err)
-	}
+	printer := newRunProgressPrinter(wf, quietMode)
+	startTime := time.Now()
 
-	// 监控执行状态
-	ticker := time.NewTicker(500 * time.Millisecond)
-	defer ticker.Stop()
-
-	// 实时进度显示
-	printer := newRunProgressPrinter(workflow, quietMode)
-
-	for {
-		select {
-		case <-ctx.Done():
-			printer.clear()
-			result.Status = "已中止"
-			result.Duration = time.Since(startTime)
-			return result, nil
-
-		case <-ticker.C:
-			state, err := m.GetExecutionStatus(ctx, executionID)
-			if err != nil {
-				continue
-			}
-
-			metrics, _ := m.GetMetrics(ctx, executionID)
+	runResult, execErr := runner.Run(ctx, runner.RunOptions{
+		Workflow:     wf,
+		Engine:       &masterAdapter{m: m},
+		PollInterval: 500 * time.Millisecond,
+		OnProgress: func(state *types.ExecutionState, metrics *types.AggregatedMetrics) {
 			printer.update(state, metrics, time.Since(startTime))
+		},
+	})
+	printer.clear()
 
-			switch state.Status {
-			case types.ExecutionStatusCompleted:
-				printer.clear()
-				result.Duration = time.Since(startTime)
-				result.TotalIterations = int64(state.Progress * float64(workflow.Options.Iterations))
-				if result.TotalIterations == 0 {
-					result.TotalIterations = 1
-				}
-
-				if metrics != nil {
-					populateRunResult(result, metrics)
-				}
-
-				if result.Duration.Seconds() > 0 {
-					result.RPS = float64(result.TotalRequests) / result.Duration.Seconds()
-				}
-
-				return result, nil
-
-			case types.ExecutionStatusFailed:
-				printer.clear()
-				result.Status = "失败"
-				result.Duration = time.Since(startTime)
-				for _, execErr := range state.Errors {
-					result.Errors = append(result.Errors, execErr.Message)
-				}
-				return result, nil
-
-			case types.ExecutionStatusAborted:
-				printer.clear()
-				result.Status = "已中止"
-				result.Duration = time.Since(startTime)
-				return result, nil
-			}
+	if runResult != nil {
+		result.Duration = runResult.Duration
+		result.TotalIterations = runResult.Iterations
+		if result.TotalIterations == 0 {
+			result.TotalIterations = 1
 		}
 	}
+
+	if execErr != nil {
+		if runResult != nil && runResult.Status == types.ExecutionStatusAborted {
+			result.Status = "已中止"
+		} else {
+			result.Status = "失败"
+			if runResult != nil {
+				for _, e := range runResult.Errors {
+					result.Errors = append(result.Errors, e.Message)
+				}
+			}
+		}
+	} else {
+		if metrics, err := m.GetMetrics(ctx, runResult.ExecutionID); err == nil && metrics != nil {
+			populateRunResult(result, metrics)
+		}
+		if result.Duration.Seconds() > 0 {
+			result.RPS = float64(result.TotalRequests) / result.Duration.Seconds()
+		}
+	}
+
+	return result, nil
 }
 
 type runProgressPrinter struct {

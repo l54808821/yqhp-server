@@ -106,7 +106,7 @@ func getDatabaseConfig(ctx context.Context, envID int64, configCode string) (*wo
 
 // openSchemaDB 打开用于 Schema 查询的 gorm 数据库连接
 func openSchemaDB(dbConfig *workflow.DatabaseConfig) (*gorm.DB, string, error) {
-	dsn := buildDSN(dbConfig)
+	dsn := workflow.BuildDSN(dbConfig)
 	if dsn == "" {
 		return nil, "", fmt.Errorf("无法构建 DSN")
 	}

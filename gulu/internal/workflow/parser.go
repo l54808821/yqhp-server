@@ -19,6 +19,18 @@ type WorkflowDefinition struct {
 	Steps       []types.Step           `json:"steps" yaml:"steps"`
 }
 
+// UnmarshalJSON ensures postProcessSteps runs automatically regardless of
+// whether the caller uses ParseJSON or raw json.Unmarshal.
+func (d *WorkflowDefinition) UnmarshalJSON(data []byte) error {
+	type Alias WorkflowDefinition
+	aux := (*Alias)(d)
+	if err := json.Unmarshal(data, aux); err != nil {
+		return err
+	}
+	postProcessSteps(d.Steps)
+	return nil
+}
+
 // WorkflowParam 工作流输入参数定义（用于子流程调用时的参数接口）
 type WorkflowParam struct {
 	Name         string `json:"name" yaml:"name"`
@@ -58,6 +70,7 @@ func ToYAML(def *WorkflowDefinition) (string, error) {
 }
 
 // ParseJSON 将 JSON 解析为工作流定义
+// postProcessSteps is called automatically by WorkflowDefinition.UnmarshalJSON.
 func ParseJSON(jsonContent string) (*WorkflowDefinition, error) {
 	if jsonContent == "" {
 		return nil, errors.New("JSON 内容不能为空")
@@ -68,7 +81,6 @@ func ParseJSON(jsonContent string) (*WorkflowDefinition, error) {
 		return nil, errors.New("JSON 解析失败: " + err.Error())
 	}
 
-	postProcessSteps(def.Steps)
 	return &def, nil
 }
 
@@ -106,13 +118,22 @@ func JSONToYAML(jsonContent string) (string, error) {
 
 // postProcessSteps 对解析后的步骤做后处理：
 // - 前端类型映射（"database" → "db"）
+// - 将前端 children 字段桥接到引擎 loop.steps（前端将循环体步骤放在
+//   children 中，引擎从 loop.steps 读取）
 func postProcessSteps(steps []types.Step) {
 	for i := range steps {
 		steps[i].Type = mapStepType(steps[i].Type)
 
+		// 桥接 children → loop.steps：前端把循环体步骤放在 children，
+		// 引擎从 loop.steps 取。优先使用 children，其次 loop.steps。
 		if steps[i].Loop != nil {
+			if len(steps[i].Children) > 0 && len(steps[i].Loop.Steps) == 0 {
+				steps[i].Loop.Steps = steps[i].Children
+				steps[i].Children = nil
+			}
 			postProcessSteps(steps[i].Loop.Steps)
 		}
+
 		postProcessSteps(steps[i].Children)
 		for j := range steps[i].Branches {
 			postProcessSteps(steps[i].Branches[j].Steps)

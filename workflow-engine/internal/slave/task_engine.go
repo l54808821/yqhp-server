@@ -381,20 +381,31 @@ func (e *TaskEngine) executeConstantVUs(ctx context.Context, task *types.Task, v
 
 	var wg sync.WaitGroup
 
-	execCtx := ctx
-	var cancel context.CancelFunc
+	// Always create a cancellable context so the VU controller can be stopped
+	// when all VUs finish their iterations (prevents infinite VU respawning).
+	execCtx, stopAll := context.WithCancel(ctx)
+	defer stopAll()
+
 	if duration > 0 {
-		execCtx, cancel = context.WithTimeout(ctx, duration)
-		defer cancel()
+		var durationCancel context.CancelFunc
+		execCtx, durationCancel = context.WithTimeout(execCtx, duration)
+		defer durationCancel()
 	}
+
+	// Guard: once stopping is true, startVU becomes a no-op to prevent
+	// the controller from launching new VUs after wg.Wait() returns.
+	var stopping atomic.Bool
 
 	// Track per-VU cancel functions for dynamic scaling
 	var vuMu sync.Mutex
 	vuCancels := make(map[int]context.CancelFunc)
 	nextVUID := 0
 
-	// startVU launches a single VU goroutine and returns its ID
 	startVU := func() {
+		if stopping.Load() {
+			return
+		}
+
 		vuMu.Lock()
 		id := nextVUID
 		nextVUID++
@@ -428,7 +439,6 @@ func (e *TaskEngine) executeConstantVUs(ctx context.Context, task *types.Task, v
 		}(vu, vuCtx, id)
 	}
 
-	// stopOneVU cancels the highest-numbered VU
 	stopOneVU := func() {
 		vuMu.Lock()
 		defer vuMu.Unlock()
@@ -450,7 +460,8 @@ func (e *TaskEngine) executeConstantVUs(ctx context.Context, task *types.Task, v
 		startVU()
 	}
 
-	// VU controller: dynamically adjusts VU count based on maxVUs
+	// VU controller: dynamically adjusts VU count based on maxVUs.
+	// Only useful for duration-based execution or explicit ScaleVUs calls.
 	controllerDone := make(chan struct{})
 	go func() {
 		defer close(controllerDone)
@@ -462,6 +473,10 @@ func (e *TaskEngine) executeConstantVUs(ctx context.Context, task *types.Task, v
 			case <-execCtx.Done():
 				return
 			case <-ticker.C:
+				if stopping.Load() {
+					return
+				}
+
 				e.mu.RLock()
 				target := e.maxVUs
 				e.mu.RUnlock()
@@ -483,8 +498,9 @@ func (e *TaskEngine) executeConstantVUs(ctx context.Context, task *types.Task, v
 		}
 	}()
 
-	// Wait for all VUs to finish (happens when context is cancelled/expired)
 	wg.Wait()
+	stopping.Store(true)
+	stopAll()
 	<-controllerDone
 
 	return nil

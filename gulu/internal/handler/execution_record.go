@@ -65,8 +65,6 @@ func ExecutionWebhook(c *fiber.Ctx) error {
 	var req struct {
 		ExecutionID string `json:"execution_id"`
 		Status      string `json:"status"`
-		Result      string `json:"result"`
-		Logs        string `json:"logs"`
 	}
 	if err := c.BodyParser(&req); err != nil {
 		return response.Error(c, "参数解析失败: "+err.Error())
@@ -77,7 +75,7 @@ func ExecutionWebhook(c *fiber.Ctx) error {
 	}
 
 	executionLogic := logic.NewExecutionLogic(c.UserContext())
-	err := executionLogic.UpdateStatus(req.ExecutionID, req.Status, req.Result, req.Logs)
+	err := executionLogic.UpdateStatus(req.ExecutionID, req.Status)
 	if err != nil {
 		return response.Error(c, err.Error())
 	}
@@ -117,23 +115,6 @@ func ExecutionGetByID(c *fiber.Ctx) error {
 	}
 
 	return response.Success(c, execution)
-}
-
-// ExecutionGetLogs 获取执行日志
-// GET /api/executions/:id/logs
-func ExecutionGetLogs(c *fiber.Ctx) error {
-	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
-	if err != nil {
-		return response.Error(c, "无效的执行记录ID")
-	}
-
-	executionLogic := logic.NewExecutionLogic(c.UserContext())
-	logs, err := executionLogic.GetLogs(id)
-	if err != nil {
-		return response.Error(c, err.Error())
-	}
-
-	return response.Success(c, map[string]string{"logs": logs})
 }
 
 // ExecutionGetStatus 获取执行状态

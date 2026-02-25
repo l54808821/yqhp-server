@@ -27,6 +27,15 @@ const (
 	ExecutionModeExecute ExecutionMode = "execute" // 执行模式
 )
 
+// SourceType 执行来源类型
+type SourceType string
+
+const (
+	SourceTypePerformance SourceType = "performance" // 性能测试
+	SourceTypeTestPlan    SourceType = "test_plan"   // 测试计划
+	SourceTypeDebug       SourceType = "debug"       // 调试
+)
+
 // ExecutionStatus 执行状态
 type ExecutionStatus string
 

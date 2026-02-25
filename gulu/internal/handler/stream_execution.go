@@ -268,7 +268,7 @@ func (h *StreamExecutionHandler) prepareExecutionFromDefinition(c *fiber.Ctx, de
 			modeStr = string(model.ExecutionModeExecute)
 		}
 		// 无 workflowID 时使用 0
-		if err := execLogic.CreateStreamExecution(sessionID, 0, 0, envID, userID, modeStr); err != nil {
+		if err := execLogic.CreateStreamExecution(sessionID, 0, 0, envID, userID, modeStr, engineWf.Name); err != nil {
 			return nil, &executionError{code: "DB_ERROR", message: "创建执行记录失败: " + err.Error()}
 		}
 	}

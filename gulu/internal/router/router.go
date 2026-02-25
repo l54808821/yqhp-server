@@ -243,7 +243,6 @@ func Setup(app *fiber.App) {
 	executionRecords.Post("/webhook", handler.ExecutionWebhook)
 	executionRecords.Get("/by-execution-id/:executionId", handler.ExecutionGetByExecutionID)
 	executionRecords.Get("/:id", handler.ExecutionGetByID)
-	executionRecords.Get("/:id/logs", handler.ExecutionGetLogs)
 	executionRecords.Get("/:id/status", handler.ExecutionGetStatus)
 	executionRecords.Get("/:id/metrics", handler.ExecutionGetMetrics)
 	executionRecords.Delete("/:id", handler.ExecutionStop)

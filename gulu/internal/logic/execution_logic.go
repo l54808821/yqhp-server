@@ -31,7 +31,7 @@ func NewExecutionLogic(ctx context.Context) *ExecutionLogic {
 
 // ExecuteWorkflowReq 执行工作流请求
 type ExecuteWorkflowReq struct {
-	WorkflowID        int64              `json:"workflow_id" validate:"required"`
+	WorkflowID        int64              `json:"workflow_id" validate:"required"` // 工作流ID，写入时映射为 source_id
 	EnvID             int64              `json:"env_id" validate:"required"`
 	ExecutorID        int64              `json:"executor_id"`        // 可选，指定执行机ID
 	Mode              string             `json:"mode"`               // 执行模式: debug, execute（默认 execute）
@@ -69,7 +69,7 @@ type ExecutionListReq struct {
 	Page       int    `query:"page" validate:"min=1"`
 	PageSize   int    `query:"pageSize" validate:"min=1,max=100"`
 	ProjectID  int64  `query:"projectId"`
-	WorkflowID int64  `query:"workflowId"`
+	SourceID   int64  `query:"sourceId"`
 	EnvID      int64  `query:"envId"`
 	Status     string `query:"status"`
 	Mode       string `query:"mode"` // 执行模式过滤: debug, execute
@@ -169,15 +169,23 @@ func (l *ExecutionLogic) Execute(req *ExecuteWorkflowReq, userID int64) (*model.
 		executorIDStr = &str
 	}
 
+	// 根据模式确定来源类型
+	sourceType := string(model.SourceTypePerformance)
+	if mode == string(model.ExecutionModeDebug) {
+		sourceType = string(model.SourceTypeDebug)
+	}
+
 	execution := &model.TExecution{
 		CreatedAt:   &now,
 		UpdatedAt:   &now,
 		ProjectID:   wf.ProjectID,
-		WorkflowID:  req.WorkflowID,
+		SourceID:    req.WorkflowID,
 		EnvID:       req.EnvID,
 		ExecutorID:  executorIDStr,
 		ExecutionID: executionID,
 		Mode:        mode,
+		SourceType:  sourceType,
+		Title:       wf.Name,
 		Status:      ExecutionStatusPending,
 		StartTime:   &now,
 		CreatedBy:   &userID,
@@ -246,11 +254,11 @@ func (l *ExecutionLogic) Execute(req *ExecuteWorkflowReq, userID int64) (*model.
 		engineIDMap.Store(executionID, engineExecutionID)
 
 		// 启动后台协程监控执行状态
+		guluExecID := executionID
 		commonUtils.SafeGoWithName("monitor-execution-"+engineExecutionID, func() {
-			l.monitorExecution(execution.ID, engineExecutionID, engine)
-			// 延迟清除映射，给查询留足时间
+			l.monitorExecution(execution.ID, guluExecID, engineExecutionID, engine)
 			time.AfterFunc(10*time.Minute, func() {
-				engineIDMap.Delete(executionID)
+				engineIDMap.Delete(guluExecID)
 			})
 		})
 	}
@@ -266,9 +274,7 @@ func (l *ExecutionLogic) Execute(req *ExecuteWorkflowReq, userID int64) (*model.
 }
 
 // monitorExecution monitors execution status and stores the final report.
-// Now simplified: the engine handles all metrics/report generation internally.
-// Gulu just monitors status and saves the final report to DB.
-func (l *ExecutionLogic) monitorExecution(dbID int64, executionID string, engine *workflow.Engine) {
+func (l *ExecutionLogic) monitorExecution(dbID int64, guluExecID string, executionID string, engine *workflow.Engine) {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
@@ -277,7 +283,7 @@ func (l *ExecutionLogic) monitorExecution(dbID int64, executionID string, engine
 	for {
 		select {
 		case <-timeout:
-			l.updateExecutionStatus(dbID, ExecutionStatusFailed, nil, nil)
+			l.updateExecutionStatus(dbID, ExecutionStatusFailed, nil)
 			return
 		case <-ticker.C:
 			state, err := engine.GetExecutionStatus(context.Background(), executionID)
@@ -290,37 +296,20 @@ func (l *ExecutionLogic) monitorExecution(dbID int64, executionID string, engine
 				continue
 			}
 
-			// Terminal state: fetch the final report from the engine and save to DB
+			// Terminal state: fetch the final report from the engine and save to perf_detail table
 			if isTerminalStatus(dbStatus) {
-				// Try to get the full performance report from engine
-				report, reportErr := engine.GetPerformanceReport(context.Background(), executionID)
+				l.updateExecutionStatus(dbID, dbStatus, state.EndTime)
 
-				var resultStr *string
+				// Save performance report to detail table
+				report, reportErr := engine.GetPerformanceReport(context.Background(), executionID)
 				if reportErr == nil && report != nil {
-					if reportJSON, jsonErr := json.Marshal(report); jsonErr == nil {
-						s := string(reportJSON)
-						resultStr = &s
-					}
-				} else {
-					// Fallback: save basic status info
-					fallback := map[string]interface{}{"status": dbStatus}
-					if len(state.Errors) > 0 {
-						msgs := make([]string, len(state.Errors))
-						for i, e := range state.Errors {
-							msgs[i] = e.Message
-						}
-						fallback["errors"] = msgs
-					}
-					if j, e := json.Marshal(fallback); e == nil {
-						s := string(j)
-						resultStr = &s
+					perfLogic := NewPerfDetailLogic(context.Background())
+					if err := perfLogic.SaveFromReport(guluExecID, report); err != nil {
+						fmt.Printf("[monitorExecution] 保存性能报告到 detail 表失败: %v\n", err)
 					}
 				}
 
-				l.updateExecutionStatus(dbID, dbStatus, state.EndTime, resultStr)
-
-				// 持久化采样日志到数据库
-				l.persistSampleLogs(executionID, engine)
+				l.persistSampleLogs(guluExecID, engine)
 
 				return
 			}
@@ -431,7 +420,7 @@ func isTerminalStatus(s string) bool {
 }
 
 // updateExecutionStatus 更新执行状态
-func (l *ExecutionLogic) updateExecutionStatus(id int64, status string, endTime *time.Time, result *string) {
+func (l *ExecutionLogic) updateExecutionStatus(id int64, status string, endTime *time.Time) {
 	q := query.Use(svc.Ctx.DB)
 	e := q.TExecution
 
@@ -442,16 +431,11 @@ func (l *ExecutionLogic) updateExecutionStatus(id int64, status string, endTime 
 
 	if endTime != nil {
 		updates["end_time"] = *endTime
-		// 计算持续时间
 		execution, err := e.WithContext(context.Background()).Where(e.ID.Eq(id)).First()
 		if err == nil && execution.StartTime != nil {
 			duration := endTime.Sub(*execution.StartTime).Milliseconds()
 			updates["duration"] = duration
 		}
-	}
-
-	if result != nil {
-		updates["result"] = *result
 	}
 
 	_, _ = e.WithContext(context.Background()).Where(e.ID.Eq(id)).Updates(updates)
@@ -484,8 +468,8 @@ func (l *ExecutionLogic) List(req *ExecutionListReq) ([]*model.TExecution, int64
 	if req.ProjectID > 0 {
 		queryBuilder = queryBuilder.Where(e.ProjectID.Eq(req.ProjectID))
 	}
-	if req.WorkflowID > 0 {
-		queryBuilder = queryBuilder.Where(e.WorkflowID.Eq(req.WorkflowID))
+	if req.SourceID > 0 {
+		queryBuilder = queryBuilder.Where(e.SourceID.Eq(req.SourceID))
 	}
 	if req.EnvID > 0 {
 		queryBuilder = queryBuilder.Where(e.EnvID.Eq(req.EnvID))
@@ -520,23 +504,6 @@ func (l *ExecutionLogic) List(req *ExecutionListReq) ([]*model.TExecution, int64
 	return list, total, nil
 }
 
-// GetLogs 获取执行日志
-func (l *ExecutionLogic) GetLogs(id int64) (string, error) {
-	execution, err := l.GetByID(id)
-	if err != nil {
-		return "", errors.New("执行记录不存在")
-	}
-
-	// TODO: 从 workflow-engine 获取实时日志
-	// weClient := client.NewWorkflowEngineClient()
-	// logs, err := weClient.GetExecutionLogs(execution.ExecutionID)
-
-	if execution.Logs != nil {
-		return *execution.Logs, nil
-	}
-	return "", nil
-}
-
 // GetRealtimeMetrics proxies realtime metrics from the engine.
 // The engine's MetricsEngine handles all aggregation; gulu just forwards.
 func (l *ExecutionLogic) GetRealtimeMetrics(id int64) (interface{}, error) {
@@ -554,19 +521,18 @@ func (l *ExecutionLogic) GetRealtimeMetrics(id int64) (interface{}, error) {
 	return engine.GetRealtimeMetrics(context.Background(), engineExecID)
 }
 
-// GetReport retrieves the final performance test report from the engine.
+// GetReport retrieves the final performance test report.
 func (l *ExecutionLogic) GetReport(id int64) (*types.PerformanceTestReport, error) {
 	execution, err := l.GetByID(id)
 	if err != nil {
 		return nil, errors.New("执行记录不存在")
 	}
 
-	// First try to get from DB (stored result)
-	if execution.Result != nil && *execution.Result != "" {
-		var report types.PerformanceTestReport
-		if err := json.Unmarshal([]byte(*execution.Result), &report); err == nil && report.ExecutionID != "" {
-			return &report, nil
-		}
+	// Try to get from perf_detail table (persisted report)
+	perfLogic := NewPerfDetailLogic(l.ctx)
+	detail, detailErr := perfLogic.GetByExecutionID(execution.ExecutionID)
+	if detailErr == nil && detail != nil {
+		return perfLogic.AssembleReport(execution, detail), nil
 	}
 
 	// Fallback: get from engine (if still running or recently completed)
@@ -716,7 +682,7 @@ func (l *ExecutionLogic) Resume(id int64) error {
 }
 
 // UpdateStatus 更新执行状态（内部使用，用于 webhook 回调）
-func (l *ExecutionLogic) UpdateStatus(executionID string, status string, result string, logs string) error {
+func (l *ExecutionLogic) UpdateStatus(executionID string, status string) error {
 	execution, err := l.GetByExecutionID(executionID)
 	if err != nil {
 		return errors.New("执行记录不存在")
@@ -731,14 +697,6 @@ func (l *ExecutionLogic) UpdateStatus(executionID string, status string, result 
 		"updated_at": now,
 	}
 
-	if result != "" {
-		updates["result"] = result
-	}
-	if logs != "" {
-		updates["logs"] = logs
-	}
-
-	// 如果是终态，设置结束时间和持续时间
 	if status == ExecutionStatusCompleted || status == ExecutionStatusFailed || status == ExecutionStatusStopped {
 		updates["end_time"] = now
 		if execution.StartTime != nil {
@@ -771,33 +729,38 @@ func randomString(n int) string {
 
 // StreamExecutionDetail 流式执行记录详情
 type StreamExecutionDetail struct {
-	ID           int64      `json:"id"`
-	ExecutionID  string     `json:"execution_id"`
-	ProjectID    int64      `json:"project_id"`
-	WorkflowID   int64      `json:"workflow_id"`
-	EnvID        int64      `json:"env_id"`
-	Mode         string     `json:"mode"`
-	Status       string     `json:"status"`
-	StartTime    *time.Time `json:"start_time"`
-	EndTime      *time.Time `json:"end_time"`
-	Duration     *int64     `json:"duration"`
-	TotalSteps   *int32     `json:"total_steps"`
-	SuccessSteps *int32     `json:"success_steps"`
-	FailedSteps  *int32     `json:"failed_steps"`
-	Result       string     `json:"result,omitempty"`
-	CreatedBy    *int64     `json:"created_by"`
-	CreatedAt    *time.Time `json:"created_at"`
+	ID          int64      `json:"id"`
+	ExecutionID string     `json:"execution_id"`
+	ProjectID   int64      `json:"project_id"`
+	SourceID    int64      `json:"source_id"`
+	EnvID       int64      `json:"env_id"`
+	Mode        string     `json:"mode"`
+	SourceType  string     `json:"source_type"`
+	Title       string     `json:"title"`
+	Status      string     `json:"status"`
+	StartTime   *time.Time `json:"start_time"`
+	EndTime     *time.Time `json:"end_time"`
+	Duration    *int64     `json:"duration"`
+	CreatedBy   *int64     `json:"created_by"`
+	CreatedAt   *time.Time `json:"created_at"`
 }
 
 // CreateStreamExecution 创建流式执行记录
-func (l *ExecutionLogic) CreateStreamExecution(sessionID string, projectID, workflowID, envID, userID int64, mode string) error {
+func (l *ExecutionLogic) CreateStreamExecution(sessionID string, projectID, sourceID, envID, userID int64, mode string, title string) error {
+	sourceType := string(model.SourceTypeDebug)
+	if mode == string(model.ExecutionModeExecute) {
+		sourceType = string(model.SourceTypePerformance)
+	}
+
 	now := time.Now()
 	execution := &model.TExecution{
 		ProjectID:   projectID,
-		WorkflowID:  workflowID,
+		SourceID:    sourceID,
 		EnvID:       envID,
 		ExecutionID: sessionID,
 		Mode:        mode,
+		SourceType:  sourceType,
+		Title:       title,
 		Status:      string(model.ExecutionStatusRunning),
 		StartTime:   &now,
 		CreatedBy:   &userID,
@@ -813,37 +776,14 @@ func (l *ExecutionLogic) UpdateStreamExecutionStatus(executionID, status string,
 		"status": status,
 	}
 
-	// 如果是终态，设置结束时间
 	if model.ExecutionStatus(status).IsTerminal() {
 		now := time.Now()
 		updates["end_time"] = now
 	}
 
-	// 如果有结果，序列化并保存
-	if result != nil {
-		resultJSON, err := json.Marshal(result)
-		if err == nil {
-			resultStr := string(resultJSON)
-			updates["result"] = resultStr
-		}
-	}
-
 	_, err := q.WithContext(l.ctx).
 		Where(q.ExecutionID.Eq(executionID)).
 		Updates(updates)
-	return err
-}
-
-// UpdateStreamStepStats 更新流式执行步骤统计
-func (l *ExecutionLogic) UpdateStreamStepStats(executionID string, totalSteps, successSteps, failedSteps int) error {
-	q := query.TExecution
-	_, err := q.WithContext(l.ctx).
-		Where(q.ExecutionID.Eq(executionID)).
-		Updates(map[string]interface{}{
-			"total_steps":   totalSteps,
-			"success_steps": successSteps,
-			"failed_steps":  failedSteps,
-		})
 	return err
 }
 
@@ -861,12 +801,12 @@ func (l *ExecutionLogic) GetStreamExecution(executionID string) (*StreamExecutio
 }
 
 // ListStreamExecutions 获取流式执行记录列表
-func (l *ExecutionLogic) ListStreamExecutions(workflowID int64, mode string, userID int64) ([]*StreamExecutionDetail, error) {
+func (l *ExecutionLogic) ListStreamExecutions(sourceID int64, mode string, userID int64) ([]*StreamExecutionDetail, error) {
 	q := query.TExecution
 	qb := q.WithContext(l.ctx)
 
-	if workflowID > 0 {
-		qb = qb.Where(q.WorkflowID.Eq(workflowID))
+	if sourceID > 0 {
+		qb = qb.Where(q.SourceID.Eq(sourceID))
 	}
 	if mode != "" {
 		qb = qb.Where(q.Mode.Eq(mode))
@@ -890,29 +830,22 @@ func (l *ExecutionLogic) ListStreamExecutions(workflowID int64, mode string, use
 
 // toStreamExecutionDetail 转换为流式执行详情
 func (l *ExecutionLogic) toStreamExecutionDetail(e *model.TExecution) *StreamExecutionDetail {
-	detail := &StreamExecutionDetail{
-		ID:           e.ID,
-		ExecutionID:  e.ExecutionID,
-		ProjectID:    e.ProjectID,
-		WorkflowID:   e.WorkflowID,
-		EnvID:        e.EnvID,
-		Mode:         e.Mode,
-		Status:       e.Status,
-		StartTime:    e.StartTime,
-		EndTime:      e.EndTime,
-		Duration:     e.Duration,
-		TotalSteps:   e.TotalSteps,
-		SuccessSteps: e.SuccessSteps,
-		FailedSteps:  e.FailedSteps,
-		CreatedBy:    e.CreatedBy,
-		CreatedAt:    e.CreatedAt,
+	return &StreamExecutionDetail{
+		ID:          e.ID,
+		ExecutionID: e.ExecutionID,
+		ProjectID:   e.ProjectID,
+		SourceID:    e.SourceID,
+		EnvID:       e.EnvID,
+		Mode:        e.Mode,
+		SourceType:  e.SourceType,
+		Title:       e.Title,
+		Status:      e.Status,
+		StartTime:   e.StartTime,
+		EndTime:     e.EndTime,
+		Duration:    e.Duration,
+		CreatedBy:   e.CreatedBy,
+		CreatedAt:   e.CreatedAt,
 	}
-
-	if e.Result != nil {
-		detail.Result = *e.Result
-	}
-
-	return detail
 }
 
 // ============== WorkflowLoader 实现 ==============

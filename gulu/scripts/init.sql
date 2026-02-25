@@ -139,28 +139,64 @@ CREATE TABLE IF NOT EXISTS `t_execution` (
     `created_at` DATETIME DEFAULT NULL,
     `updated_at` DATETIME DEFAULT NULL,
     `project_id` BIGINT UNSIGNED NOT NULL COMMENT '所属项目ID',
-    `workflow_id` BIGINT UNSIGNED NOT NULL COMMENT '工作流ID',
+    `source_id` BIGINT UNSIGNED NOT NULL COMMENT '来源ID(工作流ID/测试计划ID等)',
     `env_id` BIGINT UNSIGNED NOT NULL COMMENT '执行环境ID',
     `executor_id` VARCHAR(100) DEFAULT NULL COMMENT '执行机ID(来自workflow-engine)',
     `execution_id` VARCHAR(100) NOT NULL COMMENT 'workflow-engine返回的执行ID',
     `mode` VARCHAR(20) NOT NULL DEFAULT 'execute' COMMENT '执行模式: debug, execute',
+    `source_type` VARCHAR(30) NOT NULL DEFAULT 'performance' COMMENT '来源类型: performance(性能测试), test_plan(测试计划), debug(调试)',
+    `title` VARCHAR(256) NOT NULL DEFAULT '' COMMENT '执行标题(如工作流名称)',
     `status` VARCHAR(20) NOT NULL COMMENT '执行状态: pending, running, completed, failed, stopped, timeout',
     `start_time` DATETIME DEFAULT NULL COMMENT '开始时间',
     `end_time` DATETIME DEFAULT NULL COMMENT '结束时间',
     `duration` BIGINT DEFAULT NULL COMMENT '执行时长(毫秒)',
-    `total_steps` INT DEFAULT 0 COMMENT '总步骤数',
-    `success_steps` INT DEFAULT 0 COMMENT '成功步骤数',
-    `failed_steps` INT DEFAULT 0 COMMENT '失败步骤数',
-    `result` LONGTEXT DEFAULT NULL COMMENT '执行结果(JSON格式)',
-    `logs` LONGTEXT DEFAULT NULL COMMENT '执行日志',
     `created_by` BIGINT UNSIGNED DEFAULT NULL COMMENT '创建人ID',
     PRIMARY KEY (`id`),
     INDEX `idx_t_execution_project_id` (`project_id`),
-    INDEX `idx_t_execution_workflow_id` (`workflow_id`),
+    INDEX `idx_t_execution_source_id` (`source_id`),
     INDEX `idx_t_execution_env_id` (`env_id`),
     INDEX `idx_t_execution_execution_id` (`execution_id`),
-    INDEX `idx_t_execution_mode` (`mode`)
+    INDEX `idx_t_execution_mode` (`mode`),
+    INDEX `idx_t_execution_source_type` (`source_type`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='执行记录表';
+
+-- ============================================
+-- 9.1 性能测试执行详情表 (t_execution_perf_detail)
+-- ============================================
+CREATE TABLE IF NOT EXISTS `t_execution_perf_detail` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `execution_id` VARCHAR(100) NOT NULL COMMENT '关联 t_execution.execution_id',
+    `total_requests` BIGINT DEFAULT 0 COMMENT '总请求数',
+    `success_requests` BIGINT DEFAULT 0 COMMENT '成功请求数',
+    `failed_requests` BIGINT DEFAULT 0 COMMENT '失败请求数',
+    `error_rate` DOUBLE DEFAULT 0 COMMENT '错误率(%)',
+    `avg_qps` DOUBLE DEFAULT 0 COMMENT '平均QPS',
+    `peak_qps` DOUBLE DEFAULT 0 COMMENT '峰值QPS',
+    `avg_rt_ms` DOUBLE DEFAULT 0 COMMENT '平均响应时间(ms)',
+    `min_rt_ms` DOUBLE DEFAULT 0 COMMENT '最小响应时间(ms)',
+    `max_rt_ms` DOUBLE DEFAULT 0 COMMENT '最大响应时间(ms)',
+    `p50_rt_ms` DOUBLE DEFAULT 0 COMMENT 'P50响应时间(ms)',
+    `p90_rt_ms` DOUBLE DEFAULT 0 COMMENT 'P90响应时间(ms)',
+    `p95_rt_ms` DOUBLE DEFAULT 0 COMMENT 'P95响应时间(ms)',
+    `p99_rt_ms` DOUBLE DEFAULT 0 COMMENT 'P99响应时间(ms)',
+    `max_vus` INT DEFAULT 0 COMMENT '最大并发用户数',
+    `total_iterations` BIGINT DEFAULT 0 COMMENT '总迭代数',
+    `throughput_bps` DOUBLE DEFAULT 0 COMMENT '吞吐量(bytes/sec)',
+    `total_data_sent` BIGINT DEFAULT 0 COMMENT '总发送数据量(bytes)',
+    `total_data_received` BIGINT DEFAULT 0 COMMENT '总接收数据量(bytes)',
+    `thresholds_pass_rate` DOUBLE DEFAULT 0 COMMENT '阈值通过率',
+    `time_series` LONGTEXT DEFAULT NULL COMMENT '时序数据(JSON数组)',
+    `step_details` LONGTEXT DEFAULT NULL COMMENT '步骤详情(JSON数组)',
+    `thresholds` TEXT DEFAULT NULL COMMENT '阈值结果(JSON数组)',
+    `error_analysis` TEXT DEFAULT NULL COMMENT '错误分析(JSON)',
+    `vu_timeline` TEXT DEFAULT NULL COMMENT 'VU时间线(JSON数组)',
+    `config` TEXT DEFAULT NULL COMMENT '执行配置(JSON)',
+    `workflow_name` VARCHAR(256) DEFAULT '' COMMENT '工作流名称(快照)',
+    `created_at` DATETIME DEFAULT NULL,
+    `updated_at` DATETIME DEFAULT NULL,
+    PRIMARY KEY (`id`),
+    UNIQUE INDEX `uk_execution_id` (`execution_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='性能测试执行详情表';
 
 -- ============================================
 -- 10. 团队表 (t_team)

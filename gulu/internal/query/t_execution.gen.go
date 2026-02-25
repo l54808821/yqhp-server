@@ -32,20 +32,17 @@ func newTExecution(db *gorm.DB, opts ...gen.DOOption) tExecution {
 	_tExecution.CreatedAt = field.NewTime(tableName, "created_at")
 	_tExecution.UpdatedAt = field.NewTime(tableName, "updated_at")
 	_tExecution.ProjectID = field.NewInt64(tableName, "project_id")
-	_tExecution.WorkflowID = field.NewInt64(tableName, "workflow_id")
+	_tExecution.SourceID = field.NewInt64(tableName, "source_id")
 	_tExecution.EnvID = field.NewInt64(tableName, "env_id")
 	_tExecution.ExecutorID = field.NewString(tableName, "executor_id")
 	_tExecution.ExecutionID = field.NewString(tableName, "execution_id")
 	_tExecution.Mode = field.NewString(tableName, "mode")
+	_tExecution.SourceType = field.NewString(tableName, "source_type")
+	_tExecution.Title = field.NewString(tableName, "title")
 	_tExecution.Status = field.NewString(tableName, "status")
 	_tExecution.StartTime = field.NewTime(tableName, "start_time")
 	_tExecution.EndTime = field.NewTime(tableName, "end_time")
 	_tExecution.Duration = field.NewInt64(tableName, "duration")
-	_tExecution.TotalSteps = field.NewInt32(tableName, "total_steps")
-	_tExecution.SuccessSteps = field.NewInt32(tableName, "success_steps")
-	_tExecution.FailedSteps = field.NewInt32(tableName, "failed_steps")
-	_tExecution.Result = field.NewString(tableName, "result")
-	_tExecution.Logs = field.NewString(tableName, "logs")
 	_tExecution.CreatedBy = field.NewInt64(tableName, "created_by")
 
 	_tExecution.fillFieldMap()
@@ -62,21 +59,18 @@ type tExecution struct {
 	CreatedAt    field.Time
 	UpdatedAt    field.Time
 	ProjectID    field.Int64  // 所属项目ID
-	WorkflowID   field.Int64  // 工作流ID
+	SourceID     field.Int64  // 来源ID
 	EnvID        field.Int64  // 执行环境ID
 	ExecutorID   field.String // 执行机ID(来自workflow-engine)
-	ExecutionID  field.String // workflow-engine返回的执行ID
-	Mode         field.String // 执行模式: debug, execute
-	Status       field.String // 执行状态: pending, running, completed, failed, stopped, timeout
-	StartTime    field.Time   // 开始时间
-	EndTime      field.Time   // 结束时间
-	Duration     field.Int64  // 执行时长(毫秒)
-	TotalSteps   field.Int32  // 总步骤数
-	SuccessSteps field.Int32  // 成功步骤数
-	FailedSteps  field.Int32  // 失败步骤数
-	Result       field.String // 执行结果(JSON格式)
-	Logs         field.String // 执行日志
-	CreatedBy    field.Int64  // 创建人ID
+	ExecutionID   field.String // workflow-engine返回的执行ID
+	Mode          field.String // 执行模式: debug, execute
+	SourceType    field.String // 来源类型: performance, test_plan, debug
+	Title         field.String // 执行标题
+	Status        field.String // 执行状态: pending, running, completed, failed, stopped, timeout
+	StartTime     field.Time   // 开始时间
+	EndTime       field.Time   // 结束时间
+	Duration      field.Int64  // 执行时长(毫秒)
+	CreatedBy     field.Int64  // 创建人ID
 
 	fieldMap map[string]field.Expr
 }
@@ -97,20 +91,17 @@ func (t *tExecution) updateTableName(table string) *tExecution {
 	t.CreatedAt = field.NewTime(table, "created_at")
 	t.UpdatedAt = field.NewTime(table, "updated_at")
 	t.ProjectID = field.NewInt64(table, "project_id")
-	t.WorkflowID = field.NewInt64(table, "workflow_id")
+	t.SourceID = field.NewInt64(table, "source_id")
 	t.EnvID = field.NewInt64(table, "env_id")
 	t.ExecutorID = field.NewString(table, "executor_id")
 	t.ExecutionID = field.NewString(table, "execution_id")
 	t.Mode = field.NewString(table, "mode")
+	t.SourceType = field.NewString(table, "source_type")
+	t.Title = field.NewString(table, "title")
 	t.Status = field.NewString(table, "status")
 	t.StartTime = field.NewTime(table, "start_time")
 	t.EndTime = field.NewTime(table, "end_time")
 	t.Duration = field.NewInt64(table, "duration")
-	t.TotalSteps = field.NewInt32(table, "total_steps")
-	t.SuccessSteps = field.NewInt32(table, "success_steps")
-	t.FailedSteps = field.NewInt32(table, "failed_steps")
-	t.Result = field.NewString(table, "result")
-	t.Logs = field.NewString(table, "logs")
 	t.CreatedBy = field.NewInt64(table, "created_by")
 
 	t.fillFieldMap()
@@ -138,25 +129,22 @@ func (t *tExecution) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (t *tExecution) fillFieldMap() {
-	t.fieldMap = make(map[string]field.Expr, 19)
+	t.fieldMap = make(map[string]field.Expr, 16)
 	t.fieldMap["id"] = t.ID
 	t.fieldMap["created_at"] = t.CreatedAt
 	t.fieldMap["updated_at"] = t.UpdatedAt
 	t.fieldMap["project_id"] = t.ProjectID
-	t.fieldMap["workflow_id"] = t.WorkflowID
+	t.fieldMap["source_id"] = t.SourceID
 	t.fieldMap["env_id"] = t.EnvID
 	t.fieldMap["executor_id"] = t.ExecutorID
 	t.fieldMap["execution_id"] = t.ExecutionID
 	t.fieldMap["mode"] = t.Mode
+	t.fieldMap["source_type"] = t.SourceType
+	t.fieldMap["title"] = t.Title
 	t.fieldMap["status"] = t.Status
 	t.fieldMap["start_time"] = t.StartTime
 	t.fieldMap["end_time"] = t.EndTime
 	t.fieldMap["duration"] = t.Duration
-	t.fieldMap["total_steps"] = t.TotalSteps
-	t.fieldMap["success_steps"] = t.SuccessSteps
-	t.fieldMap["failed_steps"] = t.FailedSteps
-	t.fieldMap["result"] = t.Result
-	t.fieldMap["logs"] = t.Logs
 	t.fieldMap["created_by"] = t.CreatedBy
 }
 

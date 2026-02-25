@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"yqhp/workflow-engine/internal/execution"
 	"yqhp/workflow-engine/internal/executor"
 	"yqhp/workflow-engine/internal/hook"
 	metricsengine "yqhp/workflow-engine/internal/metrics/engine"
@@ -238,6 +239,10 @@ func (e *TaskEngine) Execute(ctx context.Context, task *types.Task) (*types.Task
 		execErr = e.executePerVUIterations(execCtx, task, vus, iterations)
 	case types.ModeSharedIterations:
 		execErr = e.executeSharedIterations(execCtx, task, vus, iterations)
+	case types.ModeConstantArrivalRate:
+		execErr = e.executeConstantArrivalRate(execCtx, task, opts)
+	case types.ModeRampingArrivalRate:
+		execErr = e.executeRampingArrivalRate(execCtx, task, opts)
 	default:
 		execErr = e.executeConstantVUs(execCtx, task, vus, duration, iterations)
 	}
@@ -397,14 +402,17 @@ func (e *TaskEngine) executeConstantVUs(ctx context.Context, task *types.Task, v
 
 	var wg sync.WaitGroup
 
-	// Always create a cancellable context so the VU controller can be stopped
-	// when all VUs finish their iterations (prevents infinite VU respawning).
-	execCtx, stopAll := context.WithCancel(ctx)
+	// baseCtx: cancellable by manual stop or parent, but NOT by duration timeout.
+	// Used inside iterations so that in-flight steps can complete gracefully.
+	baseCtx, stopAll := context.WithCancel(ctx)
 	defer stopAll()
 
+	// scheduleCtx: derived from baseCtx with duration timeout.
+	// Used only for scheduling decisions (whether to start a new iteration).
+	scheduleCtx := baseCtx
 	if duration > 0 {
 		var durationCancel context.CancelFunc
-		execCtx, durationCancel = context.WithTimeout(execCtx, duration)
+		scheduleCtx, durationCancel = context.WithTimeout(baseCtx, duration)
 		defer durationCancel()
 	}
 
@@ -432,7 +440,7 @@ func (e *TaskEngine) executeConstantVUs(ctx context.Context, task *types.Task, v
 			vu = &types.VirtualUser{ID: id, StartTime: time.Now()}
 		}
 
-		vuCtx, vuCancel := context.WithCancel(execCtx)
+		vuScheduleCtx, vuCancel := context.WithCancel(scheduleCtx)
 
 		vuMu.Lock()
 		vuCancels[id] = vuCancel
@@ -441,7 +449,7 @@ func (e *TaskEngine) executeConstantVUs(ctx context.Context, task *types.Task, v
 		wg.Add(1)
 		e.activeVUs.Add(1)
 
-		go func(vu *types.VirtualUser, ctx context.Context, id int) {
+		go func(vu *types.VirtualUser, schedCtx context.Context, baseCtx context.Context, id int) {
 			defer wg.Done()
 			defer e.activeVUs.Add(-1)
 			defer e.vuPool.Release(vu)
@@ -451,8 +459,8 @@ func (e *TaskEngine) executeConstantVUs(ctx context.Context, task *types.Task, v
 				vuMu.Unlock()
 			}()
 
-			e.runVU(ctx, task, vu, iterations)
-		}(vu, vuCtx, id)
+			e.runVU(schedCtx, baseCtx, task, vu, iterations)
+		}(vu, vuScheduleCtx, baseCtx, id)
 	}
 
 	stopOneVU := func() {
@@ -486,7 +494,7 @@ func (e *TaskEngine) executeConstantVUs(ctx context.Context, task *types.Task, v
 
 		for {
 			select {
-			case <-execCtx.Done():
+			case <-scheduleCtx.Done():
 				return
 			case <-ticker.C:
 				if stopping.Load() {
@@ -581,12 +589,12 @@ func (e *TaskEngine) executeRampingVUs(ctx context.Context, task *types.Task, st
 					wg.Add(1)
 					e.activeVUs.Add(1)
 
-					go func(vu *types.VirtualUser, ctx context.Context) {
+					go func(vu *types.VirtualUser, vuCtx context.Context) {
 						defer wg.Done()
 						defer e.activeVUs.Add(-1)
 						defer e.vuPool.Release(vu)
 
-						e.runVU(ctx, task, vu, 0)
+						e.runVU(vuCtx, vuCtx, task, vu, 0)
 					}(vu, vuCtx)
 				}
 
@@ -639,7 +647,7 @@ func (e *TaskEngine) executePerVUIterations(ctx context.Context, task *types.Tas
 			defer e.activeVUs.Add(-1)
 			defer e.vuPool.Release(vu)
 
-			err := e.runVU(ctx, task, vu, iterationsPerVU)
+			err := e.runVU(ctx, ctx, task, vu, iterationsPerVU)
 			if err != nil && err != context.Canceled {
 				errChan <- err
 			}
@@ -718,8 +726,98 @@ func (e *TaskEngine) executeSharedIterations(ctx context.Context, task *types.Ta
 	return firstErr
 }
 
+// executeConstantArrivalRate 以恒定速率发送请求。
+func (e *TaskEngine) executeConstantArrivalRate(ctx context.Context, task *types.Task, opts types.ExecutionOptions) error {
+	mode := execution.NewConstantArrivalRateMode()
+
+	rate := opts.VUs
+	if rate <= 0 {
+		rate = 1
+	}
+
+	maxVUs := rate * 2
+	if maxVUs < 10 {
+		maxVUs = 10
+	}
+
+	config := &execution.ModeConfig{
+		Rate:            rate,
+		Duration:        opts.Duration,
+		TimeUnit:        time.Second,
+		PreAllocatedVUs: rate,
+		MaxVUs:          maxVUs,
+		IterationFunc: func(ctx context.Context, vuID int, iteration int) error {
+			vu := &types.VirtualUser{ID: vuID, Iteration: iteration, StartTime: time.Now()}
+			err := e.executeWorkflowIteration(ctx, task, vu)
+			e.iterations.Add(1)
+			return err
+		},
+		OnVUStart: func(vuID int) {
+			e.activeVUs.Add(1)
+		},
+		OnVUStop: func(vuID int) {
+			e.activeVUs.Add(-1)
+		},
+	}
+
+	logger.Debug("executeConstantArrivalRate] start: rate=%d, duration=%v", rate, opts.Duration)
+	return mode.Run(ctx, config)
+}
+
+// executeRampingArrivalRate 按阶段调整请求到达速率。
+func (e *TaskEngine) executeRampingArrivalRate(ctx context.Context, task *types.Task, opts types.ExecutionOptions) error {
+	if len(opts.Stages) == 0 {
+		return fmt.Errorf("ramping-arrival-rate requires at least one stage")
+	}
+
+	mode := execution.NewRampingArrivalRateMode()
+
+	maxTarget := 0
+	for _, s := range opts.Stages {
+		if s.Target > maxTarget {
+			maxTarget = s.Target
+		}
+	}
+	if maxTarget <= 0 {
+		maxTarget = 1
+	}
+
+	preAllocatedVUs := maxTarget / 10
+	if preAllocatedVUs < 1 {
+		preAllocatedVUs = 1
+	}
+	maxVUs := maxTarget
+	if maxVUs < 10 {
+		maxVUs = 10
+	}
+
+	config := &execution.ModeConfig{
+		Stages:          opts.Stages,
+		TimeUnit:        time.Second,
+		PreAllocatedVUs: preAllocatedVUs,
+		MaxVUs:          maxVUs,
+		IterationFunc: func(ctx context.Context, vuID int, iteration int) error {
+			vu := &types.VirtualUser{ID: vuID, Iteration: iteration, StartTime: time.Now()}
+			err := e.executeWorkflowIteration(ctx, task, vu)
+			e.iterations.Add(1)
+			return err
+		},
+		OnVUStart: func(vuID int) {
+			e.activeVUs.Add(1)
+		},
+		OnVUStop: func(vuID int) {
+			e.activeVUs.Add(-1)
+		},
+	}
+
+	logger.Debug("executeRampingArrivalRate] start: stages=%d, maxTarget=%d", len(opts.Stages), maxTarget)
+	return mode.Run(ctx, config)
+}
+
 // runVU 运行虚拟用户，直到上下文取消或迭代完成。
-func (e *TaskEngine) runVU(ctx context.Context, task *types.Task, vu *types.VirtualUser, maxIterations int) (err error) {
+// scheduleCtx 用于迭代边界判断（受 duration timeout 影响），
+// iterCtx 用于迭代内部步骤执行（不受 duration timeout 影响，但受手动 stop 影响）。
+func (e *TaskEngine) runVU(scheduleCtx context.Context, iterCtx context.Context, task *types.Task, vu *types.VirtualUser, maxIterations int) (err error) {
 	// 添加 panic 恢复，防止单个 VU 的 panic 影响其他 VU
 	defer func() {
 		if r := recover(); r != nil {
@@ -732,7 +830,7 @@ func (e *TaskEngine) runVU(ctx context.Context, task *types.Task, vu *types.Virt
 	iteration := 0
 	for {
 		select {
-		case <-ctx.Done():
+		case <-scheduleCtx.Done():
 			logger.Debug("runVU] VU %d 上下文取消，正常结束\n", vu.ID)
 			return nil
 		default:
@@ -743,9 +841,9 @@ func (e *TaskEngine) runVU(ctx context.Context, task *types.Task, vu *types.Virt
 
 			vu.Iteration = iteration
 			logger.Debug("runVU] VU %d 执行迭代 %d\n", vu.ID, iteration)
-			err := e.executeWorkflowIteration(ctx, task, vu)
+			err := e.executeWorkflowIteration(iterCtx, task, vu)
 			if err != nil {
-				if ctx.Err() != nil {
+				if iterCtx.Err() != nil {
 					logger.Debug("runVU] VU %d 测试结束，忽略迭代 %d 的上下文错误\n", vu.ID, iteration)
 					return nil
 				}

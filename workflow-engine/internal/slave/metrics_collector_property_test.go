@@ -41,7 +41,7 @@ func TestPercentileCalculationProperty(t *testing.T) {
 			// Record samples
 			for _, s := range samples {
 				duration := time.Duration(s) * time.Millisecond
-				collector.RecordStep("step-1", &types.StepResult{
+				collector.RecordStep("step-1", "", &types.StepResult{
 					StepID:   "step-1",
 					Status:   types.ResultStatusSuccess,
 					Duration: duration,
@@ -83,7 +83,7 @@ func TestPercentileCalculationProperty(t *testing.T) {
 
 			for _, s := range samples {
 				duration := time.Duration(s) * time.Millisecond
-				collector.RecordStep("step-1", &types.StepResult{
+				collector.RecordStep("step-1", "", &types.StepResult{
 					StepID:   "step-1",
 					Status:   types.ResultStatusSuccess,
 					Duration: duration,
@@ -122,7 +122,7 @@ func TestPercentileCalculationProperty(t *testing.T) {
 
 			for _, s := range samples {
 				duration := time.Duration(s) * time.Millisecond
-				collector.RecordStep("step-1", &types.StepResult{
+				collector.RecordStep("step-1", "", &types.StepResult{
 					StepID:   "step-1",
 					Status:   types.ResultStatusSuccess,
 					Duration: duration,
@@ -161,7 +161,7 @@ func TestPercentileCalculationProperty(t *testing.T) {
 
 			for _, s := range samples {
 				duration := time.Duration(s) * time.Millisecond
-				collector.RecordStep("step-1", &types.StepResult{
+				collector.RecordStep("step-1", "", &types.StepResult{
 					StepID:   "step-1",
 					Status:   types.ResultStatusSuccess,
 					Duration: duration,
@@ -210,7 +210,7 @@ func TestPercentileOrderingProperty(t *testing.T) {
 
 			for _, s := range samples {
 				duration := time.Duration(s) * time.Millisecond
-				collector.RecordStep("step-1", &types.StepResult{
+				collector.RecordStep("step-1", "", &types.StepResult{
 					StepID:   "step-1",
 					Status:   types.ResultStatusSuccess,
 					Duration: duration,
@@ -243,7 +243,7 @@ func TestPercentileOrderingProperty(t *testing.T) {
 
 			for _, s := range samples {
 				duration := time.Duration(s) * time.Millisecond
-				collector.RecordStep("step-1", &types.StepResult{
+				collector.RecordStep("step-1", "", &types.StepResult{
 					StepID:   "step-1",
 					Status:   types.ResultStatusSuccess,
 					Duration: duration,
@@ -294,7 +294,7 @@ func TestMinMaxAvgProperty(t *testing.T) {
 					minVal = s
 				}
 				duration := time.Duration(s) * time.Millisecond
-				collector.RecordStep("step-1", &types.StepResult{
+				collector.RecordStep("step-1", "", &types.StepResult{
 					StepID:   "step-1",
 					Status:   types.ResultStatusSuccess,
 					Duration: duration,
@@ -327,7 +327,7 @@ func TestMinMaxAvgProperty(t *testing.T) {
 					maxVal = s
 				}
 				duration := time.Duration(s) * time.Millisecond
-				collector.RecordStep("step-1", &types.StepResult{
+				collector.RecordStep("step-1", "", &types.StepResult{
 					StepID:   "step-1",
 					Status:   types.ResultStatusSuccess,
 					Duration: duration,
@@ -358,7 +358,7 @@ func TestMinMaxAvgProperty(t *testing.T) {
 			for _, s := range samples {
 				sum += int64(s)
 				duration := time.Duration(s) * time.Millisecond
-				collector.RecordStep("step-1", &types.StepResult{
+				collector.RecordStep("step-1", "", &types.StepResult{
 					StepID:   "step-1",
 					Status:   types.ResultStatusSuccess,
 					Duration: duration,
@@ -409,7 +409,7 @@ func BenchmarkPercentileCalculation(b *testing.B) {
 
 	// Pre-populate with samples
 	for i := 0; i < 1000; i++ {
-		collector.RecordStep("step-1", &types.StepResult{
+		collector.RecordStep("step-1", "", &types.StepResult{
 			StepID:   "step-1",
 			Status:   types.ResultStatusSuccess,
 			Duration: time.Duration(i) * time.Millisecond,
@@ -451,7 +451,7 @@ func TestPercentileCalculationSpecificCases(t *testing.T) {
 			collector := NewMetricsCollector()
 
 			for _, s := range tc.samples {
-				collector.RecordStep("step-1", &types.StepResult{
+				collector.RecordStep("step-1", "", &types.StepResult{
 					StepID:   "step-1",
 					Status:   types.ResultStatusSuccess,
 					Duration: time.Duration(s) * time.Millisecond,

@@ -19,7 +19,7 @@ func TestMetricsCollector_RecordStep(t *testing.T) {
 		Metrics:  map[string]float64{"custom": 1.5},
 	}
 
-	collector.RecordStep("step-1", result)
+	collector.RecordStep("step-1", "", result)
 
 	metrics := collector.GetMetrics()
 	assert.NotNil(t, metrics.StepMetrics["step-1"])
@@ -32,21 +32,21 @@ func TestMetricsCollector_RecordMultipleSteps(t *testing.T) {
 	collector := NewMetricsCollector()
 
 	// Record success
-	collector.RecordStep("step-1", &types.StepResult{
+	collector.RecordStep("step-1", "", &types.StepResult{
 		StepID:   "step-1",
 		Status:   types.ResultStatusSuccess,
 		Duration: 100 * time.Millisecond,
 	})
 
 	// Record failure
-	collector.RecordStep("step-1", &types.StepResult{
+	collector.RecordStep("step-1", "", &types.StepResult{
 		StepID:   "step-1",
 		Status:   types.ResultStatusFailed,
 		Duration: 200 * time.Millisecond,
 	})
 
 	// Record timeout
-	collector.RecordStep("step-1", &types.StepResult{
+	collector.RecordStep("step-1", "", &types.StepResult{
 		StepID:   "step-1",
 		Status:   types.ResultStatusTimeout,
 		Duration: 300 * time.Millisecond,
@@ -72,7 +72,7 @@ func TestMetricsCollector_DurationMetrics(t *testing.T) {
 	}
 
 	for _, d := range durations {
-		collector.RecordStep("step-1", &types.StepResult{
+		collector.RecordStep("step-1", "", &types.StepResult{
 			StepID:   "step-1",
 			Status:   types.ResultStatusSuccess,
 			Duration: d,
@@ -92,7 +92,7 @@ func TestMetricsCollector_Percentiles(t *testing.T) {
 
 	// Record 100 samples
 	for i := 1; i <= 100; i++ {
-		collector.RecordStep("step-1", &types.StepResult{
+		collector.RecordStep("step-1", "", &types.StepResult{
 			StepID:   "step-1",
 			Status:   types.ResultStatusSuccess,
 			Duration: time.Duration(i) * time.Millisecond,
@@ -125,7 +125,7 @@ func TestMetricsCollector_GetThroughput(t *testing.T) {
 
 	// Record some steps
 	for i := 0; i < 10; i++ {
-		collector.RecordStep("step-1", &types.StepResult{
+		collector.RecordStep("step-1", "", &types.StepResult{
 			StepID:   "step-1",
 			Status:   types.ResultStatusSuccess,
 			Duration: 10 * time.Millisecond,
@@ -141,7 +141,7 @@ func TestMetricsCollector_GetErrorRate(t *testing.T) {
 
 	// Record 8 successes and 2 failures
 	for i := 0; i < 8; i++ {
-		collector.RecordStep("step-1", &types.StepResult{
+		collector.RecordStep("step-1", "", &types.StepResult{
 			StepID:   "step-1",
 			Status:   types.ResultStatusSuccess,
 			Duration: 10 * time.Millisecond,
@@ -149,7 +149,7 @@ func TestMetricsCollector_GetErrorRate(t *testing.T) {
 	}
 
 	for i := 0; i < 2; i++ {
-		collector.RecordStep("step-1", &types.StepResult{
+		collector.RecordStep("step-1", "", &types.StepResult{
 			StepID:   "step-1",
 			Status:   types.ResultStatusFailed,
 			Duration: 10 * time.Millisecond,
@@ -163,7 +163,7 @@ func TestMetricsCollector_GetErrorRate(t *testing.T) {
 func TestMetricsCollector_Reset(t *testing.T) {
 	collector := NewMetricsCollector()
 
-	collector.RecordStep("step-1", &types.StepResult{
+	collector.RecordStep("step-1", "", &types.StepResult{
 		StepID:   "step-1",
 		Status:   types.ResultStatusSuccess,
 		Duration: 10 * time.Millisecond,
@@ -178,7 +178,7 @@ func TestMetricsCollector_Reset(t *testing.T) {
 func TestMetricsCollector_GetStepMetrics(t *testing.T) {
 	collector := NewMetricsCollector()
 
-	collector.RecordStep("step-1", &types.StepResult{
+	collector.RecordStep("step-1", "", &types.StepResult{
 		StepID:   "step-1",
 		Status:   types.ResultStatusSuccess,
 		Duration: 10 * time.Millisecond,
@@ -196,14 +196,14 @@ func TestMetricsCollector_GetStepMetrics(t *testing.T) {
 func TestMetricsCollector_CustomMetrics(t *testing.T) {
 	collector := NewMetricsCollector()
 
-	collector.RecordStep("step-1", &types.StepResult{
+	collector.RecordStep("step-1", "", &types.StepResult{
 		StepID:   "step-1",
 		Status:   types.ResultStatusSuccess,
 		Duration: 10 * time.Millisecond,
 		Metrics:  map[string]float64{"response_size": 1000},
 	})
 
-	collector.RecordStep("step-1", &types.StepResult{
+	collector.RecordStep("step-1", "", &types.StepResult{
 		StepID:   "step-1",
 		Status:   types.ResultStatusSuccess,
 		Duration: 10 * time.Millisecond,
@@ -221,7 +221,7 @@ func TestMetricsCollector_RecordNil(t *testing.T) {
 	collector := NewMetricsCollector()
 
 	// Should not panic
-	collector.RecordStep("step-1", nil)
+	collector.RecordStep("step-1", "", nil)
 
 	metrics := collector.GetMetrics()
 	assert.Empty(t, metrics.StepMetrics)
@@ -245,7 +245,7 @@ func TestMetricsCollector_GetDurationSamples(t *testing.T) {
 	}
 
 	for _, d := range durations {
-		collector.RecordStep("step-1", &types.StepResult{
+		collector.RecordStep("step-1", "", &types.StepResult{
 			StepID:   "step-1",
 			Status:   types.ResultStatusSuccess,
 			Duration: d,
@@ -270,7 +270,7 @@ func TestMetricsCollector_GetMemoryUsage(t *testing.T) {
 
 	// 记录多个步骤
 	for i := 0; i < 10; i++ {
-		collector.RecordStep("step-1", &types.StepResult{
+		collector.RecordStep("step-1", "", &types.StepResult{
 			StepID:   "step-1",
 			Status:   types.ResultStatusSuccess,
 			Duration: time.Duration(i) * time.Millisecond,
@@ -289,7 +289,7 @@ func TestMetricsCollector_HighVolume(t *testing.T) {
 	// 模拟高并发场景：100万次请求
 	// 使用 HDR Histogram 后，内存应该保持稳定
 	for i := 0; i < 1000000; i++ {
-		collector.RecordStep("step-1", &types.StepResult{
+		collector.RecordStep("step-1", "", &types.StepResult{
 			StepID:   "step-1",
 			Status:   types.ResultStatusSuccess,
 			Duration: time.Duration(i%1000) * time.Millisecond,

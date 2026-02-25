@@ -57,6 +57,7 @@ type RealtimeMetrics struct {
 // StepMetricStats contains per-step aggregated statistics.
 type StepMetricStats struct {
 	StepID       string  `json:"step_id"`
+	StepName     string  `json:"step_name,omitempty"`
 	Count        int64   `json:"count"`
 	SuccessCount int64   `json:"success_count"`
 	FailureCount int64   `json:"failure_count"`

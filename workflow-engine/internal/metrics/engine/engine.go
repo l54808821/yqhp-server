@@ -28,6 +28,9 @@ type MetricsEngine struct {
 	MetricsLock     sync.Mutex
 	ObservedMetrics map[string]*metrics.Metric
 
+	// Step name mapping (step_id -> step_name)
+	StepNames map[string]string
+
 	// Time-series snapshots for report generation
 	timeSeriesMu   sync.Mutex
 	timeSeriesData []*TimeSeriesPoint
@@ -51,6 +54,7 @@ func NewMetricsEngine(registry *metrics.Registry) *MetricsEngine {
 	return &MetricsEngine{
 		registry:        registry,
 		ObservedMetrics: make(map[string]*metrics.Metric),
+		StepNames:       make(map[string]string),
 	}
 }
 

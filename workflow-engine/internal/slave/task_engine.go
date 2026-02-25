@@ -952,7 +952,7 @@ func (e *TaskEngine) executeStepWithCallback(ctx context.Context, exec executor.
 			panicErr := fmt.Errorf("executor panic: %v", r)
 			result = executor.CreateFailedResult(step.ID, startTime, panicErr)
 			err = panicErr
-			e.collector.RecordStep(step.ID, result)
+			e.collector.RecordStep(step.ID, step.Name, result)
 			logger.Debug("executeStepWithCallback] 步骤 %s 执行器发生 panic: %v\n", step.ID, r)
 		}
 	}()
@@ -970,10 +970,10 @@ func (e *TaskEngine) executeStepWithCallback(ctx context.Context, exec executor.
 
 	// 记录步骤指标
 	if result != nil {
-		e.collector.RecordStep(step.ID, result)
+		e.collector.RecordStep(step.ID, step.Name, result)
 	} else if err != nil {
 		result = executor.CreateFailedResult(step.ID, startTime, err)
-		e.collector.RecordStep(step.ID, result)
+		e.collector.RecordStep(step.ID, step.Name, result)
 	}
 
 	return result, err

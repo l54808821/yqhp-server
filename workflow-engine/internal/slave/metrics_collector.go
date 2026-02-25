@@ -94,7 +94,7 @@ func (c *MetricsCollector) GetSamplesChannel() chan metrics.SampleContainer {
 
 // RecordStep 记录步骤执行的指标。
 // Requirements: 9.1
-func (c *MetricsCollector) RecordStep(stepID string, result *types.StepResult) {
+func (c *MetricsCollector) RecordStep(stepID, stepName string, result *types.StepResult) {
 	if result == nil {
 		return
 	}
@@ -166,7 +166,8 @@ func (c *MetricsCollector) RecordStep(stepID string, result *types.StepResult) {
 	// 指标名包含 step_id 后缀，让 MetricsEngine 按步骤分别聚合
 	if c.emitter != nil {
 		tags := map[string]string{
-			"step_id": stepID,
+			"step_id":   stepID,
+			"step_name": stepName,
 		}
 
 		c.emitter.EmitCounter("step_reqs_"+stepID, 1, tags)

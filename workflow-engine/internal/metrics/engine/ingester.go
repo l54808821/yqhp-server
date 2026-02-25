@@ -58,6 +58,12 @@ func (oi *OutputIngester) flushMetrics() {
 			m := sample.Metric
 			oi.metricsEngine.MarkObserved(m)
 			m.Sink.Add(sample)
+
+			if sid := sample.Tags["step_id"]; sid != "" {
+				if sn := sample.Tags["step_name"]; sn != "" {
+					oi.metricsEngine.StepNames[sid] = sn
+				}
+			}
 		}
 	}
 }
@@ -111,7 +117,7 @@ func (me *MetricsEngine) buildStepMetrics(durationSec float64) map[string]*StepM
 		switch {
 		case len(name) > 14 && name[:14] == "step_duration_":
 			stepID := name[14:]
-			s := getOrCreateStepStats(result, stepID)
+			s := me.getOrCreateStepStats(result, stepID)
 			s.AvgMs = stats["avg"]
 			s.MinMs = stats["min"]
 			s.MaxMs = stats["max"]
@@ -122,12 +128,11 @@ func (me *MetricsEngine) buildStepMetrics(durationSec float64) map[string]*StepM
 			s.Count = int64(stats["count"])
 		case len(name) > 10 && name[:10] == "step_reqs_":
 			stepID := name[10:]
-			s := getOrCreateStepStats(result, stepID)
+			s := me.getOrCreateStepStats(result, stepID)
 			s.Count = int64(stats["count"])
 		case len(name) > 12 && name[:12] == "step_failed_":
 			stepID := name[12:]
-			s := getOrCreateStepStats(result, stepID)
-			// "passes" = Trues = failed=true 的次数 = 失败次数
+			s := me.getOrCreateStepStats(result, stepID)
 			s.FailureCount = int64(stats["passes"])
 			s.SuccessCount = int64(stats["fails"])
 		}
@@ -136,11 +141,11 @@ func (me *MetricsEngine) buildStepMetrics(durationSec float64) map[string]*StepM
 	return result
 }
 
-func getOrCreateStepStats(m map[string]*StepMetricStats, stepID string) *StepMetricStats {
+func (me *MetricsEngine) getOrCreateStepStats(m map[string]*StepMetricStats, stepID string) *StepMetricStats {
 	if s, ok := m[stepID]; ok {
 		return s
 	}
-	s := &StepMetricStats{StepID: stepID}
+	s := &StepMetricStats{StepID: stepID, StepName: me.StepNames[stepID]}
 	m[stepID] = s
 	return s
 }

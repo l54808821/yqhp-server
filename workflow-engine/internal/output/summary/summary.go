@@ -26,6 +26,7 @@ type Output struct {
 	stepDurations   map[string]*metrics.TrendSink  // step_id -> duration sink
 	stepCounts      map[string]*metrics.CounterSink // step_id -> request count
 	stepFailures    map[string]*metrics.RateSink    // step_id -> failure rate
+	stepNames       map[string]string               // step_id -> step_name
 	errorTracker    *errorTracker
 	vuTimeline      []*types.VUTimelineEvent
 	timeSeriesData  []*types.ReportTimeSeriesPoint
@@ -40,6 +41,7 @@ func New() *Output {
 		stepDurations: make(map[string]*metrics.TrendSink),
 		stepCounts:    make(map[string]*metrics.CounterSink),
 		stepFailures:  make(map[string]*metrics.RateSink),
+		stepNames:     make(map[string]string),
 		errorTracker:  newErrorTracker(),
 	}
 }
@@ -91,6 +93,12 @@ func (o *Output) processSample(sample metrics.Sample) {
 
 	name := sample.Metric.Name
 	stepID := sample.Tags["step_id"]
+
+	if stepID != "" {
+		if sn := sample.Tags["step_name"]; sn != "" {
+			o.stepNames[stepID] = sn
+		}
+	}
 
 	switch sample.Metric.Type {
 	case metrics.Trend:
@@ -258,7 +266,7 @@ func (o *Output) buildStepDetails(durationSec float64) []*types.StepDetailReport
 
 	details := make([]*types.StepDetailReport, 0, len(stepIDs))
 	for _, stepID := range stepIDs {
-		d := &types.StepDetailReport{StepID: stepID}
+		d := &types.StepDetailReport{StepID: stepID, StepName: o.stepNames[stepID]}
 
 		if sink, ok := o.stepDurations[stepID]; ok {
 			stats := sink.Format(durationSec)

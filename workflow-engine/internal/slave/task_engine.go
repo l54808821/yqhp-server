@@ -717,8 +717,8 @@ func (e *TaskEngine) runVU(ctx context.Context, task *types.Task, vu *types.Virt
 	for {
 		select {
 		case <-ctx.Done():
-			logger.Debug("runVU] VU %d 上下文取消\n", vu.ID)
-			return ctx.Err()
+			logger.Debug("runVU] VU %d 上下文取消，正常结束\n", vu.ID)
+			return nil
 		default:
 			if maxIterations > 0 && iteration >= maxIterations {
 				logger.Debug("runVU] VU %d 达到最大迭代次数 %d\n", vu.ID, maxIterations)
@@ -729,6 +729,10 @@ func (e *TaskEngine) runVU(ctx context.Context, task *types.Task, vu *types.Virt
 			logger.Debug("runVU] VU %d 执行迭代 %d\n", vu.ID, iteration)
 			err := e.executeWorkflowIteration(ctx, task, vu)
 			if err != nil {
+				if ctx.Err() != nil {
+					logger.Debug("runVU] VU %d 测试结束，忽略迭代 %d 的上下文错误\n", vu.ID, iteration)
+					return nil
+				}
 				logger.Debug("runVU] VU %d iteration %d failed: %v", vu.ID, iteration, err)
 				e.addError(fmt.Sprintf("VU %d iter %d: %v", vu.ID, iteration, err))
 				if maxIterations > 0 {
@@ -907,27 +911,20 @@ func (e *TaskEngine) executeStepsWithContext(ctx context.Context, steps []types.
 			(result.StepResult != nil && (result.StepResult.Status == types.ResultStatusFailed || result.StepResult.Status == types.ResultStatusTimeout))
 
 		if stepFailed {
+			stepErr := result.Error
+			if stepErr == nil && result.StepResult != nil && result.StepResult.Error != nil {
+				stepErr = result.StepResult.Error
+			}
+			if stepErr == nil {
+				stepErr = fmt.Errorf("执行失败")
+			}
+			wrappedErr := fmt.Errorf("[%s] %w", step.Name, stepErr)
+
 			switch step.OnError {
-			case types.ErrorStrategyAbort:
-				if result.Error != nil {
-					return results, result.Error
-				}
-				// 如果没有 error 但状态是失败，构造一个错误返回
-				if result.StepResult != nil && result.StepResult.Error != nil {
-					return results, result.StepResult.Error
-				}
-				return results, fmt.Errorf("步骤 %s 执行失败", step.Name)
 			case types.ErrorStrategyContinue, types.ErrorStrategySkip:
 				continue
 			default:
-				// 默认也是 abort
-				if result.Error != nil {
-					return results, result.Error
-				}
-				if result.StepResult != nil && result.StepResult.Error != nil {
-					return results, result.StepResult.Error
-				}
-				return results, fmt.Errorf("步骤 %s 执行失败", step.Name)
+				return results, wrappedErr
 			}
 		}
 	}

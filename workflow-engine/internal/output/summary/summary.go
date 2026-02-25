@@ -115,7 +115,7 @@ func (o *Output) processSample(sample metrics.Sample) {
 		if stepID != "" && (name == "step_failed" || len(name) > 12 && name[:12] == "step_failed_") {
 			sink := o.getOrCreateRateSink(stepID)
 			sink.Add(sample)
-			if sample.Value == 0 { // failure
+			if sample.Value == 0 { // Value=0 → success=false → 步骤失败
 				errMsg := sample.Tags["error"]
 				if errMsg == "" {
 					errMsg = sample.Metadata["error"]
@@ -289,9 +289,9 @@ func (o *Output) buildStepDetails(durationSec float64) []*types.StepDetailReport
 
 		if sink, ok := o.stepFailures[stepID]; ok {
 			stats := sink.Format(0)
-			// "passes" = Trues = failed=true 的次数 = 失败次数
-			d.FailureCount = int64(stats["passes"])
-			d.SuccessCount = int64(stats["fails"])
+			// "passes" = Value!=0 = success=true = 成功次数
+			d.SuccessCount = int64(stats["passes"])
+			d.FailureCount = int64(stats["fails"])
 			if d.Count > 0 {
 				d.ErrorRate = float64(d.FailureCount) / float64(d.Count) * 100
 			}

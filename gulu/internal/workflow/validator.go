@@ -294,9 +294,9 @@ func validateDatabaseStep(step *types.Step, prefix string) []ValidationError {
 		}
 	}
 
-	if _, ok := step.Config["query"]; !ok {
+	if _, ok := step.Config["sql"]; !ok {
 		errs = append(errs, ValidationError{
-			Field:   prefix + ".config.query",
+			Field:   prefix + ".config.sql",
 			Message: "数据库步骤必须指定查询语句",
 		})
 	}

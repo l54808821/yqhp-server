@@ -173,12 +173,12 @@ func (c *MetricsCollector) RecordStep(stepID, stepName string, result *types.Ste
 		c.emitter.EmitCounter("step_reqs_"+stepID, 1, tags)
 		c.emitter.EmitTrend("step_duration_"+stepID, float64(duration.Milliseconds()), tags)
 
-		failed := result.Status != types.ResultStatusSuccess
-		c.emitter.EmitRate("step_failed_"+stepID, failed, tags)
+		success := result.Status == types.ResultStatusSuccess
+		c.emitter.EmitRate("step_failed_"+stepID, success, tags)
 
 		// 全局聚合指标（用于 time-series 计算）
 		c.emitter.EmitTrend("step_duration", float64(duration.Milliseconds()), tags)
-		c.emitter.EmitRate("step_failed", failed, tags)
+		c.emitter.EmitRate("step_failed", success, tags)
 
 		for k, v := range result.Metrics {
 			if k == "data_sent" || k == "data_received" {

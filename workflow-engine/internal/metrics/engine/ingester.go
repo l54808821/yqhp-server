@@ -133,8 +133,8 @@ func (me *MetricsEngine) buildStepMetrics(durationSec float64) map[string]*StepM
 		case len(name) > 12 && name[:12] == "step_failed_":
 			stepID := name[12:]
 			s := me.getOrCreateStepStats(result, stepID)
-			s.FailureCount = int64(stats["passes"])
-			s.SuccessCount = int64(stats["fails"])
+			s.SuccessCount = int64(stats["passes"])
+			s.FailureCount = int64(stats["fails"])
 		}
 	}
 

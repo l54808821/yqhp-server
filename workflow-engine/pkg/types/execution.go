@@ -13,10 +13,20 @@ type ExecutionOptions struct {
 	TargetSlaves  *SlaveSelector    `yaml:"target_slaves,omitempty"`
 	ExecutionMode ExecutionMode     `yaml:"mode,omitempty"`
 	Stages        []Stage           `yaml:"stages,omitempty"`
-	HTTPEngine    HTTPEngineType    `yaml:"http_engine,omitempty"` // HTTP 引擎类型：fasthttp（默认）或 standard
-	Outputs       []OutputConfig    `yaml:"outputs,omitempty"`     // 输出配置列表
-	Tags          map[string]string `yaml:"tags,omitempty"`        // 全局标签
+	HTTPEngine    HTTPEngineType    `yaml:"http_engine,omitempty"`    // HTTP 引擎类型：fasthttp（默认）或 standard
+	SamplingMode  SamplingMode      `yaml:"sampling_mode,omitempty"` // 采样模式：none/errors/smart
+	Outputs       []OutputConfig    `yaml:"outputs,omitempty"`       // 输出配置列表
+	Tags          map[string]string `yaml:"tags,omitempty"`          // 全局标签
 }
+
+// SamplingMode 定义采样模式
+type SamplingMode string
+
+const (
+	SamplingModeNone   SamplingMode = "none"
+	SamplingModeErrors SamplingMode = "errors"
+	SamplingModeSmart  SamplingMode = "smart"
+)
 
 // OutputConfig 定义输出配置
 type OutputConfig struct {

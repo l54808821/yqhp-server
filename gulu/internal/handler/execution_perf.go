@@ -95,6 +95,28 @@ func ExecutionScaleVUs(c *fiber.Ctx) error {
 	return response.Success(c, fiber.Map{"vus": req.VUs})
 }
 
+// ExecutionGetSampleLogs returns paginated sample logs for an execution.
+// GET /api/execution-records/:id/sample-logs
+func ExecutionGetSampleLogs(c *fiber.Ctx) error {
+	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	if err != nil {
+		return response.Error(c, "无效的执行记录ID")
+	}
+
+	var query logic.SampleLogQuery
+	if err := c.QueryParser(&query); err != nil {
+		return response.Error(c, "参数解析失败: "+err.Error())
+	}
+
+	sampleLogLogic := logic.NewSampleLogLogic(c.UserContext())
+	list, total, err := sampleLogLogic.GetSampleLogs(id, &query)
+	if err != nil {
+		return response.Error(c, err.Error())
+	}
+
+	return response.Page(c, list, total, query.Page, query.PageSize)
+}
+
 // ExecutionMetricsStream provides a Server-Sent Events (SSE) stream of realtime metrics.
 // This replaces WebSocket for simplicity and is compatible with the existing SSE infrastructure.
 // GET /api/execution-records/:id/metrics/stream

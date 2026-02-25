@@ -256,6 +256,7 @@ func Setup(app *fiber.App) {
 	executionRecords.Get("/:id/timeseries", handler.ExecutionGetTimeSeries)
 	executionRecords.Post("/:id/scale", handler.ExecutionScaleVUs)
 	executionRecords.Get("/:id/metrics/stream", handler.ExecutionMetricsStream)
+	executionRecords.Get("/:id/sample-logs", handler.ExecutionGetSampleLogs)
 
 	// 统一执行接口（RESTful 风格）
 	// POST   /api/executions              - 创建执行（支持 SSE 和阻塞模式）

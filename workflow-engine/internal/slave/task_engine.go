@@ -42,6 +42,9 @@ type TaskEngine struct {
 	outputWait    func()
 	outputFinish  func(error)
 
+	// 采样日志收集器
+	sampleLogCollector *SampleLogCollector
+
 	// 控制面
 	controlSurface *controlsurface.ControlSurface
 
@@ -139,6 +142,7 @@ func (e *TaskEngine) SetupMetricsPipeline(ctx context.Context, executionID strin
 		GetVUs:          func() int64 { return int64(e.activeVUs.Load()) },
 		GetIterations:   func() int64 { return e.iterations.Load() },
 		GetErrors:       func() []string { e.errorsMu.Lock(); defer e.errorsMu.Unlock(); r := make([]string, len(e.errors)); copy(r, e.errors); return r },
+		GetSampleLogs:   func() interface{} { if e.sampleLogCollector != nil { return e.sampleLogCollector.GetLogs() }; return nil },
 	}
 	controlsurface.Register(executionID, e.controlSurface)
 
@@ -201,6 +205,12 @@ func (e *TaskEngine) Execute(ctx context.Context, task *types.Task) (*types.Task
 		}); err != nil {
 			logger.Warn("Failed to setup metrics pipeline: %v", err)
 		}
+	}
+
+	// Setup sample log collector based on sampling mode
+	samplingMode := task.Workflow.Options.SamplingMode
+	if samplingMode != "" && samplingMode != types.SamplingModeNone {
+		e.sampleLogCollector = NewSampleLogCollector(task.ExecutionID, samplingMode, nil)
 	}
 
 	result := &types.TaskResult{
@@ -285,12 +295,17 @@ func (e *TaskEngine) Execute(ctx context.Context, task *types.Task) (*types.Task
 		}
 	}
 
-	// 6. Stop outputs
+	// 6. Flush sample logs
+	if e.sampleLogCollector != nil {
+		e.sampleLogCollector.Flush()
+	}
+
+	// 7. Stop outputs
 	if e.outputFinish != nil {
 		e.outputFinish(execErr)
 	}
 
-	// 7. Collect legacy metrics (for backward compat during transition)
+	// 8. Collect legacy metrics (for backward compat during transition)
 	result.Metrics = e.collector.GetMetrics()
 	result.Iterations = e.iterations.Load()
 
@@ -950,6 +965,7 @@ func (e *TaskEngine) executeStepWithCallback(ctx context.Context, exec executor.
 			result = executor.CreateFailedResult(step.ID, startTime, panicErr)
 			err = panicErr
 			e.collector.RecordStep(step.ID, step.Name, result)
+			e.recordSampleLog(step.ID, step.Name, result)
 			logger.Debug("executeStepWithCallback] 步骤 %s 执行器发生 panic: %v\n", step.ID, r)
 		}
 	}()
@@ -968,12 +984,24 @@ func (e *TaskEngine) executeStepWithCallback(ctx context.Context, exec executor.
 	// 记录步骤指标
 	if result != nil {
 		e.collector.RecordStep(step.ID, step.Name, result)
+		e.recordSampleLog(step.ID, step.Name, result)
 	} else if err != nil {
 		result = executor.CreateFailedResult(step.ID, startTime, err)
 		e.collector.RecordStep(step.ID, step.Name, result)
+		e.recordSampleLog(step.ID, step.Name, result)
 	}
 
 	return result, err
+}
+
+// recordSampleLog 有条件地记录采样日志
+func (e *TaskEngine) recordSampleLog(stepID, stepName string, result *types.StepResult) {
+	if e.sampleLogCollector == nil || result == nil {
+		return
+	}
+	if e.sampleLogCollector.ShouldSample(result) {
+		e.sampleLogCollector.Record(stepID, stepName, result)
+	}
 }
 
 // recordWorkflowMetrics 记录工作流执行的指标。

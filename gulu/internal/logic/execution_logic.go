@@ -40,14 +40,15 @@ type ExecuteWorkflowReq struct {
 
 // PerformanceConfig 压测配置
 type PerformanceConfig struct {
-	Mode       string            `json:"mode"`                 // constant-vus, ramping-vus 等
-	VUs        int               `json:"vus,omitempty"`        // 虚拟用户数
-	Duration   string            `json:"duration,omitempty"`   // 持续时间，如 "30s", "5m"
-	Iterations int               `json:"iterations,omitempty"` // 迭代次数
-	Stages     []PerfStage       `json:"stages,omitempty"`     // 阶梯配置
-	Thresholds []PerfThreshold   `json:"thresholds,omitempty"` // 性能阈值
-	HTTPEngine string            `json:"httpEngine,omitempty"` // fasthttp 或 standard
-	Tags       map[string]string `json:"tags,omitempty"`       // 全局标签
+	Mode         string            `json:"mode"`                   // constant-vus, ramping-vus 等
+	VUs          int               `json:"vus,omitempty"`          // 虚拟用户数
+	Duration     string            `json:"duration,omitempty"`     // 持续时间，如 "30s", "5m"
+	Iterations   int               `json:"iterations,omitempty"`   // 迭代次数
+	Stages       []PerfStage       `json:"stages,omitempty"`       // 阶梯配置
+	Thresholds   []PerfThreshold   `json:"thresholds,omitempty"`   // 性能阈值
+	HTTPEngine   string            `json:"httpEngine,omitempty"`   // fasthttp 或 standard
+	SamplingMode string            `json:"samplingMode,omitempty"` // 采样模式: none, errors, smart
+	Tags         map[string]string `json:"tags,omitempty"`         // 全局标签
 }
 
 // PerfStage 阶梯配置
@@ -317,9 +318,92 @@ func (l *ExecutionLogic) monitorExecution(dbID int64, executionID string, engine
 				}
 
 				l.updateExecutionStatus(dbID, dbStatus, state.EndTime, resultStr)
+
+				// 持久化采样日志到数据库
+				l.persistSampleLogs(executionID, engine)
+
 				return
 			}
 		}
+	}
+}
+
+// persistSampleLogs 将引擎内存中的采样日志持久化到数据库
+func (l *ExecutionLogic) persistSampleLogs(executionID string, engine *workflow.Engine) {
+	engineExecID := l.resolveEngineID(executionID)
+	rawLogs, err := engine.GetSampleLogs(context.Background(), engineExecID)
+	if err != nil || rawLogs == nil {
+		return
+	}
+
+	logsJSON, err := json.Marshal(rawLogs)
+	if err != nil {
+		return
+	}
+
+	var entries []struct {
+		ExecutionID     string            `json:"execution_id"`
+		StepID          string            `json:"step_id"`
+		StepName        string            `json:"step_name"`
+		Timestamp       time.Time         `json:"timestamp"`
+		Status          string            `json:"status"`
+		DurationMs      int64             `json:"duration_ms"`
+		RequestMethod   string            `json:"request_method"`
+		RequestURL      string            `json:"request_url"`
+		RequestHeaders  map[string]string `json:"request_headers,omitempty"`
+		RequestBody     string            `json:"request_body,omitempty"`
+		ResponseStatus  int               `json:"response_status"`
+		ResponseHeaders map[string]string `json:"response_headers,omitempty"`
+		ResponseBody    string            `json:"response_body,omitempty"`
+		ErrorMessage    string            `json:"error_message,omitempty"`
+	}
+	if err := json.Unmarshal(logsJSON, &entries); err != nil || len(entries) == 0 {
+		return
+	}
+
+	var dbLogs []*model.TSampleLog
+	for _, e := range entries {
+		ts := e.Timestamp
+		log := &model.TSampleLog{
+			ExecutionID:    executionID,
+			StepID:         e.StepID,
+			StepName:       e.StepName,
+			Timestamp:      &ts,
+			Status:         e.Status,
+			DurationMs:     e.DurationMs,
+			RequestMethod:  e.RequestMethod,
+			RequestURL:     e.RequestURL,
+			ResponseStatus: e.ResponseStatus,
+		}
+		if e.RequestBody != "" {
+			log.RequestBody = &e.RequestBody
+		}
+		if e.ResponseBody != "" {
+			log.ResponseBody = &e.ResponseBody
+		}
+		if e.ErrorMessage != "" {
+			log.ErrorMessage = &e.ErrorMessage
+		}
+		if len(e.RequestHeaders) > 0 {
+			if j, err := json.Marshal(e.RequestHeaders); err == nil {
+				s := string(j)
+				log.RequestHeaders = &s
+			}
+		}
+		if len(e.ResponseHeaders) > 0 {
+			if j, err := json.Marshal(e.ResponseHeaders); err == nil {
+				s := string(j)
+				log.ResponseHeaders = &s
+			}
+		}
+		dbLogs = append(dbLogs, log)
+	}
+
+	sampleLogLogic := NewSampleLogLogic(l.ctx)
+	if err := sampleLogLogic.SaveSampleLogs(dbLogs); err != nil {
+		fmt.Printf("[persistSampleLogs] 保存采样日志失败: %v\n", err)
+	} else {
+		fmt.Printf("[persistSampleLogs] 已保存 %d 条采样日志\n", len(dbLogs))
 	}
 }
 
@@ -978,6 +1062,11 @@ func applyPerformanceConfig(wf *types.Workflow, cfg *PerformanceConfig) {
 	// 设置 HTTP 引擎类型
 	if cfg.HTTPEngine != "" {
 		wf.Options.HTTPEngine = types.HTTPEngineType(cfg.HTTPEngine)
+	}
+
+	// 设置采样模式
+	if cfg.SamplingMode != "" {
+		wf.Options.SamplingMode = types.SamplingMode(cfg.SamplingMode)
 	}
 
 	// 设置标签

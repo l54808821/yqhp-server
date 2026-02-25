@@ -102,7 +102,8 @@ type ControlSurface struct {
 	GetIterations func() int64
 	GetErrors     func() []string
 
-	FinalReport *types.PerformanceTestReport
+	FinalReport   *types.PerformanceTestReport
+	GetSampleLogs func() interface{}
 }
 
 // --- Global registry ---

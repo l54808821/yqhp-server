@@ -223,6 +223,18 @@ func (e *Engine) GetTimeSeries(ctx context.Context, executionID string) (interfa
 	return e.embeddedEngine.GetTimeSeries(ctx, executionID)
 }
 
+// GetSampleLogs retrieves sample logs from the engine.
+func (e *Engine) GetSampleLogs(ctx context.Context, executionID string) (interface{}, error) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+
+	if e.embeddedEngine == nil {
+		return nil, nil
+	}
+
+	return e.embeddedEngine.GetSampleLogs(ctx, executionID)
+}
+
 // ScaleVUs adjusts the VU count for a running execution.
 func (e *Engine) ScaleVUs(ctx context.Context, executionID string, vus int) error {
 	e.mu.RLock()

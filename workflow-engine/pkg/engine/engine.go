@@ -250,6 +250,18 @@ func (e *Engine) GetPerformanceReport(ctx context.Context, executionID string) (
 	return cs.FinalReport, nil
 }
 
+// GetSampleLogs retrieves sample logs from the running or completed execution.
+func (e *Engine) GetSampleLogs(ctx context.Context, executionID string) (interface{}, error) {
+	cs := controlsurface.Get(executionID)
+	if cs == nil {
+		return nil, fmt.Errorf("no control surface for execution %s", executionID)
+	}
+	if cs.GetSampleLogs != nil {
+		return cs.GetSampleLogs(), nil
+	}
+	return nil, nil
+}
+
 // GetRealtimeMetrics retrieves a realtime metrics snapshot.
 func (e *Engine) GetRealtimeMetrics(ctx context.Context, executionID string) (interface{}, error) {
 	cs := controlsurface.Get(executionID)

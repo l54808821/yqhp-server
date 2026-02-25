@@ -180,7 +180,11 @@ func (c *MetricsCollector) RecordStep(stepID string, result *types.StepResult) {
 		c.emitter.EmitRate("step_failed", failed, tags)
 
 		for k, v := range result.Metrics {
-			c.emitter.EmitGauge("custom_"+k, v, tags)
+			if k == "data_sent" || k == "data_received" {
+				c.emitter.EmitCounter(k, v, tags)
+			} else {
+				c.emitter.EmitGauge("custom_"+k, v, tags)
+			}
 		}
 	}
 }

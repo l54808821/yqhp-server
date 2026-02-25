@@ -182,6 +182,8 @@ func (e *FastHTTPExecutor) Execute(ctx context.Context, step *types.Step, execCt
 	// 13. 添加指标
 	result.AddMetric("http_status", float64(resp.StatusCode()))
 	result.AddMetric("http_response_size", float64(len(resp.Body())))
+	result.AddMetric("data_received", float64(len(resp.Body())))
+	result.AddMetric("data_sent", float64(len(req.Body())))
 
 	return result, nil
 }

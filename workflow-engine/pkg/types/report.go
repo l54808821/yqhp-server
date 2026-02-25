@@ -58,6 +58,8 @@ type ReportSummary struct {
 	TotalIterations int64 `json:"total_iterations"`
 
 	ThroughputBytesPerSec float64 `json:"throughput_bytes_per_sec"`
+	TotalDataSent         int64   `json:"total_data_sent"`
+	TotalDataReceived     int64   `json:"total_data_received"`
 	ThresholdsPassRate    float64 `json:"thresholds_pass_rate"`
 }
 
@@ -74,6 +76,9 @@ type ReportTimeSeriesPoint struct {
 	ActiveVUs  int64     `json:"active_vus"`
 	ErrorRate  float64   `json:"error_rate"`
 	Iterations int64     `json:"iterations"`
+
+	DataSentPerSec     float64 `json:"data_sent_per_sec"`
+	DataReceivedPerSec float64 `json:"data_received_per_sec"`
 }
 
 // StepDetailReport contains detailed metrics for a single step.

@@ -167,6 +167,8 @@ func (e *HTTPExecutor) Execute(ctx context.Context, step *types.Step, execCtx *E
 	// 13. 添加指标
 	result.AddMetric("http_status", float64(resp.StatusCode))
 	result.AddMetric("http_response_size", float64(output.Size))
+	result.AddMetric("data_received", float64(output.Size))
+	result.AddMetric("data_sent", float64(len(reqBodyStr)))
 
 	return result, nil
 }

@@ -196,26 +196,36 @@ func (o *Output) GenerateReport(
 		tsData := metricsEngine.GetTimeSeriesData()
 		report.TimeSeries = make([]*types.ReportTimeSeriesPoint, len(tsData))
 		peakQPS := 0.0
+		var totalDataSent, totalDataReceived float64
 		for i, p := range tsData {
 			ts, _ := time.Parse(time.RFC3339, p.Timestamp)
 			report.TimeSeries[i] = &types.ReportTimeSeriesPoint{
-				Timestamp:  ts,
-				ElapsedMs:  p.ElapsedMs,
-				QPS:        p.QPS,
-				AvgRTMs:    p.AvgRT,
-				P50RTMs:    p.P50RT,
-				P90RTMs:    p.P90RT,
-				P95RTMs:    p.P95RT,
-				P99RTMs:    p.P99RT,
-				ActiveVUs:  p.ActiveVUs,
-				ErrorRate:  p.ErrorRate,
-				Iterations: p.Iterations,
+				Timestamp:          ts,
+				ElapsedMs:          p.ElapsedMs,
+				QPS:                p.QPS,
+				AvgRTMs:            p.AvgRT,
+				P50RTMs:            p.P50RT,
+				P90RTMs:            p.P90RT,
+				P95RTMs:            p.P95RT,
+				P99RTMs:            p.P99RT,
+				ActiveVUs:          p.ActiveVUs,
+				ErrorRate:          p.ErrorRate,
+				Iterations:         p.Iterations,
+				DataSentPerSec:     p.DataSentPerSec,
+				DataReceivedPerSec: p.DataReceivedPerSec,
 			}
 			if p.QPS > peakQPS {
 				peakQPS = p.QPS
 			}
+			totalDataSent += p.DataSentPerSec
+			totalDataReceived += p.DataReceivedPerSec
 		}
 		report.Summary.PeakQPS = peakQPS
+		report.Summary.TotalDataSent = int64(totalDataSent)
+		report.Summary.TotalDataReceived = int64(totalDataReceived)
+		if durationMs > 0 {
+			report.Summary.ThroughputBytesPerSec = (totalDataSent + totalDataReceived) / (float64(durationMs) / 1000)
+		}
 	}
 
 	// Error analysis

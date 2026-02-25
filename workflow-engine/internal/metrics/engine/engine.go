@@ -230,6 +230,7 @@ func (me *MetricsEngine) StartTimeSeriesCollection(
 	me.snapshotTicker = time.NewTicker(1 * time.Second)
 
 	var lastIterations int64
+	var lastDataSent, lastDataReceived float64
 
 	go func() {
 		defer close(me.snapshotDone)
@@ -261,9 +262,22 @@ func (me *MetricsEngine) StartTimeSeriesCollection(
 				if m := me.ObservedMetrics["step_failed"]; m != nil && m.Sink != nil {
 					stats := m.Sink.Format(0)
 					if total := stats["passes"] + stats["fails"]; total > 0 {
-						// "passes" = Trues = value!=0 的次数 = 失败次数（因为 failed=true → value=1）
 						point.ErrorRate = stats["passes"] / total * 100
 					}
+				}
+
+				if m := me.ObservedMetrics["data_sent"]; m != nil && m.Sink != nil {
+					stats := m.Sink.Format(0)
+					currentDataSent := stats["count"]
+					point.DataSentPerSec = currentDataSent - lastDataSent
+					lastDataSent = currentDataSent
+				}
+
+				if m := me.ObservedMetrics["data_received"]; m != nil && m.Sink != nil {
+					stats := m.Sink.Format(0)
+					currentDataReceived := stats["count"]
+					point.DataReceivedPerSec = currentDataReceived - lastDataReceived
+					lastDataReceived = currentDataReceived
 				}
 
 				me.MetricsLock.Unlock()

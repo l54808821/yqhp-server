@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -223,7 +224,15 @@ func (e *DBExecutor) Execute(ctx context.Context, step *types.Step, execCtx *Exe
 	result.Driver = string(stepConfig.Driver)
 	result.ActualSQL = op.SQL
 
-	return CreateSuccessResult(step.ID, startTime, result), nil
+	stepResult := CreateSuccessResult(step.ID, startTime, result)
+	stepResult.AddMetric("data_sent", float64(len(op.SQL)))
+	if result.Data != nil {
+		if b, err := json.Marshal(result.Data); err == nil {
+			stepResult.AddMetric("data_received", float64(len(b)))
+		}
+	}
+
+	return stepResult, nil
 }
 
 // executeQuery 执行查询

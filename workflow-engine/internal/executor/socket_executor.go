@@ -139,6 +139,16 @@ func (e *SocketExecutor) Execute(ctx context.Context, step *types.Step, execCtx 
 	}
 
 	result := CreateSuccessResult(step.ID, startTime, output)
+
+	if m, ok := output.(map[string]any); ok {
+		if v, ok := m["bytes_sent"].(int); ok {
+			result.AddMetric("data_sent", float64(v))
+		}
+		if v, ok := m["bytes_received"].(int); ok {
+			result.AddMetric("data_received", float64(v))
+		}
+	}
+
 	return result, nil
 }
 

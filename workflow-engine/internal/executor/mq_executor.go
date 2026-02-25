@@ -279,10 +279,22 @@ func (e *MQExecutor) Execute(ctx context.Context, step *types.Step, execCtx *Exe
 		output.Messages = msgs
 	}
 
-	// 11. 执行后置处理器
+	// 11. 数据流量指标
+	switch op.Action {
+	case "publish", "send":
+		result.AddMetric("data_sent", float64(len(op.Message)))
+	case "consume", "receive":
+		var received int
+		for _, m := range mqResult.Messages {
+			received += len(m.Value)
+		}
+		result.AddMetric("data_received", float64(received))
+	}
+
+	// 12. 执行后置处理器
 	e.executePostProcessors(ctx, step, execCtx, procExecutor, output, result.StartTime)
 
-	// 12. 收集日志和断言
+	// 13. 收集日志和断言
 	e.collectLogsAndAssertions(execCtx, output)
 
 	return result, nil

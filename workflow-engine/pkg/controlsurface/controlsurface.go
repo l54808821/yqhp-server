@@ -37,6 +37,9 @@ type TimeSeriesPoint struct {
 	P90RT      float64 `json:"p90_rt_ms"`
 	P95RT      float64 `json:"p95_rt_ms"`
 	P99RT      float64 `json:"p99_rt_ms"`
+
+	DataSentPerSec     float64 `json:"data_sent_per_sec"`
+	DataReceivedPerSec float64 `json:"data_received_per_sec"`
 }
 
 // RealtimeMetrics is the data structure pushed to clients.

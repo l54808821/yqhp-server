@@ -129,12 +129,21 @@ func (me *MetricsEngine) buildStepMetrics(durationSec float64) map[string]*StepM
 		case len(name) > 10 && name[:10] == "step_reqs_":
 			stepID := name[10:]
 			s := me.getOrCreateStepStats(result, stepID)
-			s.Count = int64(stats["count"])
+			if s.Count == 0 {
+				s.Count = int64(stats["count"])
+			}
 		case len(name) > 12 && name[:12] == "step_failed_":
 			stepID := name[12:]
 			s := me.getOrCreateStepStats(result, stepID)
 			s.SuccessCount = int64(stats["passes"])
 			s.FailureCount = int64(stats["fails"])
+		}
+	}
+
+	// 用 passes + fails 的总和统一 Count，避免不同 Sink 间的 flush 时序差异
+	for _, s := range result {
+		if rateTotal := s.SuccessCount + s.FailureCount; rateTotal > 0 && rateTotal != s.Count {
+			s.Count = rateTotal
 		}
 	}
 

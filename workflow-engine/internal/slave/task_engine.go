@@ -257,7 +257,7 @@ func (e *TaskEngine) Execute(ctx context.Context, task *types.Task) (*types.Task
 		e.samplesChan = nil
 	}
 
-	// 3. Wait for all outputs to flush
+	// 3. Wait for OutputManager to finish distributing all buffered samples
 	if e.outputWait != nil {
 		e.outputWait()
 	}
@@ -276,7 +276,13 @@ func (e *TaskEngine) Execute(ctx context.Context, task *types.Task) (*types.Task
 		result.Status = types.ExecutionStatusCompleted
 	}
 
-	// 5. Generate final report from Summary Output
+	// 5. Stop all outputs so that their internal PeriodicFlusher
+	//    performs a final flush before we read metrics for the report.
+	if e.outputFinish != nil {
+		e.outputFinish(execErr)
+	}
+
+	// 6. Generate final report from Summary Output (now all sinks are fully flushed)
 	if e.summaryOutput != nil && e.metricsEngine != nil {
 		report := e.summaryOutput.GenerateReport(
 			e.metricsEngine,
@@ -295,14 +301,9 @@ func (e *TaskEngine) Execute(ctx context.Context, task *types.Task) (*types.Task
 		}
 	}
 
-	// 6. Flush sample logs
+	// 7. Flush sample logs
 	if e.sampleLogCollector != nil {
 		e.sampleLogCollector.Flush()
-	}
-
-	// 7. Stop outputs
-	if e.outputFinish != nil {
-		e.outputFinish(execErr)
 	}
 
 	// 8. Collect legacy metrics (for backward compat during transition)
@@ -837,12 +838,6 @@ func (e *TaskEngine) executeStepsWithContext(ctx context.Context, steps []types.
 
 	for i := range steps {
 		step := &steps[i]
-
-		select {
-		case <-ctx.Done():
-			return results, ctx.Err()
-		default:
-		}
 
 		// 跳过禁用的步骤
 		if step.Disabled {

@@ -298,6 +298,13 @@ func (e *TaskEngine) Execute(ctx context.Context, task *types.Task) (*types.Task
 			e.iterations.Load(),
 			vus,
 		)
+		report.Config = &types.ReportConfig{
+			Mode:       string(opts.ExecutionMode),
+			VUs:        vus,
+			Duration:   opts.Duration.String(),
+			Iterations: iterations,
+			Stages:     opts.Stages,
+		}
 		result.Report = report
 
 		// Store report in ControlSurface for REST API access

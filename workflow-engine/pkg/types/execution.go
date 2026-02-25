@@ -70,9 +70,9 @@ const (
 
 // Stage defines an execution stage.
 type Stage struct {
-	Duration time.Duration `yaml:"duration"`
-	Target   int           `yaml:"target"` // Target VU count or arrival rate
-	Name     string        `yaml:"name,omitempty"`
+	Duration time.Duration `yaml:"duration" json:"duration"`
+	Target   int           `yaml:"target" json:"target"`
+	Name     string        `yaml:"name,omitempty" json:"name,omitempty"`
 }
 
 // RampConfig defines ramping configuration.

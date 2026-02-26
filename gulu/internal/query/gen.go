@@ -16,25 +16,27 @@ import (
 )
 
 var (
-	Q                  = new(Query)
-	TAiModel           *tAiModel
-	TCategoryWorkflow  *tCategoryWorkflow
-	TConfig            *tConfig
-	TConfigDefinition  *tConfigDefinition
-	TEnv               *tEnv
-	TExecution         *tExecution
-	TExecutor          *tExecutor
-	TProject           *tProject
-	TProjectMember     *tProjectMember
-	TProjectPermission *tProjectPermission
-	TTeam              *tTeam
-	TTeamMember        *tTeamMember
-	TWorkflow          *tWorkflow
-	TMcpServer         *tMcpServer
-	TSkill              *tSkill
-	TSkillResource      *tSkillResource
-	TKnowledgeBase      *tKnowledgeBase
-	TKnowledgeDocument  *tKnowledgeDocument
+	Q                      = new(Query)
+	TAiModel               *tAiModel
+	TCategoryWorkflow      *tCategoryWorkflow
+	TConfig                *tConfig
+	TConfigDefinition      *tConfigDefinition
+	TEnv                   *tEnv
+	TExecution             *tExecution
+	TExecutor              *tExecutor
+	TProject               *tProject
+	TProjectMember         *tProjectMember
+	TProjectPermission     *tProjectPermission
+	TTeam                  *tTeam
+	TTeamMember            *tTeamMember
+	TWorkflow              *tWorkflow
+	TMcpServer             *tMcpServer
+	TSkill                 *tSkill
+	TSkillResource         *tSkillResource
+	TKnowledgeBase         *tKnowledgeBase
+	TKnowledgeDocument     *tKnowledgeDocument
+	TAiConversation        *tAiConversation
+	TAiConversationMessage *tAiConversationMessage
 )
 
 func SetDefault(db *gorm.DB, opts ...gen.DOOption) {
@@ -57,78 +59,86 @@ func SetDefault(db *gorm.DB, opts ...gen.DOOption) {
 	TSkillResource = &Q.TSkillResource
 	TKnowledgeBase = &Q.TKnowledgeBase
 	TKnowledgeDocument = &Q.TKnowledgeDocument
+	TAiConversation = &Q.TAiConversation
+	TAiConversationMessage = &Q.TAiConversationMessage
 }
 
 func Use(db *gorm.DB, opts ...gen.DOOption) *Query {
 	return &Query{
-		db:                 db,
-		TAiModel:           newTAiModel(db, opts...),
-		TCategoryWorkflow:  newTCategoryWorkflow(db, opts...),
-		TConfig:            newTConfig(db, opts...),
-		TConfigDefinition:  newTConfigDefinition(db, opts...),
-		TEnv:               newTEnv(db, opts...),
-		TExecution:         newTExecution(db, opts...),
-		TExecutor:          newTExecutor(db, opts...),
-		TProject:           newTProject(db, opts...),
-		TProjectMember:     newTProjectMember(db, opts...),
-		TProjectPermission: newTProjectPermission(db, opts...),
-		TTeam:              newTTeam(db, opts...),
-		TTeamMember:        newTTeamMember(db, opts...),
-		TWorkflow:          newTWorkflow(db, opts...),
-		TMcpServer:         newTMcpServer(db, opts...),
-		TSkill:              newTSkill(db, opts...),
-		TSkillResource:      newTSkillResource(db, opts...),
-		TKnowledgeBase:      newTKnowledgeBase(db, opts...),
-		TKnowledgeDocument:  newTKnowledgeDocument(db, opts...),
+		db:                     db,
+		TAiModel:               newTAiModel(db, opts...),
+		TCategoryWorkflow:      newTCategoryWorkflow(db, opts...),
+		TConfig:                newTConfig(db, opts...),
+		TConfigDefinition:      newTConfigDefinition(db, opts...),
+		TEnv:                   newTEnv(db, opts...),
+		TExecution:             newTExecution(db, opts...),
+		TExecutor:              newTExecutor(db, opts...),
+		TProject:               newTProject(db, opts...),
+		TProjectMember:         newTProjectMember(db, opts...),
+		TProjectPermission:     newTProjectPermission(db, opts...),
+		TTeam:                  newTTeam(db, opts...),
+		TTeamMember:            newTTeamMember(db, opts...),
+		TWorkflow:              newTWorkflow(db, opts...),
+		TMcpServer:             newTMcpServer(db, opts...),
+		TSkill:                 newTSkill(db, opts...),
+		TSkillResource:         newTSkillResource(db, opts...),
+		TKnowledgeBase:         newTKnowledgeBase(db, opts...),
+		TKnowledgeDocument:     newTKnowledgeDocument(db, opts...),
+		TAiConversation:        newTAiConversation(db, opts...),
+		TAiConversationMessage: newTAiConversationMessage(db, opts...),
 	}
 }
 
 type Query struct {
 	db *gorm.DB
 
-	TAiModel           tAiModel
-	TCategoryWorkflow  tCategoryWorkflow
-	TConfig            tConfig
-	TConfigDefinition  tConfigDefinition
-	TEnv               tEnv
-	TExecution         tExecution
-	TExecutor          tExecutor
-	TProject           tProject
-	TProjectMember     tProjectMember
-	TProjectPermission tProjectPermission
-	TTeam              tTeam
-	TTeamMember        tTeamMember
-	TWorkflow          tWorkflow
-	TMcpServer         tMcpServer
-	TSkill              tSkill
-	TSkillResource      tSkillResource
-	TKnowledgeBase      tKnowledgeBase
-	TKnowledgeDocument  tKnowledgeDocument
+	TAiModel               tAiModel
+	TCategoryWorkflow      tCategoryWorkflow
+	TConfig                tConfig
+	TConfigDefinition      tConfigDefinition
+	TEnv                   tEnv
+	TExecution             tExecution
+	TExecutor              tExecutor
+	TProject               tProject
+	TProjectMember         tProjectMember
+	TProjectPermission     tProjectPermission
+	TTeam                  tTeam
+	TTeamMember            tTeamMember
+	TWorkflow              tWorkflow
+	TMcpServer             tMcpServer
+	TSkill                 tSkill
+	TSkillResource         tSkillResource
+	TKnowledgeBase         tKnowledgeBase
+	TKnowledgeDocument     tKnowledgeDocument
+	TAiConversation        tAiConversation
+	TAiConversationMessage tAiConversationMessage
 }
 
 func (q *Query) Available() bool { return q.db != nil }
 
 func (q *Query) clone(db *gorm.DB) *Query {
 	return &Query{
-		db:                 db,
-		TAiModel:           q.TAiModel.clone(db),
-		TCategoryWorkflow:  q.TCategoryWorkflow.clone(db),
-		TConfig:            q.TConfig.clone(db),
-		TConfigDefinition:  q.TConfigDefinition.clone(db),
-		TEnv:               q.TEnv.clone(db),
-		TExecution:         q.TExecution.clone(db),
-		TExecutor:          q.TExecutor.clone(db),
-		TProject:           q.TProject.clone(db),
-		TProjectMember:     q.TProjectMember.clone(db),
-		TProjectPermission: q.TProjectPermission.clone(db),
-		TTeam:              q.TTeam.clone(db),
-		TTeamMember:        q.TTeamMember.clone(db),
-		TWorkflow:          q.TWorkflow.clone(db),
-		TMcpServer:         q.TMcpServer.clone(db),
-		TSkill:              q.TSkill.clone(db),
-		TSkillResource:      q.TSkillResource.clone(db),
-		TKnowledgeBase:      q.TKnowledgeBase.clone(db),
-		TKnowledgeDocument:  q.TKnowledgeDocument.clone(db),
+		db:                     db,
+		TAiModel:               q.TAiModel.clone(db),
+		TCategoryWorkflow:      q.TCategoryWorkflow.clone(db),
+		TConfig:                q.TConfig.clone(db),
+		TConfigDefinition:      q.TConfigDefinition.clone(db),
+		TEnv:                   q.TEnv.clone(db),
+		TExecution:             q.TExecution.clone(db),
+		TExecutor:              q.TExecutor.clone(db),
+		TProject:               q.TProject.clone(db),
+		TProjectMember:         q.TProjectMember.clone(db),
+		TProjectPermission:     q.TProjectPermission.clone(db),
+		TTeam:                  q.TTeam.clone(db),
+		TTeamMember:            q.TTeamMember.clone(db),
+		TWorkflow:              q.TWorkflow.clone(db),
+		TMcpServer:             q.TMcpServer.clone(db),
+		TSkill:                 q.TSkill.clone(db),
+		TSkillResource:         q.TSkillResource.clone(db),
+		TKnowledgeBase:         q.TKnowledgeBase.clone(db),
+		TKnowledgeDocument:     q.TKnowledgeDocument.clone(db),
+		TAiConversation:        q.TAiConversation.clone(db),
+		TAiConversationMessage: q.TAiConversationMessage.clone(db),
 	}
 }
 
@@ -142,69 +152,75 @@ func (q *Query) WriteDB() *Query {
 
 func (q *Query) ReplaceDB(db *gorm.DB) *Query {
 	return &Query{
-		db:                 db,
-		TAiModel:           q.TAiModel.replaceDB(db),
-		TCategoryWorkflow:  q.TCategoryWorkflow.replaceDB(db),
-		TConfig:            q.TConfig.replaceDB(db),
-		TConfigDefinition:  q.TConfigDefinition.replaceDB(db),
-		TEnv:               q.TEnv.replaceDB(db),
-		TExecution:         q.TExecution.replaceDB(db),
-		TExecutor:          q.TExecutor.replaceDB(db),
-		TProject:           q.TProject.replaceDB(db),
-		TProjectMember:     q.TProjectMember.replaceDB(db),
-		TProjectPermission: q.TProjectPermission.replaceDB(db),
-		TTeam:              q.TTeam.replaceDB(db),
-		TTeamMember:        q.TTeamMember.replaceDB(db),
-		TWorkflow:          q.TWorkflow.replaceDB(db),
-		TMcpServer:         q.TMcpServer.replaceDB(db),
-		TSkill:              q.TSkill.replaceDB(db),
-		TSkillResource:      q.TSkillResource.replaceDB(db),
-		TKnowledgeBase:      q.TKnowledgeBase.replaceDB(db),
-		TKnowledgeDocument:  q.TKnowledgeDocument.replaceDB(db),
+		db:                     db,
+		TAiModel:               q.TAiModel.replaceDB(db),
+		TCategoryWorkflow:      q.TCategoryWorkflow.replaceDB(db),
+		TConfig:                q.TConfig.replaceDB(db),
+		TConfigDefinition:      q.TConfigDefinition.replaceDB(db),
+		TEnv:                   q.TEnv.replaceDB(db),
+		TExecution:             q.TExecution.replaceDB(db),
+		TExecutor:              q.TExecutor.replaceDB(db),
+		TProject:               q.TProject.replaceDB(db),
+		TProjectMember:         q.TProjectMember.replaceDB(db),
+		TProjectPermission:     q.TProjectPermission.replaceDB(db),
+		TTeam:                  q.TTeam.replaceDB(db),
+		TTeamMember:            q.TTeamMember.replaceDB(db),
+		TWorkflow:              q.TWorkflow.replaceDB(db),
+		TMcpServer:             q.TMcpServer.replaceDB(db),
+		TSkill:                 q.TSkill.replaceDB(db),
+		TSkillResource:         q.TSkillResource.replaceDB(db),
+		TKnowledgeBase:         q.TKnowledgeBase.replaceDB(db),
+		TKnowledgeDocument:     q.TKnowledgeDocument.replaceDB(db),
+		TAiConversation:        q.TAiConversation.replaceDB(db),
+		TAiConversationMessage: q.TAiConversationMessage.replaceDB(db),
 	}
 }
 
 type queryCtx struct {
-	TAiModel           ITAiModelDo
-	TCategoryWorkflow  ITCategoryWorkflowDo
-	TConfig            ITConfigDo
-	TConfigDefinition  ITConfigDefinitionDo
-	TEnv               ITEnvDo
-	TExecution         ITExecutionDo
-	TExecutor          ITExecutorDo
-	TProject           ITProjectDo
-	TProjectMember     ITProjectMemberDo
-	TProjectPermission ITProjectPermissionDo
-	TTeam              ITTeamDo
-	TTeamMember        ITTeamMemberDo
-	TWorkflow          ITWorkflowDo
-	TMcpServer         ITMcpServerDo
-	TSkill              ITSkillDo
-	TSkillResource      ITSkillResourceDo
-	TKnowledgeBase      ITKnowledgeBaseDo
-	TKnowledgeDocument  ITKnowledgeDocumentDo
+	TAiModel               ITAiModelDo
+	TCategoryWorkflow      ITCategoryWorkflowDo
+	TConfig                ITConfigDo
+	TConfigDefinition      ITConfigDefinitionDo
+	TEnv                   ITEnvDo
+	TExecution             ITExecutionDo
+	TExecutor              ITExecutorDo
+	TProject               ITProjectDo
+	TProjectMember         ITProjectMemberDo
+	TProjectPermission     ITProjectPermissionDo
+	TTeam                  ITTeamDo
+	TTeamMember            ITTeamMemberDo
+	TWorkflow              ITWorkflowDo
+	TMcpServer             ITMcpServerDo
+	TSkill                 ITSkillDo
+	TSkillResource         ITSkillResourceDo
+	TKnowledgeBase         ITKnowledgeBaseDo
+	TKnowledgeDocument     ITKnowledgeDocumentDo
+	TAiConversation        ITAiConversationDo
+	TAiConversationMessage ITAiConversationMessageDo
 }
 
 func (q *Query) WithContext(ctx context.Context) *queryCtx {
 	return &queryCtx{
-		TAiModel:           q.TAiModel.WithContext(ctx),
-		TCategoryWorkflow:  q.TCategoryWorkflow.WithContext(ctx),
-		TConfig:            q.TConfig.WithContext(ctx),
-		TConfigDefinition:  q.TConfigDefinition.WithContext(ctx),
-		TEnv:               q.TEnv.WithContext(ctx),
-		TExecution:         q.TExecution.WithContext(ctx),
-		TExecutor:          q.TExecutor.WithContext(ctx),
-		TProject:           q.TProject.WithContext(ctx),
-		TProjectMember:     q.TProjectMember.WithContext(ctx),
-		TProjectPermission: q.TProjectPermission.WithContext(ctx),
-		TTeam:              q.TTeam.WithContext(ctx),
-		TTeamMember:        q.TTeamMember.WithContext(ctx),
-		TWorkflow:          q.TWorkflow.WithContext(ctx),
-		TMcpServer:         q.TMcpServer.WithContext(ctx),
-		TSkill:              q.TSkill.WithContext(ctx),
-		TSkillResource:      q.TSkillResource.WithContext(ctx),
-		TKnowledgeBase:      q.TKnowledgeBase.WithContext(ctx),
-		TKnowledgeDocument:  q.TKnowledgeDocument.WithContext(ctx),
+		TAiModel:               q.TAiModel.WithContext(ctx),
+		TCategoryWorkflow:      q.TCategoryWorkflow.WithContext(ctx),
+		TConfig:                q.TConfig.WithContext(ctx),
+		TConfigDefinition:      q.TConfigDefinition.WithContext(ctx),
+		TEnv:                   q.TEnv.WithContext(ctx),
+		TExecution:             q.TExecution.WithContext(ctx),
+		TExecutor:              q.TExecutor.WithContext(ctx),
+		TProject:               q.TProject.WithContext(ctx),
+		TProjectMember:         q.TProjectMember.WithContext(ctx),
+		TProjectPermission:     q.TProjectPermission.WithContext(ctx),
+		TTeam:                  q.TTeam.WithContext(ctx),
+		TTeamMember:            q.TTeamMember.WithContext(ctx),
+		TWorkflow:              q.TWorkflow.WithContext(ctx),
+		TMcpServer:             q.TMcpServer.WithContext(ctx),
+		TSkill:                 q.TSkill.WithContext(ctx),
+		TSkillResource:         q.TSkillResource.WithContext(ctx),
+		TKnowledgeBase:         q.TKnowledgeBase.WithContext(ctx),
+		TKnowledgeDocument:     q.TKnowledgeDocument.WithContext(ctx),
+		TAiConversation:        q.TAiConversation.WithContext(ctx),
+		TAiConversationMessage: q.TAiConversationMessage.WithContext(ctx),
 	}
 }
 

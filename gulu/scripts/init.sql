@@ -431,6 +431,36 @@ NULL, '{"temperature": 0.5, "max_tokens": 4096}', NULL, 'Apache-2.0', 1, 1, '1.0
 NULL, '{"temperature": 0.3, "max_tokens": 4096}', '["http_request","json_parse"]', 'Apache-2.0', 1, 1, '1.0.0', 30, 1);
 
 -- ============================================
+-- AI 工作流会话表 (t_ai_conversation)
+-- ============================================
+CREATE TABLE IF NOT EXISTS `t_ai_conversation` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `workflow_id` BIGINT UNSIGNED NOT NULL COMMENT '关联的工作流ID',
+    `title` VARCHAR(200) DEFAULT '新的对话' COMMENT '会话标题（默认取首条消息摘要）',
+    `variables` JSON DEFAULT NULL COMMENT '会话级变量（开场参数等）',
+    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+    `updated_at` DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    `created_by` BIGINT UNSIGNED DEFAULT NULL COMMENT '创建人ID',
+    PRIMARY KEY (`id`),
+    INDEX `idx_ai_conv_workflow_id` (`workflow_id`),
+    INDEX `idx_ai_conv_created_by` (`created_by`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI工作流会话表';
+
+-- ============================================
+-- AI 工作流会话消息表 (t_ai_conversation_message)
+-- ============================================
+CREATE TABLE IF NOT EXISTS `t_ai_conversation_message` (
+    `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    `conversation_id` BIGINT UNSIGNED NOT NULL COMMENT '关联的会话ID',
+    `role` VARCHAR(20) NOT NULL COMMENT '消息角色: user/assistant/system',
+    `content` LONGTEXT NOT NULL COMMENT '消息内容',
+    `metadata` JSON DEFAULT NULL COMMENT '元信息（token用量、执行耗时、步骤结果摘要等）',
+    `created_at` DATETIME DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (`id`),
+    INDEX `idx_ai_conv_msg_conv_id` (`conversation_id`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI工作流会话消息表';
+
+-- ============================================
 -- 完成提示
 -- ============================================
 SELECT 'Gulu 数据库初始化完成!' AS message;

@@ -1,5 +1,11 @@
 package types
 
+// ChatMessage AI 工作流的对话消息
+type ChatMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
 // ExecuteWorkflowRequest 执行工作流请求
 type ExecuteWorkflowRequest struct {
 	// 工作流定义（JSON 字符串或已解析的工作流对象）
@@ -30,6 +36,14 @@ type ExecuteWorkflowRequest struct {
 	CallbackURL string `json:"callbackUrl,omitempty"`
 	// 是否使用 SSE 流式响应
 	Stream bool `json:"stream,omitempty"`
+
+	// === AI 工作流专用字段 ===
+	// 会话 ID（AI 工作流多轮对话）
+	ConversationID string `json:"conversationId,omitempty"`
+	// 用户消息（AI 工作流当前轮输入）
+	UserMessage string `json:"userMessage,omitempty"`
+	// 对话历史（AI 工作流多轮记忆）
+	ChatHistory []ChatMessage `json:"chatHistory,omitempty"`
 }
 
 // ExecuteWorkflowResponse 执行工作流响应
@@ -98,6 +112,18 @@ const (
 	EventTypeHeartbeat ExecutionEventType = "heartbeat"
 	// 错误
 	EventTypeError ExecutionEventType = "error"
+
+	// === AI 工作流事件 ===
+	// AI 流式文本块
+	EventTypeAIChunk ExecutionEventType = "ai_chunk"
+	// AI 思考过程
+	EventTypeAIThinking ExecutionEventType = "ai_thinking"
+	// AI 工具调用开始
+	EventTypeAIToolCallStart ExecutionEventType = "ai_tool_call_start"
+	// AI 工具调用完成
+	EventTypeAIToolCallComplete ExecutionEventType = "ai_tool_call_complete"
+	// AI 消息完成
+	EventTypeMessageComplete ExecutionEventType = "message_complete"
 )
 
 // StepStartedEvent 步骤开始事件数据

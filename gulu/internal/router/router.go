@@ -235,6 +235,16 @@ func Setup(app *fiber.App) {
 	workflows.Get("/:id/yaml", handler.WorkflowExportYAML)
 	workflows.Post("/:id/validate", handler.WorkflowValidate)
 	workflows.Put("/:id/status", handler.WorkflowUpdateStatus)
+	// AI 工作流会话路由
+	workflows.Post("/:id/conversations", handler.AIConversationCreate)
+	workflows.Get("/:id/conversations", handler.AIConversationList)
+
+	// AI 会话管理路由
+	conversations := api.Group("/conversations")
+	conversations.Get("/:convId", handler.AIConversationGetDetail)
+	conversations.Delete("/:convId", handler.AIConversationDelete)
+	conversations.Put("/:convId/title", handler.AIConversationUpdateTitle)
+	conversations.Post("/:convId/messages", handler.AIConversationSaveMessage)
 
 	// 执行记录管理路由（历史记录查询等）
 	executionRecords := api.Group("/execution-records")

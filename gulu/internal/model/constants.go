@@ -7,12 +7,13 @@ const (
 	WorkflowTypeNormal         WorkflowType = "normal"          // 普通流程
 	WorkflowTypePerformance    WorkflowType = "performance"     // 压测流程
 	WorkflowTypeDataGeneration WorkflowType = "data_generation" // 造数流程
+	WorkflowTypeAIWorkflow     WorkflowType = "ai_workflow"     // AI工作流
 )
 
 // IsValid 验证工作流类型是否有效
 func (t WorkflowType) IsValid() bool {
 	switch t {
-	case WorkflowTypeNormal, WorkflowTypePerformance, WorkflowTypeDataGeneration:
+	case WorkflowTypeNormal, WorkflowTypePerformance, WorkflowTypeDataGeneration, WorkflowTypeAIWorkflow:
 		return true
 	default:
 		return false

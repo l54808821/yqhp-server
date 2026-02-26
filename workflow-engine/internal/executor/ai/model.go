@@ -155,7 +155,8 @@ func (e *AIExecutor) createChatModel(ctx context.Context, config *AIConfig) (mod
 }
 
 // buildMessages 构建 LLM 消息列表
-func (e *AIExecutor) buildMessages(config *AIConfig) []*schema.Message {
+// chatHistory 为 AI 工作流多轮对话注入的历史消息，可为 nil
+func (e *AIExecutor) buildMessages(config *AIConfig, chatHistory ...map[string]any) []*schema.Message {
 	var messages []*schema.Message
 
 	systemPrompt := config.SystemPrompt
@@ -166,12 +167,10 @@ func (e *AIExecutor) buildMessages(config *AIConfig) []*schema.Message {
 		systemPrompt += interactiveSystemInstruction
 	}
 
-	// 当挂载了 Skill 时，追加 Skill 能力说明
 	if len(config.Skills) > 0 {
 		systemPrompt += buildSkillInstruction(config.Skills)
 	}
 
-	// 当挂载了知识库时，追加知识库能力说明
 	if len(config.KnowledgeBases) > 0 {
 		systemPrompt += buildKnowledgeInstruction(config.KnowledgeBases)
 	}
@@ -180,7 +179,24 @@ func (e *AIExecutor) buildMessages(config *AIConfig) []*schema.Message {
 		messages = append(messages, schema.SystemMessage(systemPrompt))
 	}
 
-	// 知识库上下文注入：在用户提示词前插入检索到的知识
+	// 注入对话历史（AI 工作流多轮记忆）
+	if len(chatHistory) > 0 {
+		for _, msg := range chatHistory {
+			role, _ := msg["role"].(string)
+			content, _ := msg["content"].(string)
+			if content == "" {
+				continue
+			}
+			switch role {
+			case "user":
+				messages = append(messages, schema.UserMessage(content))
+			case "assistant":
+				messages = append(messages, schema.AssistantMessage(content, nil))
+			}
+		}
+	}
+
+	// 知识库上下文注入
 	userPrompt := config.Prompt
 	if len(config.KnowledgeBases) > 0 {
 		topK := config.KBTopK

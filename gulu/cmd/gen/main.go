@@ -78,6 +78,9 @@ func main() {
 		// 知识库管理
 		g.GenerateModel("t_knowledge_base"),
 		g.GenerateModel("t_knowledge_document"),
+		// AI 工作流会话
+		g.GenerateModel("t_ai_conversation"),
+		g.GenerateModel("t_ai_conversation_message"),
 	)
 
 	// 执行生成

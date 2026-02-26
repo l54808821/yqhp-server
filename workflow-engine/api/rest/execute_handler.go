@@ -121,6 +121,22 @@ func (s *Server) executeWorkflow(c *fiber.Ctx) error {
 		}
 	}
 
+	// AI 工作流：将对话历史和用户消息注入变量
+	if len(req.ChatHistory) > 0 || req.UserMessage != "" {
+		if wf.Variables == nil {
+			wf.Variables = make(map[string]interface{})
+		}
+		if len(req.ChatHistory) > 0 {
+			wf.Variables["__chat_history__"] = req.ChatHistory
+		}
+		if req.UserMessage != "" {
+			wf.Variables["__user_message__"] = req.UserMessage
+		}
+		if req.ConversationID != "" {
+			wf.Variables["__conversation_id__"] = req.ConversationID
+		}
+	}
+
 	// 设置超时
 	timeout := 30 * time.Minute
 	if req.Timeout > 0 {
@@ -696,11 +712,18 @@ func (w *sseWriter) WriteEvent(eventType string, data interface{}) error {
 	return w.w.Flush()
 }
 
-// streamCallback 流式回调（实现 types.ExecutionCallback 接口）
+// streamCallback 流式回调（实现 types.ExecutionCallback + AICallback + AIToolCallback + AIThinkingCallback 接口）
 type streamCallback struct {
 	writer  *sseWriter
 	session *ExecuteSession
 }
+
+// 确保 streamCallback 实现了 AI 相关接口
+var (
+	_ types.AICallback         = (*streamCallback)(nil)
+	_ types.AIToolCallback     = (*streamCallback)(nil)
+	_ types.AIThinkingCallback = (*streamCallback)(nil)
+)
 
 func (c *streamCallback) OnStepStart(ctx context.Context, step *types.Step, parentID string, iteration int) {
 	c.session.mu.Lock()
@@ -743,11 +766,77 @@ func (c *streamCallback) OnStepSkipped(ctx context.Context, step *types.Step, re
 }
 
 func (c *streamCallback) OnProgress(ctx context.Context, current, total int, stepName string) {
-	// 流式模式已通过事件推送进度
 }
 
 func (c *streamCallback) OnExecutionComplete(ctx context.Context, summary *types.ExecutionSummary) {
-	// 由外部处理
+}
+
+func (c *streamCallback) OnAIChunk(ctx context.Context, stepID string, chunk string, index int) {
+	c.writer.WriteEvent(string(types.EventTypeAIChunk), map[string]interface{}{
+		"stepId":  stepID,
+		"content": chunk,
+		"index":   index,
+	})
+}
+
+func (c *streamCallback) OnAIComplete(ctx context.Context, stepID string, result *types.AIResult) {
+	c.writer.WriteEvent(string(types.EventTypeMessageComplete), map[string]interface{}{
+		"stepId":  stepID,
+		"content": result.Content,
+		"usage": map[string]int{
+			"prompt_tokens":     result.PromptTokens,
+			"completion_tokens": result.CompletionTokens,
+			"total_tokens":      result.TotalTokens,
+		},
+	})
+}
+
+func (c *streamCallback) OnAIError(ctx context.Context, stepID string, err error) {
+	c.writer.WriteEvent(string(types.EventTypeError), map[string]interface{}{
+		"stepId":  stepID,
+		"code":    "AI_ERROR",
+		"message": err.Error(),
+	})
+}
+
+func (c *streamCallback) OnAIInteractionRequired(ctx context.Context, stepID string, request *types.InteractionRequest) (*types.InteractionResponse, error) {
+	c.writer.WriteEvent(string(types.EventTypeInteractionRequired), &types.InteractionRequiredEvent{
+		StepID:  stepID,
+		Prompt:  request.Prompt,
+		Timeout: request.Timeout,
+	})
+
+	select {
+	case resp := <-c.session.InteractionCh:
+		return resp, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (c *streamCallback) OnAIThinking(ctx context.Context, stepID string, round int, thinking string) {
+	c.writer.WriteEvent(string(types.EventTypeAIThinking), map[string]interface{}{
+		"stepId":   stepID,
+		"round":    round,
+		"thinking": thinking,
+	})
+}
+
+func (c *streamCallback) OnAIToolCallStart(ctx context.Context, stepID string, toolCall *types.ToolCall) {
+	c.writer.WriteEvent(string(types.EventTypeAIToolCallStart), map[string]interface{}{
+		"stepId":    stepID,
+		"toolName":  toolCall.Name,
+		"arguments": toolCall.Arguments,
+	})
+}
+
+func (c *streamCallback) OnAIToolCallComplete(ctx context.Context, stepID string, toolCall *types.ToolCall, result *types.ToolResult) {
+	c.writer.WriteEvent(string(types.EventTypeAIToolCallComplete), map[string]interface{}{
+		"stepId":   stepID,
+		"toolName": toolCall.Name,
+		"result":   result.Content,
+		"isError":  result.IsError,
+	})
 }
 
 // blockingCallback 阻塞式回调（实现 types.ExecutionCallback 接口）

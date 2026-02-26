@@ -33,11 +33,11 @@ type SaveMessageReq struct {
 }
 
 type ConversationDetail struct {
-	model.TAIConversation
-	Messages []model.TAIConversationMessage `json:"messages"`
+	model.TAiConversation
+	Messages []model.TAiConversationMessage `json:"messages"`
 }
 
-func (l *AIConversationLogic) Create(workflowID int64, req *CreateConversationReq, userID int64) (*model.TAIConversation, error) {
+func (l *AIConversationLogic) Create(workflowID int64, req *CreateConversationReq, userID int64) (*model.TAiConversation, error) {
 	title := req.Title
 	if title == "" {
 		title = "新的对话"
@@ -50,7 +50,7 @@ func (l *AIConversationLogic) Create(workflowID int64, req *CreateConversationRe
 		varsJSON = &s
 	}
 
-	conv := &model.TAIConversation{
+	conv := &model.TAiConversation{
 		WorkflowID: workflowID,
 		Title:      title,
 		Variables:  varsJSON,
@@ -63,8 +63,8 @@ func (l *AIConversationLogic) Create(workflowID int64, req *CreateConversationRe
 	return conv, nil
 }
 
-func (l *AIConversationLogic) List(workflowID int64) ([]model.TAIConversation, error) {
-	var list []model.TAIConversation
+func (l *AIConversationLogic) List(workflowID int64) ([]model.TAiConversation, error) {
+	var list []model.TAiConversation
 	err := svc.Ctx.DB.Where("workflow_id = ?", workflowID).
 		Order("updated_at DESC").
 		Find(&list).Error
@@ -72,18 +72,18 @@ func (l *AIConversationLogic) List(workflowID int64) ([]model.TAIConversation, e
 }
 
 func (l *AIConversationLogic) GetDetail(conversationID int64) (*ConversationDetail, error) {
-	var conv model.TAIConversation
+	var conv model.TAiConversation
 	if err := svc.Ctx.DB.First(&conv, conversationID).Error; err != nil {
 		return nil, err
 	}
 
-	var messages []model.TAIConversationMessage
+	var messages []model.TAiConversationMessage
 	svc.Ctx.DB.Where("conversation_id = ?", conversationID).
 		Order("created_at ASC").
 		Find(&messages)
 
 	return &ConversationDetail{
-		TAIConversation: conv,
+		TAiConversation: conv,
 		Messages:        messages,
 	}, nil
 }
@@ -91,11 +91,11 @@ func (l *AIConversationLogic) GetDetail(conversationID int64) (*ConversationDeta
 func (l *AIConversationLogic) Delete(conversationID int64) error {
 	tx := svc.Ctx.DB.Begin()
 	if err := tx.Where("conversation_id = ?", conversationID).
-		Delete(&model.TAIConversationMessage{}).Error; err != nil {
+		Delete(&model.TAiConversationMessage{}).Error; err != nil {
 		tx.Rollback()
 		return err
 	}
-	if err := tx.Delete(&model.TAIConversation{}, conversationID).Error; err != nil {
+	if err := tx.Delete(&model.TAiConversation{}, conversationID).Error; err != nil {
 		tx.Rollback()
 		return err
 	}
@@ -106,12 +106,12 @@ func (l *AIConversationLogic) UpdateTitle(conversationID int64, title string) er
 	if title == "" {
 		return errors.New("标题不能为空")
 	}
-	return svc.Ctx.DB.Model(&model.TAIConversation{}).
+	return svc.Ctx.DB.Model(&model.TAiConversation{}).
 		Where("id = ?", conversationID).
 		Update("title", title).Error
 }
 
-func (l *AIConversationLogic) SaveMessage(conversationID int64, req *SaveMessageReq) (*model.TAIConversationMessage, error) {
+func (l *AIConversationLogic) SaveMessage(conversationID int64, req *SaveMessageReq) (*model.TAiConversationMessage, error) {
 	if req.Role == "" || req.Content == "" {
 		return nil, errors.New("role 和 content 不能为空")
 	}
@@ -123,7 +123,7 @@ func (l *AIConversationLogic) SaveMessage(conversationID int64, req *SaveMessage
 		metaJSON = &s
 	}
 
-	msg := &model.TAIConversationMessage{
+	msg := &model.TAiConversationMessage{
 		ConversationID: conversationID,
 		Role:           req.Role,
 		Content:        req.Content,
@@ -135,7 +135,7 @@ func (l *AIConversationLogic) SaveMessage(conversationID int64, req *SaveMessage
 	}
 
 	// 更新会话的 updated_at
-	svc.Ctx.DB.Model(&model.TAIConversation{}).
+	svc.Ctx.DB.Model(&model.TAiConversation{}).
 		Where("id = ?", conversationID).
 		Update("updated_at", msg.CreatedAt)
 

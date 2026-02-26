@@ -40,6 +40,12 @@ func NewStreamExecutionHandler(sched scheduler.Scheduler, streamExec *executor.S
 	}
 }
 
+// ChatMessage AI 工作流对话消息
+type ChatMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
+
 // ExecuteRequest 统一执行请求
 type ExecuteRequest struct {
 	// 工作流定义（完整工作流）
@@ -62,6 +68,11 @@ type ExecuteRequest struct {
 	Stream bool `json:"stream,omitempty"`
 	// 是否持久化执行记录
 	Persist *bool `json:"persist,omitempty"`
+
+	// === AI 工作流专用字段 ===
+	ConversationID string        `json:"conversationId,omitempty"`
+	UserMessage    string        `json:"userMessage,omitempty"`
+	ChatHistory    []ChatMessage `json:"chatHistory,omitempty"`
 }
 
 // StepConfig 步骤配置（单步执行快捷方式）
@@ -134,8 +145,31 @@ func (h *StreamExecutionHandler) Execute(c *fiber.Ctx) error {
 		return response.Error(c, "工作流定义不能为空（需要提供 workflow 或 step）")
 	}
 
-	// 流程执行时环境ID必填，单步调试时可选
-	if req.Workflow != nil && req.EnvID <= 0 {
+	// AI 工作流：将对话历史和用户消息注入变量
+	if req.UserMessage != "" || len(req.ChatHistory) > 0 {
+		if req.Variables == nil {
+			req.Variables = make(map[string]interface{})
+		}
+		if req.UserMessage != "" {
+			req.Variables["__user_message__"] = req.UserMessage
+		}
+		if len(req.ChatHistory) > 0 {
+			historySlice := make([]interface{}, len(req.ChatHistory))
+			for i, m := range req.ChatHistory {
+				historySlice[i] = map[string]interface{}{
+					"role":    m.Role,
+					"content": m.Content,
+				}
+			}
+			req.Variables["__chat_history__"] = historySlice
+		}
+		if req.ConversationID != "" {
+			req.Variables["__conversation_id__"] = req.ConversationID
+		}
+	}
+
+	// 流程执行时环境ID必填，单步调试和AI工作流对话调试时可选
+	if req.Workflow != nil && req.EnvID <= 0 && req.UserMessage == "" {
 		return response.Error(c, "流程执行时环境ID不能为空")
 	}
 

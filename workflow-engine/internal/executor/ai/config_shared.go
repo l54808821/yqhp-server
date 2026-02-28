@@ -4,68 +4,8 @@ import (
 	"yqhp/workflow-engine/internal/executor"
 )
 
-// AIConfig AI 节点配置（统一结构，各执行器按需使用对应字段）
-type AIConfig struct {
-	// ===== 基础配置（所有节点共用）=====
-	Provider        string   `json:"provider"`
-	Model           string   `json:"model"`
-	APIKey          string   `json:"api_key"`
-	BaseURL         string   `json:"base_url,omitempty"`
-	APIVersion      string   `json:"api_version,omitempty"`
-	Temperature     *float32 `json:"temperature,omitempty"`
-	MaxTokens       *int     `json:"max_tokens,omitempty"`
-	TopP            *float32 `json:"top_p,omitempty"`
-	PresencePenalty *float32 `json:"presence_penalty,omitempty"`
-	SystemPrompt    string   `json:"system_prompt,omitempty"`
-	Prompt          string   `json:"prompt"`
-	Streaming       bool     `json:"streaming"`
-	Timeout         int      `json:"timeout,omitempty"`
-
-	// ===== 工具配置（ai_chat / ai_agent 使用）=====
-	Tools           []string `json:"tools,omitempty"`
-	MCPServerIDs    []int64  `json:"mcp_server_ids,omitempty"`
-	MaxToolRounds   int      `json:"max_tool_rounds,omitempty"`
-	MCPProxyBaseURL string   `json:"mcp_proxy_base_url,omitempty"`
-	Interactive         bool         `json:"interactive"`
-	InteractionTimeout  int          `json:"interaction_timeout,omitempty"`
-	Skills              []*SkillInfo         `json:"skills,omitempty"`
-	KnowledgeBases      []*KnowledgeBaseInfo `json:"knowledge_bases,omitempty"`
-	KBTopK              int                  `json:"kb_top_k,omitempty"`
-	KBScoreThreshold    float32              `json:"kb_score_threshold,omitempty"`
-
-	// ===== 旧版 Agent 模式（兼容旧 executor.go）=====
-	AgentMode           string `json:"agent_mode,omitempty"`
-	MaxReflectionRounds int    `json:"max_reflection_rounds,omitempty"`
-
-	// ===== Plan-Execute 特有 =====
-	PlannerPrompt   string `json:"planner_prompt,omitempty"`
-	MaxPlanSteps    int    `json:"max_plan_steps,omitempty"`
-	EnableReplanner bool   `json:"enable_replanner,omitempty"`
-
-	// ===== Reflection 特有 =====
-	CritiquePrompt string `json:"critique_prompt,omitempty"`
-	ImprovePrompt  string `json:"improve_prompt,omitempty"`
-
-	// ===== Supervisor / DeepAgent 特有 =====
-	SubAgentNodeIDs []string `json:"sub_agent_node_ids,omitempty"`
-	MaxIterations   int      `json:"max_iterations,omitempty"`
-
-	// ===== HITL 配置 =====
-	HITLEnabled      bool     `json:"hitl_enabled,omitempty"`
-	HITLApproveTools []string `json:"hitl_approve_tools,omitempty"`
-	HITLApprovePlan  bool     `json:"hitl_approve_plan,omitempty"`
-}
-
-// SkillInfo Skill 能力信息（由 gulu 层从数据库查询后注入到 config）
-type SkillInfo struct {
-	ID           int64  `json:"id"`
-	Name         string `json:"name"`
-	Description  string `json:"description"`
-	SystemPrompt string `json:"system_prompt"`
-}
-
-// parseConfig 从 map 解析 AI 节点配置
-func (e *AIExecutor) parseConfig(config map[string]any) (*AIConfig, error) {
+// parseAIConfig 从 map 解析 AI 节点配置（包级函数，供所有执行器复用）
+func parseAIConfig(config map[string]any) (*AIConfig, error) {
 	aiConfig := &AIConfig{Provider: "openai", Streaming: false}
 
 	if provider, ok := config["provider"].(string); ok {
@@ -124,7 +64,7 @@ func (e *AIExecutor) parseConfig(config map[string]any) (*AIConfig, error) {
 		aiConfig.Timeout = int(timeout)
 	}
 
-	// 解析工具相关配置
+	// 工具相关配置
 	if tools, ok := config["tools"].([]any); ok {
 		for _, t := range tools {
 			if s, ok := t.(string); ok {
@@ -146,7 +86,7 @@ func (e *AIExecutor) parseConfig(config map[string]any) (*AIConfig, error) {
 		aiConfig.MCPProxyBaseURL = mcpProxyBaseURL
 	}
 
-	// 解析 Agent 模式
+	// Agent 模式
 	if agentMode, ok := config["agent_mode"].(string); ok {
 		aiConfig.AgentMode = agentMode
 	}
@@ -154,7 +94,7 @@ func (e *AIExecutor) parseConfig(config map[string]any) (*AIConfig, error) {
 		aiConfig.MaxReflectionRounds = int(maxReflectionRounds)
 	}
 
-	// 解析 Skill 列表（由 gulu 层注入的完整 Skill 信息）
+	// Skill 列表
 	if skills, ok := config["skills"].([]any); ok {
 		for _, s := range skills {
 			if skillMap, ok := s.(map[string]any); ok {
@@ -178,7 +118,7 @@ func (e *AIExecutor) parseConfig(config map[string]any) (*AIConfig, error) {
 		}
 	}
 
-	// 解析知识库列表（由 gulu 层注入的完整知识库信息）
+	// 知识库列表
 	if kbs, ok := config["knowledge_bases"].([]any); ok {
 		for _, k := range kbs {
 			if kbMap, ok := k.(map[string]any); ok {
@@ -235,11 +175,57 @@ func (e *AIExecutor) parseConfig(config map[string]any) (*AIConfig, error) {
 		aiConfig.KBScoreThreshold = float32(kbThreshold)
 	}
 
+	// Plan-Execute 特有配置
+	if pp, ok := config["planner_prompt"].(string); ok {
+		aiConfig.PlannerPrompt = pp
+	}
+	if mps, ok := config["max_plan_steps"].(float64); ok {
+		aiConfig.MaxPlanSteps = int(mps)
+	}
+	if er, ok := config["enable_replanner"].(bool); ok {
+		aiConfig.EnableReplanner = er
+	}
+
+	// Reflection 特有配置
+	if cp, ok := config["critique_prompt"].(string); ok {
+		aiConfig.CritiquePrompt = cp
+	}
+	if ip, ok := config["improve_prompt"].(string); ok {
+		aiConfig.ImprovePrompt = ip
+	}
+
+	// Supervisor / DeepAgent 特有配置
+	if subIDs, ok := config["sub_agent_node_ids"].([]any); ok {
+		for _, id := range subIDs {
+			if s, ok := id.(string); ok {
+				aiConfig.SubAgentNodeIDs = append(aiConfig.SubAgentNodeIDs, s)
+			}
+		}
+	}
+	if mi, ok := config["max_iterations"].(float64); ok {
+		aiConfig.MaxIterations = int(mi)
+	}
+
+	// HITL 配置
+	if he, ok := config["hitl_enabled"].(bool); ok {
+		aiConfig.HITLEnabled = he
+	}
+	if hat, ok := config["hitl_approve_tools"].([]any); ok {
+		for _, t := range hat {
+			if s, ok := t.(string); ok {
+				aiConfig.HITLApproveTools = append(aiConfig.HITLApproveTools, s)
+			}
+		}
+	}
+	if hap, ok := config["hitl_approve_plan"].(bool); ok {
+		aiConfig.HITLApprovePlan = hap
+	}
+
 	return aiConfig, nil
 }
 
-// resolveVariables 解析配置中的变量引用
-func (e *AIExecutor) resolveVariables(config *AIConfig, execCtx *executor.ExecutionContext) *AIConfig {
+// resolveConfigVariables 解析配置中的变量引用（包级函数）
+func resolveConfigVariables(config *AIConfig, execCtx *executor.ExecutionContext) *AIConfig {
 	if execCtx == nil {
 		return config
 	}
@@ -252,5 +238,16 @@ func (e *AIExecutor) resolveVariables(config *AIConfig, execCtx *executor.Execut
 	config.BaseURL = resolver.ResolveString(config.BaseURL, evalCtx)
 	config.MCPProxyBaseURL = resolver.ResolveString(config.MCPProxyBaseURL, evalCtx)
 
+	if config.PlannerPrompt != "" {
+		config.PlannerPrompt = resolver.ResolveString(config.PlannerPrompt, evalCtx)
+	}
+	if config.CritiquePrompt != "" {
+		config.CritiquePrompt = resolver.ResolveString(config.CritiquePrompt, evalCtx)
+	}
+	if config.ImprovePrompt != "" {
+		config.ImprovePrompt = resolver.ResolveString(config.ImprovePrompt, evalCtx)
+	}
+
 	return config
 }
+

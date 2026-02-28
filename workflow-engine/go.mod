@@ -4,7 +4,7 @@ go 1.25.5
 
 require (
 	github.com/HdrHistogram/hdrhistogram-go v1.2.0
-	github.com/cloudwego/eino v0.7.18
+	github.com/cloudwego/eino v0.7.36
 	github.com/cloudwego/eino-ext/components/model/openai v0.1.7
 	github.com/dop251/goja v0.0.0-20241024094426-79f3a7efcdbd
 	github.com/gofiber/fiber/v2 v2.52.9

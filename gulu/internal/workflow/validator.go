@@ -10,16 +10,22 @@ import (
 
 // ValidNodeTypes workflow-engine 支持的节点类型
 var ValidNodeTypes = map[string]bool{
-	"http":         true,
-	"script":       true,
-	"condition":    true,
-	"loop":         true,
-	"database":     true,
-	"db":           true,
-	"wait":         true,
-	"mq":           true,
-	"ai":           true,
-	"ref_workflow": true,
+	"http":            true,
+	"script":          true,
+	"condition":       true,
+	"loop":            true,
+	"database":        true,
+	"db":              true,
+	"wait":            true,
+	"mq":              true,
+	"ai":              true,
+	"ai_chat":         true,
+	"ai_agent":        true,
+	"ai_plan_execute": true,
+	"ai_reflection":   true,
+	"ai_supervisor":   true,
+	"ai_deep_agent":   true,
+	"ref_workflow":    true,
 }
 
 // ValidationError 验证错误

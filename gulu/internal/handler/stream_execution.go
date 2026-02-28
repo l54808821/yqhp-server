@@ -112,7 +112,7 @@ func (h *StreamExecutionHandler) Execute(c *fiber.Ctx) error {
 	var workflowDef interface{}
 	if req.Step != nil {
 		// 如果是 AI 节点，预解析托管模型配置和 Skill 数据
-		if req.Step.Type == "ai" {
+		if isAINodeType(req.Step.Type) {
 			if err := h.resolveAIModelConfig(c, req.Step.Config); err != nil {
 				return response.Error(c, "解析 AI 模型失败: "+err.Error())
 			}
@@ -635,6 +635,15 @@ func (fw *fasthttpFlushWriter) Write(p []byte) (n int, err error) {
 
 func (fw *fasthttpFlushWriter) Flush() {}
 
+// isAINodeType 检查节点类型是否为 AI 类型（包含旧版 ai 和 6 种新类型）
+func isAINodeType(nodeType string) bool {
+	switch nodeType {
+	case "ai", "ai_chat", "ai_agent", "ai_plan_execute", "ai_reflection", "ai_supervisor", "ai_deep_agent":
+		return true
+	}
+	return false
+}
+
 // resolveAIModelConfig 解析 AI 节点中的托管模型配置
 // 如果 config 中包含 ai_model_id，则从数据库获取模型的完整配置（api_key、base_url、model、provider）并注入到 config 中
 func (h *StreamExecutionHandler) resolveAIModelConfig(c *fiber.Ctx, config map[string]interface{}) error {
@@ -705,7 +714,7 @@ func (h *StreamExecutionHandler) resolveAIModelConfigsInWorkflow(c *fiber.Ctx, w
 		}
 
 		// 如果是 AI 类型的步骤，解析模型配置
-		if stepType, _ := stepMap["type"].(string); stepType == "ai" {
+		if stepType, _ := stepMap["type"].(string); isAINodeType(stepType) {
 			if configRaw, ok := stepMap["config"]; ok {
 				if config, ok := configRaw.(map[string]interface{}); ok {
 					if err := h.resolveAIModelConfig(c, config); err != nil {

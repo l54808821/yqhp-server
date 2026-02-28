@@ -157,6 +157,4 @@ func (e *AIExecutor) Cleanup(ctx context.Context) error {
 	return nil
 }
 
-func init() {
-	executor.MustRegister(NewAIExecutor())
-}
+// init 已迁移到 register.go 统一注册

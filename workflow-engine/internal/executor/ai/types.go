@@ -7,7 +7,7 @@ import (
 )
 
 const (
-	// AIExecutorType AI 执行器类型标识符
+	// AIExecutorType AI 执行器类型标识符（旧版，保留兼容）
 	AIExecutorType = "ai"
 
 	// defaultAITimeout AI 调用默认超时时间

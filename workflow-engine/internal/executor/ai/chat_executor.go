@@ -40,6 +40,8 @@ func (e *ChatExecutor) Execute(ctx context.Context, step *types.Step, execCtx *e
 		return executor.CreateFailedResult(step.ID, startTime, err), nil
 	}
 	config = resolveConfigVariables(config, execCtx)
+	applyUserMessage(config, execCtx)
+	chatHistory := extractChatHistory(execCtx)
 
 	chatModel, err := createChatModelFromConfig(ctx, config)
 	if err != nil {
@@ -94,10 +96,10 @@ func (e *ChatExecutor) Execute(ctx context.Context, step *types.Step, execCtx *e
 				executor.NewExecutionError(step.ID, "创建 Agent 失败", agentErr)), nil
 		}
 
-		output, err = e.runAgent(ctx, agent, config, step.ID, aiCallback)
+		output, err = e.runAgent(ctx, agent, config, step.ID, aiCallback, chatHistory)
 	} else {
 		// 无工具时：直接调用 ChatModel
-		output, err = e.runDirect(ctx, chatModel, config, step.ID, aiCallback)
+		output, err = e.runDirect(ctx, chatModel, config, step.ID, aiCallback, chatHistory)
 	}
 
 	if err != nil {
@@ -121,9 +123,10 @@ func (e *ChatExecutor) Execute(ctx context.Context, step *types.Step, execCtx *e
 	return result, nil
 }
 
-func (e *ChatExecutor) runAgent(ctx context.Context, agent adk.Agent, config *AIConfig, stepID string, aiCallback types.AICallback) (*AIOutput, error) {
+func (e *ChatExecutor) runAgent(ctx context.Context, agent adk.Agent, config *AIConfig, stepID string, aiCallback types.AICallback, chatHistory []*schema.Message) (*AIOutput, error) {
+	messages := append(chatHistory, schema.UserMessage(config.Prompt))
 	input := &adk.AgentInput{
-		Messages:       []*schema.Message{schema.UserMessage(config.Prompt)},
+		Messages:       messages,
 		EnableStreaming: config.Streaming && aiCallback != nil,
 	}
 
@@ -185,8 +188,8 @@ func (e *ChatExecutor) runAgent(ctx context.Context, agent adk.Agent, config *AI
 	return output, nil
 }
 
-func (e *ChatExecutor) runDirect(ctx context.Context, chatModel einomodel.ToolCallingChatModel, config *AIConfig, stepID string, aiCallback types.AICallback) (*AIOutput, error) {
-	messages := buildSimpleMessages(config)
+func (e *ChatExecutor) runDirect(ctx context.Context, chatModel einomodel.ToolCallingChatModel, config *AIConfig, stepID string, aiCallback types.AICallback, chatHistory []*schema.Message) (*AIOutput, error) {
+	messages := buildSimpleMessages(config, chatHistory)
 
 	if config.Streaming && aiCallback != nil {
 		stream, err := chatModel.Stream(ctx, messages)
@@ -213,11 +216,12 @@ func (e *ChatExecutor) runDirect(ctx context.Context, chatModel einomodel.ToolCa
 	return output, nil
 }
 
-func buildSimpleMessages(config *AIConfig) []*schema.Message {
+func buildSimpleMessages(config *AIConfig, chatHistory []*schema.Message) []*schema.Message {
 	var messages []*schema.Message
 	if config.SystemPrompt != "" {
 		messages = append(messages, schema.SystemMessage(config.SystemPrompt))
 	}
+	messages = append(messages, chatHistory...)
 	messages = append(messages, schema.UserMessage(config.Prompt))
 	return messages
 }

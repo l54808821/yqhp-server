@@ -37,31 +37,15 @@ func (e *AIExecutor) Execute(ctx context.Context, step *types.Step, execCtx *exe
 	}
 
 	config = e.resolveVariables(config, execCtx)
+	applyUserMessage(config, execCtx)
+	chatHistory := extractChatHistory(execCtx)
 
 	chatModel, err := e.createChatModel(ctx, config)
 	if err != nil {
 		return executor.CreateFailedResult(step.ID, startTime, executor.NewExecutionError(step.ID, "创建 AI 模型失败", err)), nil
 	}
 
-	// 从执行上下文中提取对话历史（AI 工作流多轮记忆）
-	var chatHistoryMaps []map[string]any
-	if execCtx != nil && execCtx.Variables != nil {
-		if history, ok := execCtx.Variables["__chat_history__"]; ok {
-			if historySlice, ok := history.([]interface{}); ok {
-				for _, item := range historySlice {
-					if m, ok := item.(map[string]interface{}); ok {
-						chatHistoryMaps = append(chatHistoryMaps, m)
-					}
-				}
-			}
-		}
-		// 如果有 __user_message__，用它覆盖 config.Prompt
-		if userMsg, ok := execCtx.Variables["__user_message__"].(string); ok && userMsg != "" {
-			config.Prompt = userMsg
-		}
-	}
-
-	messages := e.buildMessages(config, chatHistoryMaps...)
+	messages := e.buildMessages(config, chatHistory)
 
 	timeout := step.Timeout
 	if timeout <= 0 && config.Timeout > 0 {

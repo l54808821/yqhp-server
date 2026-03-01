@@ -155,8 +155,7 @@ func (e *AIExecutor) createChatModel(ctx context.Context, config *AIConfig) (mod
 }
 
 // buildMessages 构建 LLM 消息列表
-// chatHistory 为 AI 工作流多轮对话注入的历史消息，可为 nil
-func (e *AIExecutor) buildMessages(config *AIConfig, chatHistory ...map[string]any) []*schema.Message {
+func (e *AIExecutor) buildMessages(config *AIConfig, chatHistory []*schema.Message) []*schema.Message {
 	var messages []*schema.Message
 
 	systemPrompt := config.SystemPrompt
@@ -179,22 +178,7 @@ func (e *AIExecutor) buildMessages(config *AIConfig, chatHistory ...map[string]a
 		messages = append(messages, schema.SystemMessage(systemPrompt))
 	}
 
-	// 注入对话历史（AI 工作流多轮记忆）
-	if len(chatHistory) > 0 {
-		for _, msg := range chatHistory {
-			role, _ := msg["role"].(string)
-			content, _ := msg["content"].(string)
-			if content == "" {
-				continue
-			}
-			switch role {
-			case "user":
-				messages = append(messages, schema.UserMessage(content))
-			case "assistant":
-				messages = append(messages, schema.AssistantMessage(content, nil))
-			}
-		}
-	}
+	messages = append(messages, chatHistory...)
 
 	// 知识库上下文注入
 	userPrompt := config.Prompt

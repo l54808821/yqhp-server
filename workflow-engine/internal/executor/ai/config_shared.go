@@ -1,6 +1,8 @@
 package ai
 
 import (
+	"github.com/cloudwego/eino/schema"
+
 	"yqhp/workflow-engine/internal/executor"
 )
 
@@ -222,6 +224,50 @@ func parseAIConfig(config map[string]any) (*AIConfig, error) {
 	}
 
 	return aiConfig, nil
+}
+
+// extractChatHistory 从执行上下文中提取多轮对话历史，返回 schema.Message 列表
+func extractChatHistory(execCtx *executor.ExecutionContext) []*schema.Message {
+	if execCtx == nil || execCtx.Variables == nil {
+		return nil
+	}
+	history, ok := execCtx.Variables["__chat_history__"]
+	if !ok {
+		return nil
+	}
+	historySlice, ok := history.([]interface{})
+	if !ok {
+		return nil
+	}
+	var messages []*schema.Message
+	for _, item := range historySlice {
+		m, ok := item.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		role, _ := m["role"].(string)
+		content, _ := m["content"].(string)
+		if content == "" {
+			continue
+		}
+		switch role {
+		case "user":
+			messages = append(messages, schema.UserMessage(content))
+		case "assistant":
+			messages = append(messages, schema.AssistantMessage(content, nil))
+		}
+	}
+	return messages
+}
+
+// applyUserMessage 如果执行上下文中有 __user_message__，用它覆盖 config.Prompt
+func applyUserMessage(config *AIConfig, execCtx *executor.ExecutionContext) {
+	if execCtx == nil || execCtx.Variables == nil {
+		return
+	}
+	if userMsg, ok := execCtx.Variables["__user_message__"].(string); ok && userMsg != "" {
+		config.Prompt = userMsg
+	}
 }
 
 // resolveConfigVariables 解析配置中的变量引用（包级函数）

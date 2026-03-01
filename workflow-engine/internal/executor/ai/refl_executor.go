@@ -2,11 +2,12 @@ package ai
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"strings"
 	"time"
 
-	"github.com/cloudwego/eino/adk"
+	"github.com/cloudwego/eino/schema"
 
 	"yqhp/workflow-engine/internal/executor"
 	"yqhp/workflow-engine/pkg/types"
@@ -14,7 +15,6 @@ import (
 
 const ReflectionExecutorType = "ai_reflection"
 
-// ReflectionExecutor 反思迭代执行器：使用 LoopAgent 组合 Critique + Improve
 type ReflectionExecutor struct {
 	*executor.BaseExecutor
 }
@@ -66,79 +66,6 @@ func (e *ReflectionExecutor) Execute(ctx context.Context, step *types.Step, exec
 		maxRounds = defaultMaxReflectionRounds
 	}
 
-	critiqueInstruction := config.CritiquePrompt
-	if critiqueInstruction == "" {
-		critiqueInstruction = `你是一个严格的质量审查专家。请审视提供的内容，从准确性、完整性、清晰度、逻辑性和相关性等角度进行评估。
-如果内容已足够好，请只输出 "LGTM"。否则请列出具体的改进建议。`
-	}
-
-	improveInstruction := config.ImprovePrompt
-	if improveInstruction == "" {
-		improveInstruction = "你是一个内容改进专家。请根据审视意见对内容进行针对性改进，输出改进后的完整内容。"
-	}
-
-	// 使用 LoopAgent 组合 Critique + Improve
-	critiqueAgent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
-		Name:        "critique",
-		Description: "审视内容质量并给出改进建议",
-		Instruction: critiqueInstruction,
-		Model:       chatModel,
-	})
-	if err != nil {
-		return executor.CreateFailedResult(step.ID, startTime,
-			executor.NewExecutionError(step.ID, "创建 Critique Agent 失败", err)), nil
-	}
-
-	improveAgent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
-		Name:        "improve",
-		Description: "根据审视意见改进内容",
-		Instruction: improveInstruction,
-		Model:       chatModel,
-	})
-	if err != nil {
-		return executor.CreateFailedResult(step.ID, startTime,
-			executor.NewExecutionError(step.ID, "创建 Improve Agent 失败", err)), nil
-	}
-
-	loopAgent, err := adk.NewLoopAgent(ctx, &adk.LoopAgentConfig{
-		Name:          "reflection_loop",
-		Description:   "反思迭代循环：审视 → 改进",
-		SubAgents:     []adk.Agent{critiqueAgent, improveAgent},
-		MaxIterations: maxRounds,
-	})
-	if err != nil {
-		return executor.CreateFailedResult(step.ID, startTime,
-			executor.NewExecutionError(step.ID, "创建 LoopAgent 失败", err)), nil
-	}
-
-	// 先用一个 SequentialAgent: Draft → LoopAgent(Critique + Improve)
-	draftAgent, err := adk.NewChatModelAgent(ctx, &adk.ChatModelAgentConfig{
-		Name:        "draft",
-		Description: "生成初稿",
-		Instruction: config.SystemPrompt,
-		Model:       chatModel,
-	})
-	if err != nil {
-		return executor.CreateFailedResult(step.ID, startTime,
-			executor.NewExecutionError(step.ID, "创建 Draft Agent 失败", err)), nil
-	}
-
-	seqAgent, err := adk.NewSequentialAgent(ctx, &adk.SequentialAgentConfig{
-		Name:        "reflection_pipeline",
-		Description: "反思流水线：初稿 → 审视改进循环",
-		SubAgents:   []adk.Agent{draftAgent, loopAgent},
-	})
-	if err != nil {
-		return executor.CreateFailedResult(step.ID, startTime,
-			executor.NewExecutionError(step.ID, "创建 SequentialAgent 失败", err)), nil
-	}
-
-	runner := adk.NewRunner(ctx, adk.RunnerConfig{
-		Agent:          seqAgent,
-		EnableStreaming: config.Streaming && aiCallback != nil,
-	})
-
-	iter := runner.Query(ctx, config.Prompt)
 	output := &AIOutput{
 		Model: config.Model,
 		AgentTrace: &AgentTrace{
@@ -146,88 +73,182 @@ func (e *ReflectionExecutor) Execute(ctx context.Context, step *types.Step, exec
 			Reflection: &ReflectionTrace{},
 		},
 	}
-
 	reflTrace := output.AgentTrace.Reflection
-	currentRound := 0
 	chunkIndex := 0
-	var lastDraft string
-	var lastCritique string
 
-	for {
-		event, ok := iter.Next()
-		if !ok {
+	// ========== Phase 1: 生成初稿 ==========
+	if aiCallback != nil {
+		if tc, ok := aiCallback.(types.AIThinkingCallback); ok {
+			tc.OnAIThinking(ctx, step.ID, 0, "[Draft] 生成初稿...")
+		}
+	}
+
+	draftMessages := []*schema.Message{
+		schema.SystemMessage(config.SystemPrompt),
+		schema.UserMessage(config.Prompt),
+	}
+
+	var currentDraft string
+	if config.Streaming && aiCallback != nil {
+		stream, streamErr := chatModel.Stream(ctx, draftMessages)
+		if streamErr != nil {
+			return executor.CreateFailedResult(step.ID, startTime,
+				executor.NewExecutionError(step.ID, "生成初稿失败", streamErr)), nil
+		}
+		var sb strings.Builder
+		for {
+			chunk, recvErr := stream.Recv()
+			if recvErr == io.EOF {
+				break
+			}
+			if recvErr != nil {
+				break
+			}
+			if chunk.Content != "" {
+				sb.WriteString(chunk.Content)
+				aiCallback.OnAIChunk(ctx, step.ID, chunk.Content, chunkIndex)
+				chunkIndex++
+			}
+			if chunk.ResponseMeta != nil && chunk.ResponseMeta.Usage != nil {
+				output.PromptTokens += chunk.ResponseMeta.Usage.PromptTokens
+				output.CompletionTokens += chunk.ResponseMeta.Usage.CompletionTokens
+				output.TotalTokens += chunk.ResponseMeta.Usage.TotalTokens
+			}
+		}
+		stream.Close()
+		currentDraft = sb.String()
+	} else {
+		resp, genErr := chatModel.Generate(ctx, draftMessages)
+		if genErr != nil {
+			return executor.CreateFailedResult(step.ID, startTime,
+				executor.NewExecutionError(step.ID, "生成初稿失败", genErr)), nil
+		}
+		currentDraft = resp.Content
+		if resp.ResponseMeta != nil && resp.ResponseMeta.Usage != nil {
+			output.PromptTokens += resp.ResponseMeta.Usage.PromptTokens
+			output.CompletionTokens += resp.ResponseMeta.Usage.CompletionTokens
+			output.TotalTokens += resp.ResponseMeta.Usage.TotalTokens
+		}
+	}
+	output.Content = currentDraft
+
+	critiqueInstruction := config.CritiquePrompt
+	if critiqueInstruction == "" {
+		critiqueInstruction = `你是一个严格的质量审查专家。请审视提供的内容，从准确性、完整性、清晰度、逻辑性和相关性等角度进行评估。
+如果内容已足够好，无需改进，请只输出 "LGTM"（不含引号）。
+否则请列出具体的改进建议，每条建议要明确指出问题和改进方向。`
+	}
+
+	improveInstruction := config.ImprovePrompt
+	if improveInstruction == "" {
+		improveInstruction = "你是一个内容改进专家。请根据审视意见对内容进行针对性改进，输出改进后的完整内容。"
+	}
+
+	// ========== Phase 2: 审视-改进循环 ==========
+	for round := 1; round <= maxRounds; round++ {
+		if ctx.Err() != nil {
 			break
 		}
-		if event.Err != nil {
-			return executor.CreateFailedResult(step.ID, startTime,
-				executor.NewExecutionError(step.ID, "Reflection 执行失败", event.Err)), nil
+
+		// --- 审视 ---
+		if aiCallback != nil {
+			if tc, ok := aiCallback.(types.AIThinkingCallback); ok {
+				tc.OnAIThinking(ctx, step.ID, round, fmt.Sprintf("[Critique Round %d] 审视中...", round))
+			}
+		}
+
+		critiquePrompt := fmt.Sprintf("原始问题：\n%s\n\n待审视的回答：\n%s", config.Prompt, currentDraft)
+		critiqueMessages := []*schema.Message{
+			schema.SystemMessage(critiqueInstruction),
+			schema.UserMessage(critiquePrompt),
+		}
+
+		critiqueResp, critiqueErr := chatModel.Generate(ctx, critiqueMessages)
+		if critiqueErr != nil {
+			break
+		}
+		critique := critiqueResp.Content
+		if critiqueResp.ResponseMeta != nil && critiqueResp.ResponseMeta.Usage != nil {
+			output.PromptTokens += critiqueResp.ResponseMeta.Usage.PromptTokens
+			output.CompletionTokens += critiqueResp.ResponseMeta.Usage.CompletionTokens
+			output.TotalTokens += critiqueResp.ResponseMeta.Usage.TotalTokens
 		}
 
 		if aiCallback != nil {
-			if tc, ok2 := aiCallback.(types.AIThinkingCallback); ok2 {
-				label := event.AgentName
-				switch event.AgentName {
-				case "draft":
-					label = "[Draft] 生成初稿..."
-				case "critique":
-					label = "[Critique] 审视中..."
-				case "improve":
-					label = "[Improve] 改进中..."
-				}
-				tc.OnAIThinking(ctx, step.ID, currentRound, label)
+			if tc, ok := aiCallback.(types.AIThinkingCallback); ok {
+				tc.OnAIThinking(ctx, step.ID, round, fmt.Sprintf("[Critique Result]\n%s", critique))
 			}
 		}
 
-		if event.Output != nil && event.Output.MessageOutput != nil {
-			mo := event.Output.MessageOutput
-			var content string
-			if mo.IsStreaming && aiCallback != nil {
-				var sb strings.Builder
-				for {
-					msg, recvErr := mo.MessageStream.Recv()
-					if recvErr == io.EOF {
-						break
-					}
-					if recvErr != nil {
-						break
-					}
-					if msg.Content != "" {
-						sb.WriteString(msg.Content)
-						aiCallback.OnAIChunk(ctx, step.ID, msg.Content, chunkIndex)
-						chunkIndex++
-					}
-				}
-				content = sb.String()
-			} else {
-				msg, getErr := mo.GetMessage()
-				if getErr == nil {
-					content = msg.Content
-					if msg.ResponseMeta != nil && msg.ResponseMeta.Usage != nil {
-						output.PromptTokens += msg.ResponseMeta.Usage.PromptTokens
-						output.CompletionTokens += msg.ResponseMeta.Usage.CompletionTokens
-						output.TotalTokens += msg.ResponseMeta.Usage.TotalTokens
-					}
-				}
-			}
+		reflTrace.Rounds = append(reflTrace.Rounds, ReflectionRound{
+			Round:    round,
+			Draft:    currentDraft,
+			Critique: critique,
+		})
 
-			output.Content = content
+		if isLGTMResponse(critique) {
+			break
+		}
 
-			switch event.AgentName {
-			case "draft":
-				lastDraft = content
-			case "critique":
-				lastCritique = content
-			case "improve":
-				currentRound++
-				reflTrace.Rounds = append(reflTrace.Rounds, ReflectionRound{
-					Round:    currentRound,
-					Draft:    lastDraft,
-					Critique: lastCritique,
-				})
-				lastDraft = content
+		// --- 改进 ---
+		if aiCallback != nil {
+			if tc, ok := aiCallback.(types.AIThinkingCallback); ok {
+				tc.OnAIThinking(ctx, step.ID, round, fmt.Sprintf("[Improve Round %d] 改进中...", round))
 			}
 		}
+
+		improvePrompt := fmt.Sprintf("原始问题：\n%s\n\n当前回答：\n%s\n\n审视意见：\n%s\n\n请输出改进后的完整回答。", config.Prompt, currentDraft, critique)
+		improveMessages := []*schema.Message{
+			schema.SystemMessage(improveInstruction),
+			schema.UserMessage(improvePrompt),
+		}
+
+		isLastRound := round == maxRounds
+		if config.Streaming && aiCallback != nil && isLastRound {
+			stream, streamErr := chatModel.Stream(ctx, improveMessages)
+			if streamErr != nil {
+				break
+			}
+			var sb strings.Builder
+			for {
+				chunk, recvErr := stream.Recv()
+				if recvErr == io.EOF {
+					break
+				}
+				if recvErr != nil {
+					break
+				}
+				if chunk.Content != "" {
+					sb.WriteString(chunk.Content)
+					aiCallback.OnAIChunk(ctx, step.ID, chunk.Content, chunkIndex)
+					chunkIndex++
+				}
+				if chunk.ResponseMeta != nil && chunk.ResponseMeta.Usage != nil {
+					output.PromptTokens += chunk.ResponseMeta.Usage.PromptTokens
+					output.CompletionTokens += chunk.ResponseMeta.Usage.CompletionTokens
+					output.TotalTokens += chunk.ResponseMeta.Usage.TotalTokens
+				}
+			}
+			stream.Close()
+			currentDraft = sb.String()
+		} else {
+			improveResp, improveErr := chatModel.Generate(ctx, improveMessages)
+			if improveErr != nil {
+				break
+			}
+			currentDraft = improveResp.Content
+			if improveResp.ResponseMeta != nil && improveResp.ResponseMeta.Usage != nil {
+				output.PromptTokens += improveResp.ResponseMeta.Usage.PromptTokens
+				output.CompletionTokens += improveResp.ResponseMeta.Usage.CompletionTokens
+				output.TotalTokens += improveResp.ResponseMeta.Usage.TotalTokens
+			}
+		}
+		output.Content = currentDraft
 	}
+
+	output.SystemPrompt = config.SystemPrompt
+	output.Prompt = config.Prompt
+	reflTrace.FinalAnswer = output.Content
 
 	if config.Streaming && aiCallback != nil {
 		aiCallback.OnAIComplete(ctx, step.ID, &types.AIResult{
@@ -238,15 +259,19 @@ func (e *ReflectionExecutor) Execute(ctx context.Context, step *types.Step, exec
 		})
 	}
 
-	output.SystemPrompt = config.SystemPrompt
-	output.Prompt = config.Prompt
-	output.AgentTrace.Reflection.FinalAnswer = output.Content
-
 	result := executor.CreateSuccessResult(step.ID, startTime, output)
 	result.Metrics["ai_prompt_tokens"] = float64(output.PromptTokens)
 	result.Metrics["ai_completion_tokens"] = float64(output.CompletionTokens)
 	result.Metrics["ai_total_tokens"] = float64(output.TotalTokens)
 	return result, nil
+}
+
+func isLGTMResponse(critique string) bool {
+	trimmed := strings.TrimSpace(strings.ToUpper(critique))
+	return trimmed == "LGTM" ||
+		strings.HasPrefix(trimmed, "LGTM") ||
+		strings.Contains(trimmed, "无需改进") ||
+		strings.Contains(trimmed, "已经足够好")
 }
 
 func (e *ReflectionExecutor) Cleanup(ctx context.Context) error { return nil }

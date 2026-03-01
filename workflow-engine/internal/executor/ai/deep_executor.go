@@ -128,8 +128,21 @@ func (e *DeepAgentExecutor) Execute(ctx context.Context, step *types.Step, execC
 			break
 		}
 		if event.Err != nil {
-			return executor.CreateFailedResult(step.ID, startTime,
-				executor.NewExecutionError(step.ID, "DeepAgent 执行失败", event.Err)), nil
+			output.SystemPrompt = config.SystemPrompt
+			output.Prompt = config.Prompt
+			if config.Streaming && aiCallback != nil {
+				aiCallback.OnAIComplete(ctx, step.ID, &types.AIResult{
+					Content: output.Content, PromptTokens: output.PromptTokens,
+					CompletionTokens: output.CompletionTokens, TotalTokens: output.TotalTokens,
+				})
+			}
+			result := executor.CreateSuccessResult(step.ID, startTime, output)
+			result.Status = types.ResultStatusFailed
+			result.Error = executor.NewExecutionError(step.ID, "DeepAgent 执行中断", event.Err)
+			result.Metrics["ai_prompt_tokens"] = float64(output.PromptTokens)
+			result.Metrics["ai_completion_tokens"] = float64(output.CompletionTokens)
+			result.Metrics["ai_total_tokens"] = float64(output.TotalTokens)
+			return result, nil
 		}
 
 		if aiCallback != nil {

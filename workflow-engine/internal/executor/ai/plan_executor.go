@@ -146,14 +146,15 @@ func (e *PlanExecuteExecutor) Execute(ctx context.Context, step *types.Step, exe
 		},
 	}
 
+	var lastErr error
 	for {
 		event, ok := iter.Next()
 		if !ok {
 			break
 		}
 		if event.Err != nil {
-			return executor.CreateFailedResult(step.ID, startTime,
-				executor.NewExecutionError(step.ID, "Plan-Execute 执行失败", event.Err)), nil
+			lastErr = event.Err
+			break
 		}
 
 		if aiCallback != nil {
@@ -195,6 +196,9 @@ func (e *PlanExecuteExecutor) Execute(ctx context.Context, step *types.Step, exe
 		}
 	}
 
+	output.SystemPrompt = config.SystemPrompt
+	output.Prompt = config.Prompt
+
 	if config.Streaming && aiCallback != nil {
 		aiCallback.OnAIComplete(ctx, step.ID, &types.AIResult{
 			Content:          output.Content,
@@ -204,10 +208,12 @@ func (e *PlanExecuteExecutor) Execute(ctx context.Context, step *types.Step, exe
 		})
 	}
 
-	output.SystemPrompt = config.SystemPrompt
-	output.Prompt = config.Prompt
-
+	// 即使出错，也返回已收集的部分内容
 	result := executor.CreateSuccessResult(step.ID, startTime, output)
+	if lastErr != nil {
+		result.Status = types.ResultStatusFailed
+		result.Error = executor.NewExecutionError(step.ID, "Plan-Execute 执行中断", lastErr)
+	}
 	result.Metrics["ai_prompt_tokens"] = float64(output.PromptTokens)
 	result.Metrics["ai_completion_tokens"] = float64(output.CompletionTokens)
 	result.Metrics["ai_total_tokens"] = float64(output.TotalTokens)

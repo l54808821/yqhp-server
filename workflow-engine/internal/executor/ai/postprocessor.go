@@ -10,14 +10,12 @@ import (
 	"yqhp/workflow-engine/pkg/types"
 )
 
-// executePostProcessors 执行 AI 节点的后置处理器。
-// 将 AIOutput 转换为类似 HTTP 响应的 response 格式，复用 ProcessorExecutor 执行后置处理器。
-func (e *AIExecutor) executePostProcessors(ctx context.Context, step *types.Step, execCtx *executor.ExecutionContext, output *AIOutput, startTime time.Time) {
+// executePostProcessors 执行 AI 节点的后置处理器
+func executePostProcessors(ctx context.Context, step *types.Step, execCtx *executor.ExecutionContext, output *AIOutput, startTime time.Time) {
 	if len(step.PostProcessors) == 0 || execCtx == nil {
 		return
 	}
 
-	// 准备变量上下文
 	variables := make(map[string]interface{})
 	envVars := make(map[string]interface{})
 	if execCtx.Variables != nil {
@@ -28,7 +26,6 @@ func (e *AIExecutor) executePostProcessors(ctx context.Context, step *types.Step
 
 	procExecutor := pkgExecutor.NewProcessorExecutor(variables, envVars)
 
-	// 将 AI 输出转换为 response 格式，使后置处理器可以通过 jsonpath、js_script 等方式提取数据
 	toolCallsJSON := "[]"
 	if len(output.ToolCalls) > 0 {
 		if data, err := json.Marshal(output.ToolCalls); err == nil {
@@ -36,8 +33,6 @@ func (e *AIExecutor) executePostProcessors(ctx context.Context, step *types.Step
 		}
 	}
 
-	// 构建 response body：如果 AI 回复本身是合法 JSON，直接用原始内容；
-	// 否则将完整输出包装为 JSON 对象，方便 jsonpath 提取
 	responseBody := output.Content
 	var jsonTest json.RawMessage
 	if json.Unmarshal([]byte(output.Content), &jsonTest) != nil {
@@ -69,7 +64,6 @@ func (e *AIExecutor) executePostProcessors(ctx context.Context, step *types.Step
 	postLogs := procExecutor.ExecuteProcessors(ctx, step.PostProcessors, "post")
 	execCtx.AppendLogs(postLogs)
 
-	// 追踪变量变更
 	for _, entry := range postLogs {
 		if entry.Type != types.LogTypeProcessor || entry.Processor == nil {
 			continue
@@ -126,14 +120,12 @@ func (e *AIExecutor) executePostProcessors(ctx context.Context, step *types.Step
 		}
 	}
 
-	// 将处理器产生的变量变更回写到执行上下文
 	if execCtx.Variables != nil {
 		for k, v := range procExecutor.GetVariables() {
 			execCtx.Variables[k] = v
 		}
 	}
 
-	// 收集后置处理器日志到 AIOutput，方便前端展示
 	allLogs := execCtx.FlushLogs()
 	if len(allLogs) > 0 {
 		output.ConsoleLogs = allLogs

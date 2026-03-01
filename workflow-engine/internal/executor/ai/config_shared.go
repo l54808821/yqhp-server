@@ -6,9 +6,9 @@ import (
 	"yqhp/workflow-engine/internal/executor"
 )
 
-// parseAIConfig 从 map 解析 AI 节点配置（包级函数，供所有执行器复用）
+// parseAIConfig 从 map 解析 AI 节点配置
 func parseAIConfig(config map[string]any) (*AIConfig, error) {
-	aiConfig := &AIConfig{Provider: "openai", Streaming: false}
+	aiConfig := &AIConfig{Provider: "openai", Streaming: false, EnablePlanMode: true}
 
 	if provider, ok := config["provider"].(string); ok {
 		aiConfig.Provider = provider
@@ -88,12 +88,17 @@ func parseAIConfig(config map[string]any) (*AIConfig, error) {
 		aiConfig.MCPProxyBaseURL = mcpProxyBaseURL
 	}
 
-	// Agent 模式
+	// Plan 模式配置
+	if epm, ok := config["enable_plan_mode"].(bool); ok {
+		aiConfig.EnablePlanMode = epm
+	}
+	if mps, ok := config["max_plan_steps"].(float64); ok {
+		aiConfig.MaxPlanSteps = int(mps)
+	}
+
+	// 兼容旧版 agent_mode 字段
 	if agentMode, ok := config["agent_mode"].(string); ok {
 		aiConfig.AgentMode = agentMode
-	}
-	if maxReflectionRounds, ok := config["max_reflection_rounds"].(float64); ok {
-		aiConfig.MaxReflectionRounds = int(maxReflectionRounds)
 	}
 
 	// Skill 列表
@@ -177,56 +182,10 @@ func parseAIConfig(config map[string]any) (*AIConfig, error) {
 		aiConfig.KBScoreThreshold = float32(kbThreshold)
 	}
 
-	// Plan-Execute 特有配置
-	if pp, ok := config["planner_prompt"].(string); ok {
-		aiConfig.PlannerPrompt = pp
-	}
-	if mps, ok := config["max_plan_steps"].(float64); ok {
-		aiConfig.MaxPlanSteps = int(mps)
-	}
-	if er, ok := config["enable_replanner"].(bool); ok {
-		aiConfig.EnableReplanner = er
-	}
-
-	// Reflection 特有配置
-	if cp, ok := config["critique_prompt"].(string); ok {
-		aiConfig.CritiquePrompt = cp
-	}
-	if ip, ok := config["improve_prompt"].(string); ok {
-		aiConfig.ImprovePrompt = ip
-	}
-
-	// Supervisor / DeepAgent 特有配置
-	if subIDs, ok := config["sub_agent_node_ids"].([]any); ok {
-		for _, id := range subIDs {
-			if s, ok := id.(string); ok {
-				aiConfig.SubAgentNodeIDs = append(aiConfig.SubAgentNodeIDs, s)
-			}
-		}
-	}
-	if mi, ok := config["max_iterations"].(float64); ok {
-		aiConfig.MaxIterations = int(mi)
-	}
-
-	// HITL 配置
-	if he, ok := config["hitl_enabled"].(bool); ok {
-		aiConfig.HITLEnabled = he
-	}
-	if hat, ok := config["hitl_approve_tools"].([]any); ok {
-		for _, t := range hat {
-			if s, ok := t.(string); ok {
-				aiConfig.HITLApproveTools = append(aiConfig.HITLApproveTools, s)
-			}
-		}
-	}
-	if hap, ok := config["hitl_approve_plan"].(bool); ok {
-		aiConfig.HITLApprovePlan = hap
-	}
-
 	return aiConfig, nil
 }
 
-// extractChatHistory 从执行上下文中提取多轮对话历史，返回 schema.Message 列表
+// extractChatHistory 从执行上下文中提取多轮对话历史
 func extractChatHistory(execCtx *executor.ExecutionContext) []*schema.Message {
 	if execCtx == nil || execCtx.Variables == nil {
 		return nil
@@ -270,7 +229,7 @@ func applyUserMessage(config *AIConfig, execCtx *executor.ExecutionContext) {
 	}
 }
 
-// resolveConfigVariables 解析配置中的变量引用（包级函数）
+// resolveConfigVariables 解析配置中的变量引用
 func resolveConfigVariables(config *AIConfig, execCtx *executor.ExecutionContext) *AIConfig {
 	if execCtx == nil {
 		return config
@@ -284,16 +243,5 @@ func resolveConfigVariables(config *AIConfig, execCtx *executor.ExecutionContext
 	config.BaseURL = resolver.ResolveString(config.BaseURL, evalCtx)
 	config.MCPProxyBaseURL = resolver.ResolveString(config.MCPProxyBaseURL, evalCtx)
 
-	if config.PlannerPrompt != "" {
-		config.PlannerPrompt = resolver.ResolveString(config.PlannerPrompt, evalCtx)
-	}
-	if config.CritiquePrompt != "" {
-		config.CritiquePrompt = resolver.ResolveString(config.CritiquePrompt, evalCtx)
-	}
-	if config.ImprovePrompt != "" {
-		config.ImprovePrompt = resolver.ResolveString(config.ImprovePrompt, evalCtx)
-	}
-
 	return config
 }
-

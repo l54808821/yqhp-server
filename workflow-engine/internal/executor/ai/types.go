@@ -7,22 +7,10 @@ import (
 )
 
 const (
-	// AIExecutorType AI 执行器类型标识符（旧版，保留兼容）
-	AIExecutorType = "ai"
+	defaultAITimeout         = 5 * time.Minute
+	defaultMaxToolRounds     = 15
+	defaultMaxPlanSteps      = 10
 
-	// defaultAITimeout AI 调用默认超时时间
-	defaultAITimeout = 5 * time.Minute
-
-	// defaultMaxToolRounds 默认最大工具调用轮次
-	defaultMaxToolRounds = 10
-
-	// defaultMaxReflectionRounds 默认最大反思轮次
-	defaultMaxReflectionRounds = 2
-
-	// defaultMaxPlanSteps 默认最大计划步骤数
-	defaultMaxPlanSteps = 10
-
-	// defaultMCPProxyBaseURL 默认 MCP 代理服务地址
 	defaultMCPProxyBaseURL = "http://localhost:8080"
 )
 
@@ -51,30 +39,25 @@ type ToolCallRecord struct {
 	Duration  int64  `json:"duration_ms"`
 }
 
-// ============ 统一 Agent 轨迹 ============
-
-// AgentTrace 统一的 Agent 模式执行轨迹
+// AgentTrace 统一 Agent 执行轨迹
+// Mode: "direct" (直接回答) | "react" (ReAct 工具调用) | "plan" (Plan 模式)
 type AgentTrace struct {
-	Mode           string           `json:"mode"`
-	ReAct          []ReActRound     `json:"react,omitempty"`
-	PlanAndExecute *PlanExecTrace   `json:"plan_and_execute,omitempty"`
-	Reflection     *ReflectionTrace `json:"reflection,omitempty"`
+	Mode  string       `json:"mode"`
+	ReAct []ReActRound `json:"react,omitempty"`
+	Plan  *PlanTrace   `json:"plan,omitempty"`
 }
 
-// ============ ReAct 模式 ============
-
-// ReActRound 单轮 ReAct 推理记录（Thinking → Action → Observation）
+// ReActRound 单轮 ReAct 推理记录
 type ReActRound struct {
 	Round     int              `json:"round"`
 	Thinking  string           `json:"thinking,omitempty"`
 	ToolCalls []ToolCallRecord `json:"tool_calls,omitempty"`
 }
 
-// ============ Plan-and-Execute 模式 ============
-
-// PlanExecTrace Plan-and-Execute 模式的执行轨迹
-type PlanExecTrace struct {
-	Plan      string     `json:"plan"`
+// PlanTrace Plan 模式的执行轨迹
+type PlanTrace struct {
+	Reason    string     `json:"reason"`
+	PlanText  string     `json:"plan_text"`
 	Steps     []PlanStep `json:"steps"`
 	Synthesis string     `json:"synthesis,omitempty"`
 }
@@ -87,19 +70,4 @@ type PlanStep struct {
 	Thinking  string           `json:"thinking,omitempty"`
 	Result    string           `json:"result,omitempty"`
 	ToolCalls []ToolCallRecord `json:"tool_calls,omitempty"`
-}
-
-// ============ Reflection 模式 ============
-
-// ReflectionTrace Reflection 模式的执行轨迹
-type ReflectionTrace struct {
-	Rounds      []ReflectionRound `json:"rounds"`
-	FinalAnswer string            `json:"final_answer,omitempty"`
-}
-
-// ReflectionRound 单轮反思记录
-type ReflectionRound struct {
-	Round    int    `json:"round"`
-	Draft    string `json:"draft"`
-	Critique string `json:"critique"`
 }

@@ -6,6 +6,7 @@ import (
 
 	"github.com/cloudwego/eino-ext/components/model/openai"
 	einomodel "github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/schema"
 
 	"yqhp/workflow-engine/internal/executor"
 )
@@ -76,4 +77,64 @@ func createMCPClient(config *AIConfig) *executor.MCPRemoteClient {
 func hasToolsConfig(config *AIConfig) bool {
 	return len(config.Tools) > 0 || len(config.MCPServerIDs) > 0 ||
 		config.Interactive || len(config.Skills) > 0 || len(config.KnowledgeBases) > 0
+}
+
+// jsonSchemaMapToParams 将 JSON Schema map 转换为 schema.ParameterInfo map
+func jsonSchemaMapToParams(schemaMap map[string]any) map[string]*schema.ParameterInfo {
+	props, ok := schemaMap["properties"].(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	requiredSet := make(map[string]bool)
+	if required, ok := schemaMap["required"].([]any); ok {
+		for _, r := range required {
+			if s, ok := r.(string); ok {
+				requiredSet[s] = true
+			}
+		}
+	}
+
+	params := make(map[string]*schema.ParameterInfo, len(props))
+	for name, propRaw := range props {
+		prop, ok := propRaw.(map[string]any)
+		if !ok {
+			continue
+		}
+		paramInfo := &schema.ParameterInfo{
+			Required: requiredSet[name],
+		}
+		if t, ok := prop["type"].(string); ok {
+			paramInfo.Type = schema.DataType(t)
+		}
+		if desc, ok := prop["description"].(string); ok {
+			paramInfo.Desc = desc
+		}
+		if enumVals, ok := prop["enum"].([]any); ok {
+			for _, ev := range enumVals {
+				if s, ok := ev.(string); ok {
+					paramInfo.Enum = append(paramInfo.Enum, s)
+				}
+			}
+		}
+		if paramInfo.Type == schema.Object {
+			if subProps := jsonSchemaMapToParams(prop); subProps != nil {
+				paramInfo.SubParams = subProps
+			}
+		}
+		if paramInfo.Type == schema.Array {
+			if items, ok := prop["items"].(map[string]any); ok {
+				elemInfo := &schema.ParameterInfo{}
+				if t, ok := items["type"].(string); ok {
+					elemInfo.Type = schema.DataType(t)
+				}
+				if desc, ok := items["description"].(string); ok {
+					elemInfo.Desc = desc
+				}
+				paramInfo.ElemInfo = elemInfo
+			}
+		}
+		params[name] = paramInfo
+	}
+	return params
 }

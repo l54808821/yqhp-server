@@ -3,14 +3,14 @@ package ai
 import "yqhp/workflow-engine/internal/executor"
 
 func init() {
-	// 注册旧版 AI 执行器（保留兼容）
-	executor.MustRegister(NewAIExecutor())
+	unified := NewUnifiedAgentExecutor()
+	executor.MustRegister(unified)
 
-	// 注册 6 种新 AI 节点执行器
-	executor.MustRegister(NewChatExecutor())
-	executor.MustRegister(NewAgentExecutor())
-	executor.MustRegister(NewPlanExecuteExecutor())
-	executor.MustRegister(NewReflectionExecutor())
-	executor.MustRegister(NewSupervisorExecutor())
-	executor.MustRegister(NewDeepAgentExecutor())
+	// 旧类型别名映射，确保向后兼容
+	executor.RegisterAlias("ai", UnifiedAgentType)
+	executor.RegisterAlias("ai_chat", UnifiedAgentType)
+	executor.RegisterAlias("ai_plan_execute", UnifiedAgentType)
+	executor.RegisterAlias("ai_reflection", UnifiedAgentType)
+	executor.RegisterAlias("ai_supervisor", UnifiedAgentType)
+	executor.RegisterAlias("ai_deep_agent", UnifiedAgentType)
 }

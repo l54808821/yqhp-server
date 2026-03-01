@@ -131,6 +131,17 @@ func (r *Registry) CleanupAll(ctx context.Context) error {
 	return lastErr
 }
 
+// RegisterAlias 为已注册的执行器类型创建别名。
+// 别名类型将指向目标类型的执行器实例。
+func (r *Registry) RegisterAlias(aliasType, targetType string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if target, exists := r.executors[targetType]; exists {
+		r.executors[aliasType] = target
+	}
+}
+
 // DefaultRegistry 是全局默认执行器注册表。
 var DefaultRegistry = NewRegistry()
 
@@ -142,6 +153,11 @@ func Register(executor Executor) error {
 // MustRegister 在默认注册表中注册执行器，如果出错则 panic。
 func MustRegister(executor Executor) {
 	DefaultRegistry.MustRegister(executor)
+}
+
+// RegisterAlias 在默认注册表中为已注册的执行器创建别名。
+func RegisterAlias(aliasType, targetType string) {
+	DefaultRegistry.RegisterAlias(aliasType, targetType)
 }
 
 // Get 从默认注册表获取执行器。

@@ -233,15 +233,14 @@ func NewKnowledgeSearchTool(knowledgeBases []*KnowledgeBaseInfo) tool.InvokableT
 				topK = 5
 			}
 
-			e := &AIExecutor{}
 			var allResults []knowledgeChunk
 			for _, kb := range knowledgeBases {
 				if kb.QdrantCollection != "" {
-					results := e.searchQdrant(ctx, kb, input.Query, topK)
+					results := searchQdrant(ctx, kb, input.Query, topK)
 					allResults = append(allResults, results...)
 				}
 				if kb.Type == "graph" {
-					graphResults := e.searchGraph(ctx, kb, input.Query, topK)
+					graphResults := searchGraph(ctx, kb, input.Query, topK)
 					allResults = append(allResults, graphResults...)
 				}
 			}

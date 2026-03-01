@@ -8,10 +8,8 @@ import (
 	"yqhp/workflow-engine/pkg/types"
 )
 
-// humanInteractionToolName 人机交互工具名称
 const humanInteractionToolName = "human_interaction"
 
-// humanInteractionToolDef 返回人机交互工具的定义
 func humanInteractionToolDef() *types.ToolDefinition {
 	return &types.ToolDefinition{
 		Name:        humanInteractionToolName,
@@ -43,7 +41,6 @@ func humanInteractionToolDef() *types.ToolDefinition {
 	}
 }
 
-// humanInteractionArgs 人机交互工具参数
 type humanInteractionArgs struct {
 	Type         string   `json:"type"`
 	Prompt       string   `json:"prompt"`
@@ -51,27 +48,19 @@ type humanInteractionArgs struct {
 	DefaultValue string   `json:"default_value,omitempty"`
 }
 
-// executeHumanInteraction 执行人机交互工具调用
-func (e *AIExecutor) executeHumanInteraction(ctx context.Context, arguments string, stepID string, config *AIConfig, callback types.AICallback) *types.ToolResult {
+func executeHumanInteraction(ctx context.Context, arguments string, stepID string, config *AIConfig, callback types.AICallback) *types.ToolResult {
 	var args humanInteractionArgs
 	if err := json.Unmarshal([]byte(arguments), &args); err != nil {
-		return &types.ToolResult{
-			IsError: true,
-			Content: fmt.Sprintf("参数解析失败: %v", err),
-		}
+		return &types.ToolResult{IsError: true, Content: fmt.Sprintf("参数解析失败: %v", err)}
 	}
 
 	if args.Type == "" {
 		args.Type = "confirm"
 	}
 	if args.Prompt == "" {
-		return &types.ToolResult{
-			IsError: true,
-			Content: "缺少必填参数: prompt",
-		}
+		return &types.ToolResult{IsError: true, Content: "缺少必填参数: prompt"}
 	}
 
-	// 构建交互请求
 	request := &types.InteractionRequest{
 		Type:         types.InteractionType(args.Type),
 		Prompt:       args.Prompt,
@@ -79,7 +68,6 @@ func (e *AIExecutor) executeHumanInteraction(ctx context.Context, arguments stri
 		Timeout:      config.InteractionTimeout,
 	}
 
-	// 处理 select 类型的选项
 	if args.Type == "select" && len(args.Options) > 0 {
 		request.Options = make([]types.InteractionOption, len(args.Options))
 		for i, opt := range args.Options {
@@ -91,13 +79,9 @@ func (e *AIExecutor) executeHumanInteraction(ctx context.Context, arguments stri
 		request.Timeout = 300
 	}
 
-	// 通过回调发送交互请求并等待用户响应
 	resp, err := callback.OnAIInteractionRequired(ctx, stepID, request)
 	if err != nil {
-		return &types.ToolResult{
-			IsError: true,
-			Content: fmt.Sprintf("交互处理失败: %v", err),
-		}
+		return &types.ToolResult{IsError: true, Content: fmt.Sprintf("交互处理失败: %v", err)}
 	}
 
 	if resp == nil || resp.Skipped {
@@ -105,14 +89,8 @@ func (e *AIExecutor) executeHumanInteraction(ctx context.Context, arguments stri
 		if defaultVal == "" {
 			defaultVal = "(用户未响应)"
 		}
-		return &types.ToolResult{
-			IsError: false,
-			Content: fmt.Sprintf(`{"skipped": true, "value": %q}`, defaultVal),
-		}
+		return &types.ToolResult{IsError: false, Content: fmt.Sprintf(`{"skipped": true, "value": %q}`, defaultVal)}
 	}
 
-	return &types.ToolResult{
-		IsError: false,
-		Content: fmt.Sprintf(`{"skipped": false, "value": %q}`, resp.Value),
-	}
+	return &types.ToolResult{IsError: false, Content: fmt.Sprintf(`{"skipped": false, "value": %q}`, resp.Value)}
 }

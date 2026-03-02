@@ -10,7 +10,7 @@ const (
 	defaultAITimeout         = 5 * time.Minute
 	defaultMaxToolRounds     = 15
 	defaultMaxPlanSteps      = 10
-	defaultToolTimeout       = 60 * time.Second
+	defaultToolTimeout       = 180 * time.Second
 	defaultMaxToolConcurrent = 5
 
 	defaultMCPProxyBaseURL = "http://localhost:8080"

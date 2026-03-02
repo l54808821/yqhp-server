@@ -57,7 +57,23 @@ func executeSkillCall(ctx context.Context, skill *SkillInfo, arguments string, c
 		schema.UserMessage(args.Task),
 	}
 
-	chatModel, err := createChatModelFromConfig(ctx, config)
+	modelConfig := config
+	if skill.ModelID != "" {
+		modelConfig = &AIConfig{
+			Provider: skill.Provider,
+			Model:    skill.ModelID,
+			APIKey:   skill.APIKey,
+			BaseURL:  skill.BaseURL,
+		}
+		if modelConfig.Provider == "" {
+			modelConfig.Provider = config.Provider
+		}
+		if modelConfig.APIKey == "" {
+			modelConfig.APIKey = config.APIKey
+		}
+	}
+
+	chatModel, err := createChatModelFromConfig(ctx, modelConfig)
 	if err != nil {
 		return &types.ToolResult{IsError: true, Content: fmt.Sprintf("Skill 创建模型失败: %v", err)}
 	}

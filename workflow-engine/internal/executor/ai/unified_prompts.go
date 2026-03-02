@@ -143,6 +143,68 @@ func buildSynthesisPrompt(originalTask string, steps []string, stepResults []str
 	return sb.String()
 }
 
+const maxHistorySummaryRunes = 1500
+
+// buildHistorySummary 从消息历史中提取最近几轮对话的摘要，用于 Plan 模式的步骤上下文
+func buildHistorySummary(messages []*schema.Message) string {
+	var userAssistantPairs []struct{ user, assistant string }
+	var currentUser string
+
+	for _, msg := range messages {
+		switch msg.Role {
+		case schema.User:
+			currentUser = msg.Content
+		case schema.Assistant:
+			if currentUser != "" && msg.Content != "" {
+				userAssistantPairs = append(userAssistantPairs, struct{ user, assistant string }{currentUser, msg.Content})
+				currentUser = ""
+			}
+		}
+	}
+	if currentUser != "" {
+		userAssistantPairs = append(userAssistantPairs, struct{ user, assistant string }{currentUser, ""})
+	}
+
+	if len(userAssistantPairs) == 0 {
+		return ""
+	}
+
+	// 取最近 3 轮
+	maxTurns := 3
+	start := len(userAssistantPairs) - maxTurns
+	if start < 0 {
+		start = 0
+	}
+	recent := userAssistantPairs[start:]
+
+	var sb strings.Builder
+	sb.WriteString("[对话上下文]\n")
+	for _, pair := range recent {
+		userContent := truncateRunes(pair.user, 300)
+		sb.WriteString(fmt.Sprintf("用户: %s\n", userContent))
+		if pair.assistant != "" {
+			assistantContent := truncateRunes(pair.assistant, 300)
+			sb.WriteString(fmt.Sprintf("助手: %s\n", assistantContent))
+		}
+		sb.WriteString("\n")
+	}
+
+	result := sb.String()
+	if len([]rune(result)) > maxHistorySummaryRunes {
+		runes := []rune(result)
+		result = string(runes[:maxHistorySummaryRunes]) + "..."
+	}
+	return result
+}
+
+func truncateRunes(s string, maxRunes int) string {
+	runes := []rune(s)
+	if len(runes) <= maxRunes {
+		return s
+	}
+	return string(runes[:maxRunes]) + "..."
+}
+
 func buildSkillInstruction(skills []*SkillInfo) string {
 	var sb strings.Builder
 	sb.WriteString("\n\n[专业能力（Skill）]\n")

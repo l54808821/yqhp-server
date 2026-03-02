@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"yqhp/common/response"
+	guluConfig "yqhp/gulu/internal/config"
 	"yqhp/gulu/internal/executor"
 	"yqhp/gulu/internal/logic"
 	"yqhp/gulu/internal/middleware"
@@ -885,6 +886,28 @@ func (h *StreamExecutionHandler) resolveKnowledgeBaseConfigs(c *fiber.Ctx, confi
 
 	if len(knowledgeBases) > 0 {
 		config["knowledge_bases"] = knowledgeBases
+
+		// 注入基础设施地址，让 workflow-engine 不需要硬编码
+		cfg := guluConfig.GetConfig()
+		if cfg != nil {
+			if cfg.Qdrant.Host != "" {
+				// Qdrant REST API 端口固定为 gRPC 端口 - 1（6334 → 6333）
+				restPort := 6333
+				if cfg.Qdrant.Port > 0 {
+					restPort = cfg.Qdrant.Port - 1
+				}
+				protocol := "http"
+				if cfg.Qdrant.UseTLS {
+					protocol = "https"
+				}
+				config["qdrant_host"] = fmt.Sprintf("%s://%s:%d", protocol, cfg.Qdrant.Host, restPort)
+			}
+			serverPort := cfg.Server.Port
+			if serverPort <= 0 {
+				serverPort = 5321
+			}
+			config["gulu_host"] = fmt.Sprintf("http://127.0.0.1:%d", serverPort)
+		}
 	}
 
 	return nil

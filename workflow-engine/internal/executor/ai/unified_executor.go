@@ -73,9 +73,8 @@ func (e *UnifiedAgentExecutor) Execute(ctx context.Context, step *types.Step, ex
 	}
 
 	mcpClient := createMCPClient(config)
-	einoTools := CollectEinoTools(ctx, config, step.ID, mcpClient)
 
-	allToolDefs, _ := collectToolDefinitions(ctx, config, mcpClient)
+	allToolDefs, mcpToolServerMap, _ := collectToolDefinitions(ctx, config, mcpClient)
 
 	schemaTools := toSchemaTools(allToolDefs)
 
@@ -83,7 +82,7 @@ func (e *UnifiedAgentExecutor) Execute(ctx context.Context, step *types.Step, ex
 		schemaTools = append(schemaTools, switchToPlanToolInfo())
 	}
 
-	systemPrompt := buildUnifiedSystemPrompt(config, len(einoTools) > 0)
+	systemPrompt := buildUnifiedSystemPrompt(config, len(allToolDefs) > 0)
 	messages := buildUnifiedMessages(systemPrompt, chatHistory, config)
 
 	maxRounds := config.MaxToolRounds
@@ -98,7 +97,7 @@ func (e *UnifiedAgentExecutor) Execute(ctx context.Context, step *types.Step, ex
 		}
 	}
 
-	output, err := e.executeReActLoop(ctx, chatModel, messages, schemaTools, allToolDefs, config, step.ID, execCtx, aiCallback, toolCallback, mcpClient, maxRounds)
+	output, err := e.executeReActLoop(ctx, chatModel, messages, schemaTools, allToolDefs, config, step.ID, execCtx, aiCallback, toolCallback, mcpClient, mcpToolServerMap, maxRounds)
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			return executor.CreateTimeoutResult(step.ID, startTime, timeout), nil
@@ -132,6 +131,7 @@ func (e *UnifiedAgentExecutor) executeReActLoop(
 	aiCallback types.AICallback,
 	toolCallback types.AIToolCallback,
 	mcpClient *executor.MCPRemoteClient,
+	mcpToolServerMap map[string]int64,
 	maxRounds int,
 ) (*AIOutput, error) {
 	output := &AIOutput{
@@ -182,7 +182,7 @@ func (e *UnifiedAgentExecutor) executeReActLoop(
 					tc.OnAIThinking(ctx, stepID, round, fmt.Sprintf("切换到 Plan 模式：%s", planReason))
 				}
 			}
-			planOutput, planErr := e.executePlanMode(ctx, chatModel, messages, schemaTools, allToolDefs, config, stepID, execCtx, aiCallback, toolCallback, mcpClient, planReason)
+			planOutput, planErr := e.executePlanMode(ctx, chatModel, messages, schemaTools, allToolDefs, config, stepID, execCtx, aiCallback, toolCallback, mcpClient, mcpToolServerMap, planReason)
 			if planErr != nil {
 				return nil, planErr
 			}
@@ -194,7 +194,7 @@ func (e *UnifiedAgentExecutor) executeReActLoop(
 
 		messages = append(messages, resp)
 
-		toolResults := e.executeToolsConcurrently(ctx, resp.ToolCalls, round, execCtx, mcpClient, config, allToolDefs, stepID, aiCallback, toolCallback)
+		toolResults := e.executeToolsConcurrently(ctx, resp.ToolCalls, round, execCtx, mcpClient, config, allToolDefs, mcpToolServerMap, stepID, aiCallback, toolCallback)
 
 		var roundToolCalls []ToolCallRecord
 		for _, r := range toolResults {
@@ -214,7 +214,8 @@ func (e *UnifiedAgentExecutor) executeReActLoop(
 	log.Printf("[WARN] 工具调用轮次达到最大值 %d，停止循环", maxRounds)
 	resp, err := chatModel.Generate(ctx, messages)
 	if err != nil {
-		return output, nil
+		log.Printf("[WARN] 工具轮次耗尽后最终回复生成失败: %v", err)
+		return output, fmt.Errorf("最终回复生成失败: %w", err)
 	}
 	output.Content = resp.Content
 	updateTokenUsage(output, resp)
@@ -294,6 +295,7 @@ func (e *UnifiedAgentExecutor) executePlanMode(
 	aiCallback types.AICallback,
 	toolCallback types.AIToolCallback,
 	mcpClient *executor.MCPRemoteClient,
+	mcpToolServerMap map[string]int64,
 	planReason string,
 ) (*AIOutput, error) {
 	output := &AIOutput{
@@ -320,6 +322,14 @@ func (e *UnifiedAgentExecutor) executePlanMode(
 		return nil, fmt.Errorf("规划阶段失败: %w", err)
 	}
 	updateTokenUsage(output, planResp)
+
+	if planResp.ResponseMeta != nil && planResp.ResponseMeta.Usage != nil {
+		output.AgentTrace.Plan.PlanningTokens = &TokenUsage{
+			PromptTokens:     planResp.ResponseMeta.Usage.PromptTokens,
+			CompletionTokens: planResp.ResponseMeta.Usage.CompletionTokens,
+			TotalTokens:      planResp.ResponseMeta.Usage.TotalTokens,
+		}
+	}
 
 	steps := parsePlanSteps(planResp.Content)
 	maxSteps := config.MaxPlanSteps
@@ -349,6 +359,8 @@ func (e *UnifiedAgentExecutor) executePlanMode(
 	// 过滤掉 switch_to_plan 工具，执行阶段不需要它
 	execTools := filterOutSwitchToPlan(schemaTools)
 
+	historySummary := buildHistorySummary(existingMessages)
+
 	var stepResults []string
 	for i, task := range steps {
 		if ctx.Err() != nil {
@@ -364,12 +376,16 @@ func (e *UnifiedAgentExecutor) executePlanMode(
 		}
 
 		stepPrompt := buildPlanStepPrompt(config.Prompt, steps, i, stepResults)
+		userContent := stepPrompt
+		if historySummary != "" {
+			userContent = historySummary + "\n" + stepPrompt
+		}
 		stepMessages := []*schema.Message{
 			schema.SystemMessage(config.SystemPrompt),
-			schema.UserMessage(stepPrompt),
+			schema.UserMessage(userContent),
 		}
 
-		stepOutput, stepErr := e.executeMiniReAct(ctx, chatModel, stepMessages, execTools, allToolDefs, config, stepID, execCtx, aiCallback, toolCallback, mcpClient)
+		stepOutput, stepErr := e.executeMiniReAct(ctx, chatModel, stepMessages, execTools, allToolDefs, config, stepID, execCtx, aiCallback, toolCallback, mcpClient, mcpToolServerMap)
 		if stepErr != nil {
 			output.AgentTrace.Plan.Steps[i].Status = "failed"
 			output.AgentTrace.Plan.Steps[i].Result = stepErr.Error()
@@ -381,6 +397,9 @@ func (e *UnifiedAgentExecutor) executePlanMode(
 		output.AgentTrace.Plan.Steps[i].Status = "completed"
 		output.AgentTrace.Plan.Steps[i].Result = stepOutput.Content
 		output.AgentTrace.Plan.Steps[i].ToolCalls = stepOutput.ToolCalls
+		output.AgentTrace.Plan.Steps[i].PromptTokens = stepOutput.PromptTokens
+		output.AgentTrace.Plan.Steps[i].CompletionTokens = stepOutput.CompletionTokens
+		output.AgentTrace.Plan.Steps[i].TotalTokens = stepOutput.TotalTokens
 		stepResults = append(stepResults, stepOutput.Content)
 	}
 
@@ -400,6 +419,7 @@ func (e *UnifiedAgentExecutor) executePlanMode(
 
 		var sb strings.Builder
 		var idx int
+		synthTokens := &TokenUsage{}
 		for {
 			chunk, err := stream.Recv()
 			if err == io.EOF {
@@ -413,9 +433,18 @@ func (e *UnifiedAgentExecutor) executePlanMode(
 				aiCallback.OnAIChunk(ctx, stepID, chunk.Content, idx)
 				idx++
 			}
+			if chunk.ResponseMeta != nil && chunk.ResponseMeta.Usage != nil {
+				synthTokens.PromptTokens += chunk.ResponseMeta.Usage.PromptTokens
+				synthTokens.CompletionTokens += chunk.ResponseMeta.Usage.CompletionTokens
+				synthTokens.TotalTokens += chunk.ResponseMeta.Usage.TotalTokens
+				output.PromptTokens += chunk.ResponseMeta.Usage.PromptTokens
+				output.CompletionTokens += chunk.ResponseMeta.Usage.CompletionTokens
+				output.TotalTokens += chunk.ResponseMeta.Usage.TotalTokens
+			}
 		}
 		output.Content = sb.String()
 		output.AgentTrace.Plan.Synthesis = output.Content
+		output.AgentTrace.Plan.SynthesisTokens = synthTokens
 		aiCallback.OnAIComplete(ctx, stepID, &types.AIResult{
 			Content:          output.Content,
 			PromptTokens:     output.PromptTokens,
@@ -430,6 +459,13 @@ func (e *UnifiedAgentExecutor) executePlanMode(
 		updateTokenUsage(output, synthResp)
 		output.Content = synthResp.Content
 		output.AgentTrace.Plan.Synthesis = output.Content
+		if synthResp.ResponseMeta != nil && synthResp.ResponseMeta.Usage != nil {
+			output.AgentTrace.Plan.SynthesisTokens = &TokenUsage{
+				PromptTokens:     synthResp.ResponseMeta.Usage.PromptTokens,
+				CompletionTokens: synthResp.ResponseMeta.Usage.CompletionTokens,
+				TotalTokens:      synthResp.ResponseMeta.Usage.TotalTokens,
+			}
+		}
 	}
 
 	return output, nil
@@ -448,6 +484,7 @@ func (e *UnifiedAgentExecutor) executeMiniReAct(
 	aiCallback types.AICallback,
 	toolCallback types.AIToolCallback,
 	mcpClient *executor.MCPRemoteClient,
+	mcpToolServerMap map[string]int64,
 ) (*AIOutput, error) {
 	output := &AIOutput{Model: config.Model}
 
@@ -482,7 +519,7 @@ func (e *UnifiedAgentExecutor) executeMiniReAct(
 		}
 
 		messages = append(messages, resp)
-		toolResults := e.executeToolsConcurrently(ctx, resp.ToolCalls, round, execCtx, mcpClient, config, allToolDefs, stepID, aiCallback, toolCallback)
+		toolResults := e.executeToolsConcurrently(ctx, resp.ToolCalls, round, execCtx, mcpClient, config, allToolDefs, mcpToolServerMap, stepID, aiCallback, toolCallback)
 		for _, r := range toolResults {
 			toolMsg := schema.ToolMessage(r.result.Content, r.tc.ID)
 			messages = append(messages, toolMsg)
@@ -492,7 +529,8 @@ func (e *UnifiedAgentExecutor) executeMiniReAct(
 
 	resp, err := chatModel.Generate(ctx, messages)
 	if err != nil {
-		return output, nil
+		log.Printf("[WARN] miniReAct 轮次耗尽后最终回复生成失败: %v", err)
+		return output, fmt.Errorf("最终回复生成失败: %w", err)
 	}
 	output.Content = resp.Content
 	updateTokenUsage(output, resp)
@@ -514,6 +552,7 @@ func (e *UnifiedAgentExecutor) executeToolsConcurrently(
 	mcpClient *executor.MCPRemoteClient,
 	config *AIConfig,
 	allToolDefs []*types.ToolDefinition,
+	mcpToolServerMap map[string]int64,
 	stepID string,
 	aiCallback types.AICallback,
 	toolCallback types.AIToolCallback,
@@ -521,10 +560,23 @@ func (e *UnifiedAgentExecutor) executeToolsConcurrently(
 	results := make([]toolCallResult, len(toolCalls))
 	var wg sync.WaitGroup
 
+	sem := make(chan struct{}, defaultMaxToolConcurrent)
+
+	toolTimeout := defaultToolTimeout
+	if config.ToolTimeout > 0 {
+		toolTimeout = time.Duration(config.ToolTimeout) * time.Second
+	}
+
 	for i, tc := range toolCalls {
 		wg.Add(1)
 		go func(idx int, toolCall schema.ToolCall) {
 			defer wg.Done()
+
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			toolCtx, toolCancel := context.WithTimeout(ctx, toolTimeout)
+			defer toolCancel()
 
 			typesToolCall := &types.ToolCall{
 				ID:        toolCall.ID,
@@ -532,12 +584,20 @@ func (e *UnifiedAgentExecutor) executeToolsConcurrently(
 				Arguments: toolCall.Function.Arguments,
 			}
 			if toolCallback != nil {
-				toolCallback.OnAIToolCallStart(ctx, stepID, typesToolCall)
+				toolCallback.OnAIToolCallStart(toolCtx, stepID, typesToolCall)
 			}
 
 			callStart := time.Now()
-			toolResult := executeSingleTool(ctx, toolCall, execCtx, mcpClient, config, allToolDefs, stepID, aiCallback)
+			toolResult := executeSingleTool(toolCtx, toolCall, execCtx, mcpClient, config, mcpToolServerMap, stepID, aiCallback)
 			callDuration := time.Since(callStart)
+
+			if toolCtx.Err() == context.DeadlineExceeded && !toolResult.IsError {
+				toolResult = &types.ToolResult{
+					ToolCallID: toolCall.ID,
+					Content:    fmt.Sprintf("工具 %s 执行超时 (%v)", toolCall.Function.Name, toolTimeout),
+					IsError:    true,
+				}
+			}
 
 			if toolCallback != nil {
 				toolCallback.OnAIToolCallComplete(ctx, stepID, typesToolCall, toolResult)
@@ -569,7 +629,7 @@ func executeSingleTool(
 	execCtx *executor.ExecutionContext,
 	mcpClient *executor.MCPRemoteClient,
 	config *AIConfig,
-	allToolDefs []*types.ToolDefinition,
+	mcpToolServerMap map[string]int64,
 	stepID string,
 	aiCallback types.AICallback,
 ) *types.ToolResult {
@@ -585,7 +645,7 @@ func executeSingleTool(
 	}
 
 	if toolName == knowledgeSearchToolName && len(config.KnowledgeBases) > 0 {
-		result := executeKnowledgeSearch(ctx, tc.Function.Arguments, config.KnowledgeBases)
+		result := executeKnowledgeSearch(ctx, tc.Function.Arguments, config.KnowledgeBases, config)
 		result.ToolCallID = tc.ID
 		return result
 	}
@@ -609,9 +669,8 @@ func executeSingleTool(
 		return result
 	}
 
-	if mcpClient != nil && len(config.MCPServerIDs) > 0 {
-		serverID := findMCPServerForTool(ctx, toolName, config.MCPServerIDs, mcpClient)
-		if serverID > 0 {
+	if mcpClient != nil {
+		if serverID, ok := mcpToolServerMap[toolName]; ok && serverID > 0 {
 			result, err := mcpClient.CallTool(ctx, serverID, toolName, tc.Function.Arguments)
 			if err != nil {
 				return &types.ToolResult{ToolCallID: tc.ID, Content: fmt.Sprintf("MCP 工具调用失败: %v", err), IsError: true}
@@ -681,8 +740,9 @@ func mergeTokenUsage(dst, src *AIOutput) {
 	dst.TotalTokens += src.TotalTokens
 }
 
-func collectToolDefinitions(ctx context.Context, config *AIConfig, mcpClient *executor.MCPRemoteClient) ([]*types.ToolDefinition, error) {
+func collectToolDefinitions(ctx context.Context, config *AIConfig, mcpClient *executor.MCPRemoteClient) ([]*types.ToolDefinition, map[string]int64, error) {
 	var allDefs []*types.ToolDefinition
+	mcpToolServerMap := make(map[string]int64)
 
 	for _, toolName := range config.Tools {
 		if executor.DefaultToolRegistry.Has(toolName) {
@@ -704,6 +764,9 @@ func collectToolDefinitions(ctx context.Context, config *AIConfig, mcpClient *ex
 				log.Printf("[WARN] 获取 MCP 服务器 %d 工具列表失败: %v", serverID, err)
 				continue
 			}
+			for _, t := range tools {
+				mcpToolServerMap[t.Name] = serverID
+			}
 			allDefs = append(allDefs, tools...)
 		}
 	}
@@ -720,7 +783,7 @@ func collectToolDefinitions(ctx context.Context, config *AIConfig, mcpClient *ex
 		allDefs = append(allDefs, knowledgeSearchToolDef(kbNames))
 	}
 
-	return allDefs, nil
+	return allDefs, mcpToolServerMap, nil
 }
 
 func toSchemaTools(defs []*types.ToolDefinition) []*schema.ToolInfo {
@@ -744,34 +807,23 @@ func toSchemaTools(defs []*types.ToolDefinition) []*schema.ToolInfo {
 	return tools
 }
 
-func findMCPServerForTool(ctx context.Context, toolName string, mcpServerIDs []int64, mcpClient *executor.MCPRemoteClient) int64 {
-	for _, serverID := range mcpServerIDs {
-		tools, err := mcpClient.GetTools(ctx, serverID)
-		if err != nil {
-			continue
-		}
-		for _, t := range tools {
-			if t.Name == toolName {
-				return serverID
-			}
-		}
-	}
-	return 0
-}
 
 func parsePlanSteps(content string) []string {
-	content = strings.TrimSpace(content)
-	start := strings.Index(content, "[")
-	end := strings.LastIndex(content, "]")
+	trimmed := strings.TrimSpace(content)
+
+	// 优先尝试 JSON 数组解析
+	jsonContent := trimmed
+	start := strings.Index(trimmed, "[")
+	end := strings.LastIndex(trimmed, "]")
 	if start >= 0 && end > start {
-		content = content[start : end+1]
+		jsonContent = trimmed[start : end+1]
 	}
 
 	var rawSteps []struct {
 		Step int    `json:"step"`
 		Task string `json:"task"`
 	}
-	if err := json.Unmarshal([]byte(content), &rawSteps); err == nil && len(rawSteps) > 0 {
+	if err := json.Unmarshal([]byte(jsonContent), &rawSteps); err == nil && len(rawSteps) > 0 {
 		var tasks []string
 		for _, s := range rawSteps {
 			if s.Task != "" {
@@ -783,7 +835,47 @@ func parsePlanSteps(content string) []string {
 		}
 	}
 
-	return []string{content}
+	// JSON 失败，尝试按编号列表解析（"1. xxx" 或 "- xxx"）
+	if tasks := parseNumberedList(trimmed); len(tasks) > 0 {
+		log.Printf("[WARN] Plan 步骤 JSON 解析失败，回退到编号列表解析，提取到 %d 个步骤", len(tasks))
+		return tasks
+	}
+
+	log.Printf("[WARN] Plan 步骤解析失败，将整段内容作为单一步骤执行")
+	return []string{trimmed}
+}
+
+func parseNumberedList(content string) []string {
+	var tasks []string
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// 匹配 "1. xxx", "2. xxx", "1) xxx", "2) xxx"
+		if len(line) >= 3 && line[0] >= '0' && line[0] <= '9' {
+			for i := 1; i < len(line); i++ {
+				if line[i] >= '0' && line[i] <= '9' {
+					continue
+				}
+				if (line[i] == '.' || line[i] == ')') && i+1 < len(line) && line[i+1] == ' ' {
+					task := strings.TrimSpace(line[i+2:])
+					if task != "" {
+						tasks = append(tasks, task)
+					}
+				}
+				break
+			}
+		}
+		// 匹配 "- xxx"
+		if len(line) >= 3 && line[0] == '-' && line[1] == ' ' {
+			task := strings.TrimSpace(line[2:])
+			if task != "" {
+				tasks = append(tasks, task)
+			}
+		}
+	}
+	return tasks
 }
 
 func (e *UnifiedAgentExecutor) Cleanup(ctx context.Context) error { return nil }

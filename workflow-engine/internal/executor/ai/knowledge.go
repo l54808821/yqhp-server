@@ -38,7 +38,7 @@ func knowledgeSearchToolDef(kbNames []string) *types.ToolDefinition {
 	}
 }
 
-func executeKnowledgeSearch(ctx context.Context, arguments string, knowledgeBases []*KnowledgeBaseInfo) *types.ToolResult {
+func executeKnowledgeSearch(ctx context.Context, arguments string, knowledgeBases []*KnowledgeBaseInfo, config *AIConfig) *types.ToolResult {
 	var args struct {
 		Query string `json:"query"`
 		TopK  int    `json:"top_k"`
@@ -57,13 +57,15 @@ func executeKnowledgeSearch(ctx context.Context, arguments string, knowledgeBase
 	}
 
 	var allResults []knowledgeChunk
+	qdrantHost := getQdrantHost(config)
+	guluHost := getGuluHost(config)
 	for _, kb := range knowledgeBases {
 		if kb.QdrantCollection != "" {
-			results := searchQdrant(ctx, kb, args.Query, topK)
+			results := searchQdrant(ctx, kb, args.Query, topK, qdrantHost)
 			allResults = append(allResults, results...)
 		}
 		if kb.Type == "graph" {
-			graphResults := searchGraph(ctx, kb, args.Query, topK)
+			graphResults := searchGraph(ctx, kb, args.Query, topK, guluHost)
 			allResults = append(allResults, graphResults...)
 		}
 	}
@@ -84,14 +86,13 @@ func executeKnowledgeSearch(ctx context.Context, arguments string, knowledgeBase
 	return &types.ToolResult{IsError: false, Content: sb.String()}
 }
 
-func searchQdrant(ctx context.Context, kb *KnowledgeBaseInfo, query string, topK int) []knowledgeChunk {
+func searchQdrant(ctx context.Context, kb *KnowledgeBaseInfo, query string, topK int, qdrantHost string) []knowledgeChunk {
 	queryVector, err := callEmbeddingAPI(ctx, kb.EmbeddingBaseURL, kb.EmbeddingAPIKey, kb.EmbeddingModel, query)
 	if err != nil {
 		log.Printf("[WARN] 知识库 %s 的查询向量化失败: %v", kb.Name, err)
 		return nil
 	}
 
-	qdrantHost := "http://127.0.0.1:6333"
 	hits, err := searchQdrantREST(ctx, qdrantHost, kb.QdrantCollection, queryVector, topK, float32(kb.ScoreThreshold))
 	if err != nil {
 		log.Printf("[WARN] 知识库 %s 向量搜索失败: %v", kb.Name, err)
@@ -228,8 +229,7 @@ func callEmbeddingAPI(ctx context.Context, baseURL, apiKey, model, text string) 
 	return result.Data[0].Embedding, nil
 }
 
-func searchGraph(ctx context.Context, kb *KnowledgeBaseInfo, query string, topK int) []knowledgeChunk {
-	guluHost := "http://127.0.0.1:5321"
+func searchGraph(ctx context.Context, kb *KnowledgeBaseInfo, query string, topK int, guluHost string) []knowledgeChunk {
 	reqBody := map[string]interface{}{
 		"query":          query,
 		"top_k":          topK,

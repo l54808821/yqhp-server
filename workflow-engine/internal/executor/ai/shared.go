@@ -9,7 +9,28 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"yqhp/workflow-engine/internal/executor"
+	"yqhp/workflow-engine/pkg/types"
 )
+
+// ========== Context 辅助函数 ==========
+
+type execCtxKeyType struct{}
+
+var execCtxKey = execCtxKeyType{}
+
+// WithExecCtx 将 ExecutionContext 注入到 context 中
+func WithExecCtx(ctx context.Context, execCtx *executor.ExecutionContext) context.Context {
+	return context.WithValue(ctx, execCtxKey, execCtx)
+}
+
+type aiCallbackKeyType struct{}
+
+var aiCallbackKey = aiCallbackKeyType{}
+
+// WithAICallback 将 AICallback 注入到 context 中
+func WithAICallback(ctx context.Context, cb types.AICallback) context.Context {
+	return context.WithValue(ctx, aiCallbackKey, cb)
+}
 
 // createChatModelFromConfig 根据 AIConfig 创建 Eino ChatModel（包级函数，供各执行器复用）
 func createChatModelFromConfig(ctx context.Context, config *AIConfig) (einomodel.ToolCallingChatModel, error) {
@@ -63,6 +84,28 @@ func getMCPProxyBaseURL(config *AIConfig) string {
 		return envURL
 	}
 	return defaultMCPProxyBaseURL
+}
+
+// getQdrantHost 获取 Qdrant 服务地址
+func getQdrantHost(config *AIConfig) string {
+	if config.QdrantHost != "" {
+		return config.QdrantHost
+	}
+	if envURL := os.Getenv("QDRANT_HOST"); envURL != "" {
+		return envURL
+	}
+	return defaultQdrantHost
+}
+
+// getGuluHost 获取 Gulu 服务地址
+func getGuluHost(config *AIConfig) string {
+	if config.GuluHost != "" {
+		return config.GuluHost
+	}
+	if envURL := os.Getenv("GULU_HOST"); envURL != "" {
+		return envURL
+	}
+	return defaultGuluHost
 }
 
 // createMCPClient 创建 MCP 远程客户端（如果有 MCP 服务器配置）

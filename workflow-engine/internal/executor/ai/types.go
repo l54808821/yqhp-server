@@ -10,8 +10,12 @@ const (
 	defaultAITimeout         = 5 * time.Minute
 	defaultMaxToolRounds     = 15
 	defaultMaxPlanSteps      = 10
+	defaultToolTimeout       = 60 * time.Second
+	defaultMaxToolConcurrent = 5
 
 	defaultMCPProxyBaseURL = "http://localhost:8080"
+	defaultQdrantHost      = "http://127.0.0.1:6333"
+	defaultGuluHost        = "http://127.0.0.1:5321"
 )
 
 // AIOutput AI 节点输出
@@ -54,20 +58,32 @@ type ReActRound struct {
 	ToolCalls []ToolCallRecord `json:"tool_calls,omitempty"`
 }
 
+// TokenUsage 独立的 token 统计
+type TokenUsage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
+}
+
 // PlanTrace Plan 模式的执行轨迹
 type PlanTrace struct {
-	Reason    string     `json:"reason"`
-	PlanText  string     `json:"plan_text"`
-	Steps     []PlanStep `json:"steps"`
-	Synthesis string     `json:"synthesis,omitempty"`
+	Reason          string     `json:"reason"`
+	PlanText        string     `json:"plan_text"`
+	Steps           []PlanStep `json:"steps"`
+	Synthesis       string     `json:"synthesis,omitempty"`
+	PlanningTokens  *TokenUsage `json:"planning_tokens,omitempty"`
+	SynthesisTokens *TokenUsage `json:"synthesis_tokens,omitempty"`
 }
 
 // PlanStep 计划中的单个步骤
 type PlanStep struct {
-	Index     int              `json:"index"`
-	Task      string           `json:"task"`
-	Status    string           `json:"status"`
-	Thinking  string           `json:"thinking,omitempty"`
-	Result    string           `json:"result,omitempty"`
-	ToolCalls []ToolCallRecord `json:"tool_calls,omitempty"`
+	Index            int              `json:"index"`
+	Task             string           `json:"task"`
+	Status           string           `json:"status"`
+	Thinking         string           `json:"thinking,omitempty"`
+	Result           string           `json:"result,omitempty"`
+	ToolCalls        []ToolCallRecord `json:"tool_calls,omitempty"`
+	PromptTokens     int              `json:"prompt_tokens,omitempty"`
+	CompletionTokens int              `json:"completion_tokens,omitempty"`
+	TotalTokens      int              `json:"total_tokens,omitempty"`
 }

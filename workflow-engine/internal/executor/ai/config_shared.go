@@ -1,6 +1,9 @@
 package ai
 
 import (
+	"encoding/json"
+	"fmt"
+
 	"github.com/cloudwego/eino/schema"
 
 	"yqhp/workflow-engine/internal/executor"
@@ -8,181 +11,54 @@ import (
 
 // parseAIConfig 从 map 解析 AI 节点配置
 func parseAIConfig(config map[string]any) (*AIConfig, error) {
-	aiConfig := &AIConfig{Provider: "openai", Streaming: false, EnablePlanMode: true}
-
-	if provider, ok := config["provider"].(string); ok {
-		aiConfig.Provider = provider
-	}
-	if m, ok := config["model"].(string); ok {
-		aiConfig.Model = m
-	} else {
-		return nil, executor.NewConfigError("AI 节点需要配置 'model'", nil)
-	}
-	if apiKey, ok := config["api_key"].(string); ok {
-		aiConfig.APIKey = apiKey
-	} else {
-		return nil, executor.NewConfigError("AI 节点需要配置 'api_key'", nil)
-	}
-	if baseURL, ok := config["base_url"].(string); ok {
-		aiConfig.BaseURL = baseURL
-	}
-	if apiVersion, ok := config["api_version"].(string); ok {
-		aiConfig.APIVersion = apiVersion
-	}
-	if temp, ok := config["temperature"].(float64); ok {
-		t := float32(temp)
-		aiConfig.Temperature = &t
-	}
-	if maxTokens, ok := config["max_tokens"].(float64); ok {
-		m := int(maxTokens)
-		aiConfig.MaxTokens = &m
-	}
-	if topP, ok := config["top_p"].(float64); ok {
-		t := float32(topP)
-		aiConfig.TopP = &t
-	}
-	if pp, ok := config["presence_penalty"].(float64); ok {
-		p := float32(pp)
-		aiConfig.PresencePenalty = &p
-	}
-	if systemPrompt, ok := config["system_prompt"].(string); ok {
-		aiConfig.SystemPrompt = systemPrompt
-	}
-	if prompt, ok := config["prompt"].(string); ok {
-		aiConfig.Prompt = prompt
-	} else {
-		return nil, executor.NewConfigError("AI 节点需要配置 'prompt'", nil)
-	}
-	if streaming, ok := config["streaming"].(bool); ok {
-		aiConfig.Streaming = streaming
-	}
-	if interactive, ok := config["interactive"].(bool); ok {
-		aiConfig.Interactive = interactive
-	}
-	if interactionTimeout, ok := config["interaction_timeout"].(float64); ok {
-		aiConfig.InteractionTimeout = int(interactionTimeout)
-	}
-	if timeout, ok := config["timeout"].(float64); ok {
-		aiConfig.Timeout = int(timeout)
+	data, err := json.Marshal(config)
+	if err != nil {
+		return nil, executor.NewConfigError(fmt.Sprintf("AI 配置序列化失败: %v", err), err)
 	}
 
-	// 工具相关配置
-	if tools, ok := config["tools"].([]any); ok {
-		for _, t := range tools {
-			if s, ok := t.(string); ok {
-				aiConfig.Tools = append(aiConfig.Tools, s)
-			}
-		}
-	}
-	if mcpServerIDs, ok := config["mcp_server_ids"].([]any); ok {
-		for _, id := range mcpServerIDs {
-			if f, ok := id.(float64); ok {
-				aiConfig.MCPServerIDs = append(aiConfig.MCPServerIDs, int64(f))
-			}
-		}
-	}
-	if maxToolRounds, ok := config["max_tool_rounds"].(float64); ok {
-		aiConfig.MaxToolRounds = int(maxToolRounds)
-	}
-	if mcpProxyBaseURL, ok := config["mcp_proxy_base_url"].(string); ok {
-		aiConfig.MCPProxyBaseURL = mcpProxyBaseURL
+	aiConfig := &AIConfig{}
+	if err := json.Unmarshal(data, aiConfig); err != nil {
+		return nil, executor.NewConfigError(fmt.Sprintf("AI 配置解析失败: %v", err), err)
 	}
 
-	// Plan 模式配置
-	if epm, ok := config["enable_plan_mode"].(bool); ok {
-		aiConfig.EnablePlanMode = epm
-	}
-	if mps, ok := config["max_plan_steps"].(float64); ok {
-		aiConfig.MaxPlanSteps = int(mps)
-	}
+	aiConfig.applyDefaults()
 
-	// 兼容旧版 agent_mode 字段
-	if agentMode, ok := config["agent_mode"].(string); ok {
-		aiConfig.AgentMode = agentMode
-	}
-
-	// Skill 列表
-	if skills, ok := config["skills"].([]any); ok {
-		for _, s := range skills {
-			if skillMap, ok := s.(map[string]any); ok {
-				skill := &SkillInfo{}
-				if id, ok := skillMap["id"].(float64); ok {
-					skill.ID = int64(id)
-				}
-				if name, ok := skillMap["name"].(string); ok {
-					skill.Name = name
-				}
-				if desc, ok := skillMap["description"].(string); ok {
-					skill.Description = desc
-				}
-				if sp, ok := skillMap["system_prompt"].(string); ok {
-					skill.SystemPrompt = sp
-				}
-				if skill.Name != "" && skill.SystemPrompt != "" {
-					aiConfig.Skills = append(aiConfig.Skills, skill)
-				}
-			}
-		}
-	}
-
-	// 知识库列表
-	if kbs, ok := config["knowledge_bases"].([]any); ok {
-		for _, k := range kbs {
-			if kbMap, ok := k.(map[string]any); ok {
-				kbInfo := &KnowledgeBaseInfo{}
-				if id, ok := kbMap["id"].(float64); ok {
-					kbInfo.ID = int64(id)
-				}
-				if name, ok := kbMap["name"].(string); ok {
-					kbInfo.Name = name
-				}
-				if t, ok := kbMap["type"].(string); ok {
-					kbInfo.Type = t
-				}
-				if col, ok := kbMap["qdrant_collection"].(string); ok {
-					kbInfo.QdrantCollection = col
-				}
-				if neo, ok := kbMap["neo4j_database"].(string); ok {
-					kbInfo.Neo4jDatabase = neo
-				}
-				if em, ok := kbMap["embedding_model"].(string); ok {
-					kbInfo.EmbeddingModel = em
-				}
-				if emID, ok := kbMap["embedding_model_id"].(float64); ok {
-					kbInfo.EmbeddingModelID = int64(emID)
-				}
-				if tk, ok := kbMap["top_k"].(float64); ok {
-					kbInfo.TopK = int(tk)
-				}
-				if st, ok := kbMap["score_threshold"].(float64); ok {
-					kbInfo.ScoreThreshold = st
-				}
-				if ep, ok := kbMap["embedding_provider"].(string); ok {
-					kbInfo.EmbeddingProvider = ep
-				}
-				if ek, ok := kbMap["embedding_api_key"].(string); ok {
-					kbInfo.EmbeddingAPIKey = ek
-				}
-				if eu, ok := kbMap["embedding_base_url"].(string); ok {
-					kbInfo.EmbeddingBaseURL = eu
-				}
-				if ed, ok := kbMap["embedding_dimension"].(float64); ok {
-					kbInfo.EmbeddingDimension = int(ed)
-				}
-				if kbInfo.Name != "" {
-					aiConfig.KnowledgeBases = append(aiConfig.KnowledgeBases, kbInfo)
-				}
-			}
-		}
-	}
-	if kbTopK, ok := config["kb_top_k"].(float64); ok {
-		aiConfig.KBTopK = int(kbTopK)
-	}
-	if kbThreshold, ok := config["kb_score_threshold"].(float64); ok {
-		aiConfig.KBScoreThreshold = float32(kbThreshold)
+	if err := aiConfig.Validate(); err != nil {
+		return nil, err
 	}
 
 	return aiConfig, nil
+}
+
+// applyDefaults 设置默认值
+func (c *AIConfig) applyDefaults() {
+	if c.Provider == "" {
+		c.Provider = "openai"
+	}
+}
+
+// Validate 校验必填字段和值范围
+func (c *AIConfig) Validate() error {
+	if c.Model == "" {
+		return executor.NewConfigError("AI 节点需要配置 'model'", nil)
+	}
+	if c.APIKey == "" {
+		return executor.NewConfigError("AI 节点需要配置 'api_key'", nil)
+	}
+	if c.Prompt == "" {
+		return executor.NewConfigError("AI 节点需要配置 'prompt'", nil)
+	}
+	if c.Temperature != nil {
+		if *c.Temperature < 0 || *c.Temperature > 2 {
+			return executor.NewConfigError(fmt.Sprintf("temperature 应在 0~2 之间，当前值: %.2f", *c.Temperature), nil)
+		}
+	}
+	if c.TopP != nil {
+		if *c.TopP < 0 || *c.TopP > 1 {
+			return executor.NewConfigError(fmt.Sprintf("top_p 应在 0~1 之间，当前值: %.2f", *c.TopP), nil)
+		}
+	}
+	return nil
 }
 
 // extractChatHistory 从执行上下文中提取多轮对话历史
@@ -242,6 +118,8 @@ func resolveConfigVariables(config *AIConfig, execCtx *executor.ExecutionContext
 	config.Prompt = resolver.ResolveString(config.Prompt, evalCtx)
 	config.BaseURL = resolver.ResolveString(config.BaseURL, evalCtx)
 	config.MCPProxyBaseURL = resolver.ResolveString(config.MCPProxyBaseURL, evalCtx)
+	config.QdrantHost = resolver.ResolveString(config.QdrantHost, evalCtx)
+	config.GuluHost = resolver.ResolveString(config.GuluHost, evalCtx)
 
 	return config
 }

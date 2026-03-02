@@ -37,6 +37,11 @@ type AIConfig struct {
 	EnablePlanMode bool `json:"enable_plan_mode,omitempty"`
 	MaxPlanSteps   int  `json:"max_plan_steps,omitempty"`
 
+	// ===== 基础设施地址 =====
+	QdrantHost  string `json:"qdrant_host,omitempty"`
+	GuluHost    string `json:"gulu_host,omitempty"`
+	ToolTimeout int    `json:"tool_timeout,omitempty"`
+
 	// ===== 兼容旧版字段（解析时保留，运行时忽略）=====
 	AgentMode string `json:"agent_mode,omitempty"`
 }
@@ -47,6 +52,11 @@ type SkillInfo struct {
 	Name         string `json:"name"`
 	Description  string `json:"description"`
 	SystemPrompt string `json:"system_prompt"`
+	// 可选：Skill 独立的模型配置，为空时回退到主 Agent 的模型
+	ModelID  string `json:"model_id,omitempty"`
+	Provider string `json:"provider,omitempty"`
+	APIKey   string `json:"api_key,omitempty"`
+	BaseURL  string `json:"base_url,omitempty"`
 }
 
 // KnowledgeBaseInfo 知识库信息

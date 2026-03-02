@@ -170,9 +170,17 @@ func (e *UnifiedAgentExecutor) executeReActLoop(
 			return output, nil
 		}
 
-		if roundThinking != "" && aiCallback != nil {
+		if aiCallback != nil {
 			if tc, ok := aiCallback.(types.AIThinkingCallback); ok {
-				tc.OnAIThinking(ctx, stepID, round, roundThinking)
+				if roundThinking != "" {
+					tc.OnAIThinking(ctx, stepID, round, roundThinking)
+				} else {
+					toolNames := make([]string, 0, len(resp.ToolCalls))
+					for _, tc := range resp.ToolCalls {
+						toolNames = append(toolNames, tc.Function.Name)
+					}
+					tc.OnAIThinking(ctx, stepID, round, fmt.Sprintf("调用工具: %s", strings.Join(toolNames, ", ")))
+				}
 			}
 		}
 

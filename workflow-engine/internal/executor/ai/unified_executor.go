@@ -411,7 +411,10 @@ func (e *UnifiedAgentExecutor) executePlanMode(
 			schema.UserMessage(userContent),
 		}
 
-		stepOutput, stepErr := e.executeMiniReAct(ctx, chatModel, stepMessages, execTools, allToolDefs, config, stepID, execCtx, aiCallback, toolCallback, mcpClient, mcpToolServerMap)
+		// 根据步骤描述过滤可用工具，防止 LLM 越界调用不属于该步骤的 Skill
+		stepTools, stepToolDefs := filterToolsForStep(execTools, allToolDefs, task, config.Skills)
+
+		stepOutput, stepErr := e.executeMiniReAct(ctx, chatModel, stepMessages, stepTools, stepToolDefs, config, stepID, execCtx, aiCallback, toolCallback, mcpClient, mcpToolServerMap)
 		if stepErr != nil {
 			output.AgentTrace.Plan.Steps[i].Status = "failed"
 			output.AgentTrace.Plan.Steps[i].Result = stepErr.Error()

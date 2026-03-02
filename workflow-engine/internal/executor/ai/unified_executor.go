@@ -317,7 +317,7 @@ func (e *UnifiedAgentExecutor) executePlanMode(
 	// --- 1. 规划阶段 ---
 	planMessages := make([]*schema.Message, len(existingMessages))
 	copy(planMessages, existingMessages)
-	planMessages = append(planMessages, schema.UserMessage(planningPrompt))
+	planMessages = append(planMessages, schema.UserMessage(buildPlanningPrompt(config.Skills)))
 
 	if aiCallback != nil {
 		if tc, ok := aiCallback.(types.AIThinkingCallback); ok {
@@ -357,14 +357,29 @@ func (e *UnifiedAgentExecutor) executePlanMode(
 		})
 	}
 
+	// 将所有步骤信息编码进 ai_thinking 消息，确保前端能一次性获取完整计划
 	if aiCallback != nil {
 		if tc, ok := aiCallback.(types.AIThinkingCallback); ok {
-			tc.OnAIThinking(ctx, stepID, 0, fmt.Sprintf("计划制定完成，共 %d 个步骤", len(steps)))
+			var stepList strings.Builder
+			for i, s := range steps {
+				stepList.WriteString(fmt.Sprintf("\n%d. %s", i+1, s))
+			}
+			tc.OnAIThinking(ctx, stepID, 0, fmt.Sprintf("计划制定完成，共 %d 个步骤%s", len(steps), stepList.String()))
+		}
+	}
+
+	// 同时通过专用事件推送（供未来扩展使用）
+	if aiCallback != nil {
+		if pc, ok := aiCallback.(types.AIPlanCallback); ok {
+			planSteps := make([]types.PlanStepInfo, len(steps))
+			for i, s := range steps {
+				planSteps[i] = types.PlanStepInfo{Index: i + 1, Task: s}
+			}
+			pc.OnAIPlanStarted(ctx, stepID, planReason, planSteps)
 		}
 	}
 
 	// --- 2. 逐步执行 ---
-	// 过滤掉 switch_to_plan 工具，执行阶段不需要它
 	execTools := filterOutSwitchToPlan(schemaTools)
 
 	historySummary := buildHistorySummary(existingMessages)
@@ -380,6 +395,9 @@ func (e *UnifiedAgentExecutor) executePlanMode(
 		if aiCallback != nil {
 			if tc, ok := aiCallback.(types.AIThinkingCallback); ok {
 				tc.OnAIThinking(ctx, stepID, 0, fmt.Sprintf("执行步骤 %d/%d: %s", i+1, len(steps), task))
+			}
+			if pc, ok := aiCallback.(types.AIPlanCallback); ok {
+				pc.OnAIPlanStepUpdate(ctx, stepID, i+1, "running", "")
 			}
 		}
 
@@ -398,6 +416,11 @@ func (e *UnifiedAgentExecutor) executePlanMode(
 			output.AgentTrace.Plan.Steps[i].Status = "failed"
 			output.AgentTrace.Plan.Steps[i].Result = stepErr.Error()
 			stepResults = append(stepResults, fmt.Sprintf("步骤 %d 失败: %s", i+1, stepErr.Error()))
+			if aiCallback != nil {
+				if pc, ok := aiCallback.(types.AIPlanCallback); ok {
+					pc.OnAIPlanStepUpdate(ctx, stepID, i+1, "failed", stepErr.Error())
+				}
+			}
 			continue
 		}
 
@@ -408,7 +431,21 @@ func (e *UnifiedAgentExecutor) executePlanMode(
 		output.AgentTrace.Plan.Steps[i].PromptTokens = stepOutput.PromptTokens
 		output.AgentTrace.Plan.Steps[i].CompletionTokens = stepOutput.CompletionTokens
 		output.AgentTrace.Plan.Steps[i].TotalTokens = stepOutput.TotalTokens
-		stepResults = append(stepResults, stepOutput.Content)
+
+		// 收集步骤结果：包含 LLM 总结 + 工具原始输出，确保后续步骤能获取完整数据
+		resultContent := stepOutput.Content
+		for _, tc := range stepOutput.ToolCalls {
+			if tc.Result != "" && !tc.IsError {
+				resultContent += fmt.Sprintf("\n\n[工具 %s 的原始输出]:\n%s", tc.ToolName, tc.Result)
+			}
+		}
+		stepResults = append(stepResults, resultContent)
+
+		if aiCallback != nil {
+			if pc, ok := aiCallback.(types.AIPlanCallback); ok {
+				pc.OnAIPlanStepUpdate(ctx, stepID, i+1, "completed", stepOutput.Content)
+			}
+		}
 	}
 
 	// --- 3. 汇总阶段 ---
@@ -473,6 +510,13 @@ func (e *UnifiedAgentExecutor) executePlanMode(
 				CompletionTokens: synthResp.ResponseMeta.Usage.CompletionTokens,
 				TotalTokens:      synthResp.ResponseMeta.Usage.TotalTokens,
 			}
+		}
+	}
+
+	// 通知前端计划执行完成
+	if aiCallback != nil {
+		if pc, ok := aiCallback.(types.AIPlanCallback); ok {
+			pc.OnAIPlanCompleted(ctx, stepID, output.Content)
 		}
 	}
 

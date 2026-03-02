@@ -153,3 +153,21 @@ type AIToolCallback interface {
 	// OnAIToolCallComplete 工具调用完成
 	OnAIToolCallComplete(ctx context.Context, stepID string, toolCall *ToolCall, result *ToolResult)
 }
+
+// PlanStep 计划步骤信息
+type PlanStepInfo struct {
+	Index int    `json:"index"`
+	Task  string `json:"task"`
+}
+
+// AIPlanCallback AI 计划模式回调接口（可选实现）
+type AIPlanCallback interface {
+	// OnAIPlanStarted 计划生成完成，一次性推送所有步骤
+	OnAIPlanStarted(ctx context.Context, stepID string, reason string, steps []PlanStepInfo)
+
+	// OnAIPlanStepUpdate 计划步骤状态更新
+	OnAIPlanStepUpdate(ctx context.Context, stepID string, stepIndex int, status string, result string)
+
+	// OnAIPlanCompleted 计划执行完成
+	OnAIPlanCompleted(ctx context.Context, stepID string, synthesis string)
+}

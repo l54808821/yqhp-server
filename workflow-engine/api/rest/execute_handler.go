@@ -723,6 +723,7 @@ var (
 	_ types.AICallback         = (*streamCallback)(nil)
 	_ types.AIToolCallback     = (*streamCallback)(nil)
 	_ types.AIThinkingCallback = (*streamCallback)(nil)
+	_ types.AIPlanCallback     = (*streamCallback)(nil)
 )
 
 func (c *streamCallback) OnStepStart(ctx context.Context, step *types.Step, parentID string, iteration int) {
@@ -836,6 +837,30 @@ func (c *streamCallback) OnAIToolCallComplete(ctx context.Context, stepID string
 		"toolName": toolCall.Name,
 		"result":   result.Content,
 		"isError":  result.IsError,
+	})
+}
+
+func (c *streamCallback) OnAIPlanStarted(ctx context.Context, stepID string, reason string, steps []types.PlanStepInfo) {
+	c.writer.WriteEvent(string(types.EventTypeAIPlanStarted), map[string]interface{}{
+		"stepId": stepID,
+		"reason": reason,
+		"steps":  steps,
+	})
+}
+
+func (c *streamCallback) OnAIPlanStepUpdate(ctx context.Context, stepID string, stepIndex int, status string, result string) {
+	c.writer.WriteEvent(string(types.EventTypeAIPlanStepUpdate), map[string]interface{}{
+		"stepId":    stepID,
+		"stepIndex": stepIndex,
+		"status":    status,
+		"result":    result,
+	})
+}
+
+func (c *streamCallback) OnAIPlanCompleted(ctx context.Context, stepID string, synthesis string) {
+	c.writer.WriteEvent(string(types.EventTypeAIPlanCompleted), map[string]interface{}{
+		"stepId":    stepID,
+		"synthesis": synthesis,
 	})
 }
 

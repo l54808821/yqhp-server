@@ -124,6 +124,12 @@ const (
 	EventTypeAIToolCallComplete ExecutionEventType = "ai_tool_call_complete"
 	// AI 消息完成
 	EventTypeMessageComplete ExecutionEventType = "message_complete"
+	// AI 执行计划已生成
+	EventTypeAIPlanStarted ExecutionEventType = "ai_plan_started"
+	// AI 执行计划步骤状态更新
+	EventTypeAIPlanStepUpdate ExecutionEventType = "ai_plan_step_update"
+	// AI 执行计划完成
+	EventTypeAIPlanCompleted ExecutionEventType = "ai_plan_completed"
 )
 
 // StepStartedEvent 步骤开始事件数据

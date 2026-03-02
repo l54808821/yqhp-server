@@ -34,8 +34,8 @@ type AIConfig struct {
 	KBScoreThreshold   float32              `json:"kb_score_threshold,omitempty"`
 
 	// ===== Plan 模式配置 =====
-	EnablePlanMode bool `json:"enable_plan_mode,omitempty"`
-	MaxPlanSteps   int  `json:"max_plan_steps,omitempty"`
+	EnablePlanMode *bool `json:"enable_plan_mode,omitempty"`
+	MaxPlanSteps   int   `json:"max_plan_steps,omitempty"`
 
 	// ===== 基础设施地址 =====
 	QdrantHost  string `json:"qdrant_host,omitempty"`

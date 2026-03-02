@@ -78,7 +78,7 @@ func (e *UnifiedAgentExecutor) Execute(ctx context.Context, step *types.Step, ex
 
 	schemaTools := toSchemaTools(allToolDefs)
 
-	if config.EnablePlanMode {
+	if config.EnablePlanMode != nil && *config.EnablePlanMode {
 		schemaTools = append(schemaTools, switchToPlanToolInfo())
 	}
 

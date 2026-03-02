@@ -13,7 +13,6 @@ const unifiedBaseInstruction = `
 
 1. 简单问题：直接回答，不需要调用工具
 2. 需要信息或操作：使用可用工具获取信息或执行操作（思考 → 行动 → 观察循环）
-3. 复杂多步任务：当你判断任务需要多个步骤的系统性规划时，调用 switch_to_plan 工具
 
 [ReAct 推理规则]
 - 在每次调用工具之前，必须先输出你的思考过程
@@ -21,6 +20,7 @@ const unifiedBaseInstruction = `
 - 当所有必要信息收集完毕后，直接输出最终的完整回答`
 
 const planModeInstruction = `
+3. 复杂多步任务：当你判断任务需要多个步骤的系统性规划时，调用 switch_to_plan 工具
 
 [Plan 模式触发条件]
 当你判断任务符合以下条件之一时，应调用 switch_to_plan 工具：
@@ -64,7 +64,7 @@ func buildUnifiedSystemPrompt(config *AIConfig, hasTools bool) string {
 		sb.WriteString(unifiedBaseInstruction)
 	}
 
-	if config.EnablePlanMode && hasTools {
+	if config.EnablePlanMode != nil && *config.EnablePlanMode && hasTools {
 		sb.WriteString(planModeInstruction)
 	}
 

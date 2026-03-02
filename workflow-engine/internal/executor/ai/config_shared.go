@@ -35,6 +35,10 @@ func (c *AIConfig) applyDefaults() {
 	if c.Provider == "" {
 		c.Provider = "openai"
 	}
+	if c.EnablePlanMode == nil {
+		t := true
+		c.EnablePlanMode = &t
+	}
 }
 
 // Validate 校验必填字段和值范围

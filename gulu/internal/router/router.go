@@ -141,6 +141,16 @@ func Setup(app *fiber.App) {
 	executors.Delete("/:id", handler.ExecutorDelete)
 	executors.Put("/:id/status", handler.ExecutorUpdateStatus)
 
+	// AI 供应商管理路由
+	aiProviders := api.Group("/ai-providers")
+	aiProviders.Post("", handler.AiProviderCreate)
+	aiProviders.Get("", handler.AiProviderList)
+	aiProviders.Get("/:id", handler.AiProviderGetByID)
+	aiProviders.Put("/:id", handler.AiProviderUpdate)
+	aiProviders.Delete("/:id", handler.AiProviderDelete)
+	aiProviders.Put("/:id/status", handler.AiProviderUpdateStatus)
+	aiProviders.Post("/:id/models/batch", handler.AiModelBatchCreate)
+
 	// AI 模型管理路由
 	aiModels := api.Group("/ai-models")
 	aiModels.Post("", handler.AiModelCreate)

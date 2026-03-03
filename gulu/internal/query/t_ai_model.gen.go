@@ -33,6 +33,7 @@ func newTAiModel(db *gorm.DB, opts ...gen.DOOption) tAiModel {
 	_tAiModel.UpdatedAt = field.NewTime(tableName, "updated_at")
 	_tAiModel.IsDelete = field.NewBool(tableName, "is_delete")
 	_tAiModel.CreatedBy = field.NewInt64(tableName, "created_by")
+	_tAiModel.ProviderID = field.NewInt64(tableName, "provider_id")
 	_tAiModel.Name = field.NewString(tableName, "name")
 	_tAiModel.Provider = field.NewString(tableName, "provider")
 	_tAiModel.ModelID = field.NewString(tableName, "model_id")
@@ -62,8 +63,9 @@ type tAiModel struct {
 	UpdatedAt      field.Time
 	IsDelete       field.Bool
 	CreatedBy      field.Int64  // 创建人ID
+	ProviderID     field.Int64  // 关联供应商ID
 	Name           field.String // 模型名称
-	Provider       field.String // 厂商
+	Provider       field.String // 冗余厂商名称
 	ModelID        field.String // 模型标识符
 	Version        field.String // 版本号
 	Description    field.String // 模型描述
@@ -96,6 +98,7 @@ func (t *tAiModel) updateTableName(table string) *tAiModel {
 	t.UpdatedAt = field.NewTime(table, "updated_at")
 	t.IsDelete = field.NewBool(table, "is_delete")
 	t.CreatedBy = field.NewInt64(table, "created_by")
+	t.ProviderID = field.NewInt64(table, "provider_id")
 	t.Name = field.NewString(table, "name")
 	t.Provider = field.NewString(table, "provider")
 	t.ModelID = field.NewString(table, "model_id")
@@ -135,12 +138,13 @@ func (t *tAiModel) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (t *tAiModel) fillFieldMap() {
-	t.fieldMap = make(map[string]field.Expr, 18)
+	t.fieldMap = make(map[string]field.Expr, 19)
 	t.fieldMap["id"] = t.ID
 	t.fieldMap["created_at"] = t.CreatedAt
 	t.fieldMap["updated_at"] = t.UpdatedAt
 	t.fieldMap["is_delete"] = t.IsDelete
 	t.fieldMap["created_by"] = t.CreatedBy
+	t.fieldMap["provider_id"] = t.ProviderID
 	t.fieldMap["name"] = t.Name
 	t.fieldMap["provider"] = t.Provider
 	t.fieldMap["model_id"] = t.ModelID

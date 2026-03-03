@@ -17,20 +17,21 @@ type AiModelLogic struct {
 	ctx context.Context
 }
 
-// NewAiModelLogic 创建AI模型逻辑
 func NewAiModelLogic(ctx context.Context) *AiModelLogic {
 	return &AiModelLogic{ctx: ctx}
 }
 
-// CreateAiModelReq 创建AI模型请求
+// ========== 请求/响应结构 ==========
+
 type CreateAiModelReq struct {
+	ProviderID     int64    `json:"provider_id"`
 	Name           string   `json:"name" validate:"required,max=100"`
-	Provider       string   `json:"provider" validate:"required,max=100"`
+	Provider       string   `json:"provider" validate:"max=100"`
 	ModelID        string   `json:"model_id" validate:"required,max=200"`
 	Version        string   `json:"version" validate:"max=50"`
 	Description    string   `json:"description" validate:"max=1000"`
-	APIBaseURL     string   `json:"api_base_url" validate:"required,max=500"`
-	APIKey         string   `json:"api_key" validate:"required,max=500"`
+	APIBaseURL     string   `json:"api_base_url" validate:"max=500"`
+	APIKey         string   `json:"api_key" validate:"max=500"`
 	ContextLength  int32    `json:"context_length"`
 	ParamSize      string   `json:"param_size" validate:"max=50"`
 	CapabilityTags []string `json:"capability_tags"`
@@ -39,8 +40,8 @@ type CreateAiModelReq struct {
 	Status         int32    `json:"status"`
 }
 
-// UpdateAiModelReq 更新AI模型请求
 type UpdateAiModelReq struct {
+	ProviderID     *int64   `json:"provider_id"`
 	Name           string   `json:"name" validate:"max=100"`
 	Provider       string   `json:"provider" validate:"max=100"`
 	ModelID        string   `json:"model_id" validate:"max=200"`
@@ -56,21 +57,37 @@ type UpdateAiModelReq struct {
 	Status         int32    `json:"status"`
 }
 
-// AiModelListReq AI模型列表请求
-type AiModelListReq struct {
-	Page     int    `query:"page" validate:"min=1"`
-	PageSize int    `query:"pageSize" validate:"min=1,max=100"`
-	Name     string `query:"name"`
-	Provider string `query:"provider"`
-	Status   *int32 `query:"status"`
+// BatchCreateModelReq 批量创建模型请求（用于供应商下批量添加）
+type BatchCreateModelReq struct {
+	ProviderID int64              `json:"provider_id" validate:"required"`
+	Models     []BatchModelEntry  `json:"models" validate:"required,min=1"`
 }
 
-// AiModelInfo AI模型返回信息（隐藏API Key）
+type BatchModelEntry struct {
+	Name           string   `json:"name" validate:"required,max=100"`
+	ModelID        string   `json:"model_id" validate:"required,max=200"`
+	Description    string   `json:"description"`
+	ContextLength  int32    `json:"context_length"`
+	ParamSize      string   `json:"param_size"`
+	CapabilityTags []string `json:"capability_tags"`
+	CustomTags     []string `json:"custom_tags"`
+}
+
+type AiModelListReq struct {
+	Page       int    `query:"page" validate:"min=1"`
+	PageSize   int    `query:"pageSize" validate:"min=1,max=100"`
+	Name       string `query:"name"`
+	Provider   string `query:"provider"`
+	ProviderID *int64 `query:"provider_id"`
+	Status     *int32 `query:"status"`
+}
+
 type AiModelInfo struct {
 	ID             int64      `json:"id"`
 	CreatedAt      *time.Time `json:"created_at"`
 	UpdatedAt      *time.Time `json:"updated_at"`
 	CreatedBy      *int64     `json:"created_by"`
+	ProviderID     int64      `json:"provider_id"`
 	Name           string     `json:"name"`
 	Provider       string     `json:"provider"`
 	ModelID        string     `json:"model_id"`
@@ -86,42 +103,46 @@ type AiModelInfo struct {
 	Status         int32      `json:"status"`
 }
 
-// Create 创建AI模型
+// ModelWithCredentials 包含完整凭证的模型信息（仅内部使用）
+type ModelWithCredentials struct {
+	ID         int64
+	Name       string
+	Provider   string
+	ModelID    string
+	APIBaseURL string
+	APIKey     string
+	Status     *int32
+}
+
+// ========== CRUD ==========
+
 func (l *AiModelLogic) Create(req *CreateAiModelReq) (*AiModelInfo, error) {
 	now := time.Now()
 	isDelete := false
 	status := req.Status
 	if status == 0 {
-		status = 1 // 默认启用
+		status = 1
 	}
 
-	// 序列化标签
-	var capabilityTagsJSON *string
-	if len(req.CapabilityTags) > 0 {
-		b, err := json.Marshal(req.CapabilityTags)
-		if err != nil {
-			return nil, errors.New("能力标签序列化失败")
-		}
-		s := string(b)
-		capabilityTagsJSON = &s
-	}
+	capabilityTagsJSON := serializeTags(req.CapabilityTags)
+	customTagsJSON := serializeTags(req.CustomTags)
 
-	var customTagsJSON *string
-	if len(req.CustomTags) > 0 {
-		b, err := json.Marshal(req.CustomTags)
-		if err != nil {
-			return nil, errors.New("自定义标签序列化失败")
+	providerName := req.Provider
+	if req.ProviderID > 0 && providerName == "" {
+		pl := NewAiProviderLogic(l.ctx)
+		p, err := pl.GetByIDWithKey(req.ProviderID)
+		if err == nil {
+			providerName = p.Name
 		}
-		s := string(b)
-		customTagsJSON = &s
 	}
 
 	aiModel := &model.TAiModel{
 		CreatedAt:      &now,
 		UpdatedAt:      &now,
 		IsDelete:       &isDelete,
+		ProviderID:     req.ProviderID,
 		Name:           req.Name,
-		Provider:       req.Provider,
+		Provider:       providerName,
 		ModelID:        req.ModelID,
 		Version:        &req.Version,
 		Description:    &req.Description,
@@ -144,12 +165,58 @@ func (l *AiModelLogic) Create(req *CreateAiModelReq) (*AiModelInfo, error) {
 	return l.toAiModelInfo(aiModel), nil
 }
 
-// Update 更新AI模型
+// BatchCreate 批量创建模型（在某个供应商下）
+func (l *AiModelLogic) BatchCreate(req *BatchCreateModelReq) ([]*AiModelInfo, error) {
+	pl := NewAiProviderLogic(l.ctx)
+	provider, err := pl.GetByIDWithKey(req.ProviderID)
+	if err != nil {
+		return nil, errors.New("供应商不存在")
+	}
+
+	now := time.Now()
+	isDelete := false
+	status := int32(1)
+
+	var models []*model.TAiModel
+	for _, entry := range req.Models {
+		capJSON := serializeTags(entry.CapabilityTags)
+		customJSON := serializeTags(entry.CustomTags)
+
+		m := &model.TAiModel{
+			CreatedAt:      &now,
+			UpdatedAt:      &now,
+			IsDelete:       &isDelete,
+			ProviderID:     req.ProviderID,
+			Name:           entry.Name,
+			Provider:       provider.Name,
+			ModelID:        entry.ModelID,
+			Description:    &entry.Description,
+			ContextLength:  &entry.ContextLength,
+			ParamSize:      &entry.ParamSize,
+			CapabilityTags: capJSON,
+			CustomTags:     customJSON,
+			Sort:           new(int32),
+			Status:         &status,
+		}
+		models = append(models, m)
+	}
+
+	q := query.Use(svc.Ctx.DB)
+	if err := q.TAiModel.WithContext(l.ctx).Create(models...); err != nil {
+		return nil, err
+	}
+
+	result := make([]*AiModelInfo, 0, len(models))
+	for _, m := range models {
+		result = append(result, l.toAiModelInfo(m))
+	}
+	return result, nil
+}
+
 func (l *AiModelLogic) Update(id int64, req *UpdateAiModelReq) error {
 	q := query.Use(svc.Ctx.DB)
 	m := q.TAiModel
 
-	// 检查是否存在
 	_, err := m.WithContext(l.ctx).Where(m.ID.Eq(id), m.IsDelete.Is(false)).First()
 	if err != nil {
 		return errors.New("AI模型不存在")
@@ -160,6 +227,9 @@ func (l *AiModelLogic) Update(id int64, req *UpdateAiModelReq) error {
 		"updated_at": now,
 	}
 
+	if req.ProviderID != nil {
+		updates["provider_id"] = *req.ProviderID
+	}
 	if req.Name != "" {
 		updates["name"] = req.Name
 	}
@@ -174,7 +244,6 @@ func (l *AiModelLogic) Update(id int64, req *UpdateAiModelReq) error {
 	if req.APIBaseURL != "" {
 		updates["api_base_url"] = req.APIBaseURL
 	}
-	// 只在提供了新 API Key 时更新
 	if req.APIKey != "" {
 		updates["api_key"] = req.APIKey
 	}
@@ -183,7 +252,6 @@ func (l *AiModelLogic) Update(id int64, req *UpdateAiModelReq) error {
 	updates["sort"] = req.Sort
 	updates["status"] = req.Status
 
-	// 序列化标签
 	if req.CapabilityTags != nil {
 		b, _ := json.Marshal(req.CapabilityTags)
 		updates["capability_tags"] = string(b)
@@ -197,7 +265,6 @@ func (l *AiModelLogic) Update(id int64, req *UpdateAiModelReq) error {
 	return err
 }
 
-// Delete 删除AI模型（软删除）
 func (l *AiModelLogic) Delete(id int64) error {
 	q := query.Use(svc.Ctx.DB)
 	m := q.TAiModel
@@ -207,7 +274,6 @@ func (l *AiModelLogic) Delete(id int64) error {
 	return err
 }
 
-// GetByID 根据ID获取AI模型
 func (l *AiModelLogic) GetByID(id int64) (*AiModelInfo, error) {
 	q := query.Use(svc.Ctx.DB)
 	m := q.TAiModel
@@ -220,8 +286,9 @@ func (l *AiModelLogic) GetByID(id int64) (*AiModelInfo, error) {
 	return l.toAiModelInfo(aiModel), nil
 }
 
-// GetByIDWithKey 根据ID获取AI模型（含API Key，仅内部使用）
-func (l *AiModelLogic) GetByIDWithKey(id int64) (*model.TAiModel, error) {
+// GetByIDWithKey 根据ID获取AI模型（含完整凭证，仅内部使用）
+// 如果模型关联了供应商（provider_id > 0），从供应商获取 api_key 和 api_base_url
+func (l *AiModelLogic) GetByIDWithKey(id int64) (*ModelWithCredentials, error) {
 	q := query.Use(svc.Ctx.DB)
 	m := q.TAiModel
 
@@ -230,10 +297,32 @@ func (l *AiModelLogic) GetByIDWithKey(id int64) (*model.TAiModel, error) {
 		return nil, err
 	}
 
-	return aiModel, nil
+	result := &ModelWithCredentials{
+		ID:         aiModel.ID,
+		Name:       aiModel.Name,
+		Provider:   aiModel.Provider,
+		ModelID:    aiModel.ModelID,
+		APIBaseURL: aiModel.APIBaseURL,
+		APIKey:     aiModel.APIKey,
+		Status:     aiModel.Status,
+	}
+
+	// 优先从供应商获取凭证
+	if aiModel.ProviderID > 0 {
+		pl := NewAiProviderLogic(l.ctx)
+		provider, err := pl.GetByIDWithKey(aiModel.ProviderID)
+		if err == nil {
+			result.APIBaseURL = provider.APIBaseURL
+			result.APIKey = provider.APIKey
+			if result.Provider == "" {
+				result.Provider = provider.Name
+			}
+		}
+	}
+
+	return result, nil
 }
 
-// List 获取AI模型列表
 func (l *AiModelLogic) List(req *AiModelListReq) ([]*AiModelInfo, int64, error) {
 	q := query.Use(svc.Ctx.DB)
 	m := q.TAiModel
@@ -244,7 +333,6 @@ func (l *AiModelLogic) List(req *AiModelListReq) ([]*AiModelInfo, int64, error) 
 		queryBuilder = queryBuilder.Where(m.Name.Like("%" + req.Name + "%"))
 	}
 	if req.Provider != "" {
-		// 支持逗号分隔的多厂商筛选
 		providers := strings.Split(req.Provider, ",")
 		if len(providers) == 1 {
 			queryBuilder = queryBuilder.Where(m.Provider.Eq(providers[0]))
@@ -252,17 +340,18 @@ func (l *AiModelLogic) List(req *AiModelListReq) ([]*AiModelInfo, int64, error) 
 			queryBuilder = queryBuilder.Where(m.Provider.In(providers...))
 		}
 	}
+	if req.ProviderID != nil && *req.ProviderID > 0 {
+		queryBuilder = queryBuilder.Where(m.ProviderID.Eq(*req.ProviderID))
+	}
 	if req.Status != nil {
 		queryBuilder = queryBuilder.Where(m.Status.Eq(*req.Status))
 	}
 
-	// 获取总数
 	total, err := queryBuilder.Count()
 	if err != nil {
 		return nil, 0, err
 	}
 
-	// 分页
 	if req.Page <= 0 {
 		req.Page = 1
 	}
@@ -284,7 +373,6 @@ func (l *AiModelLogic) List(req *AiModelListReq) ([]*AiModelInfo, int64, error) 
 	return result, total, nil
 }
 
-// UpdateStatus 更新AI模型状态
 func (l *AiModelLogic) UpdateStatus(id int64, status int32) error {
 	q := query.Use(svc.Ctx.DB)
 	m := q.TAiModel
@@ -297,7 +385,6 @@ func (l *AiModelLogic) UpdateStatus(id int64, status int32) error {
 	return err
 }
 
-// GetProviders 获取所有厂商列表（用于筛选）
 func (l *AiModelLogic) GetProviders() ([]string, error) {
 	q := query.Use(svc.Ctx.DB)
 	m := q.TAiModel
@@ -311,17 +398,19 @@ func (l *AiModelLogic) GetProviders() ([]string, error) {
 	return providers, nil
 }
 
-// toAiModelInfo 转换为返回信息（隐藏API Key）
+// ========== 辅助方法 ==========
+
 func (l *AiModelLogic) toAiModelInfo(m *model.TAiModel) *AiModelInfo {
 	info := &AiModelInfo{
-		ID:        m.ID,
-		CreatedAt: m.CreatedAt,
-		UpdatedAt: m.UpdatedAt,
-		CreatedBy: m.CreatedBy,
-		Name:      m.Name,
-		Provider:  m.Provider,
-		ModelID:   m.ModelID,
-		APIBaseURL: m.APIBaseURL,
+		ID:           m.ID,
+		CreatedAt:    m.CreatedAt,
+		UpdatedAt:    m.UpdatedAt,
+		CreatedBy:    m.CreatedBy,
+		ProviderID:   m.ProviderID,
+		Name:         m.Name,
+		Provider:     m.Provider,
+		ModelID:      m.ModelID,
+		APIBaseURL:   m.APIBaseURL,
 		APIKeyMasked: maskAPIKey(m.APIKey),
 	}
 
@@ -344,7 +433,6 @@ func (l *AiModelLogic) toAiModelInfo(m *model.TAiModel) *AiModelInfo {
 		info.Status = *m.Status
 	}
 
-	// 解析能力标签
 	if m.CapabilityTags != nil && *m.CapabilityTags != "" {
 		var tags []string
 		if err := json.Unmarshal([]byte(*m.CapabilityTags), &tags); err == nil {
@@ -355,7 +443,6 @@ func (l *AiModelLogic) toAiModelInfo(m *model.TAiModel) *AiModelInfo {
 		info.CapabilityTags = []string{}
 	}
 
-	// 解析自定义标签
 	if m.CustomTags != nil && *m.CustomTags != "" {
 		var tags []string
 		if err := json.Unmarshal([]byte(*m.CustomTags), &tags); err == nil {
@@ -369,7 +456,18 @@ func (l *AiModelLogic) toAiModelInfo(m *model.TAiModel) *AiModelInfo {
 	return info
 }
 
-// maskAPIKey 掩码 API Key
+func serializeTags(tags []string) *string {
+	if len(tags) == 0 {
+		return nil
+	}
+	b, err := json.Marshal(tags)
+	if err != nil {
+		return nil
+	}
+	s := string(b)
+	return &s
+}
+
 func maskAPIKey(key string) string {
 	if len(key) <= 8 {
 		return "***"

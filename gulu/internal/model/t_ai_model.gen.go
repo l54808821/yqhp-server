@@ -17,13 +17,14 @@ type TAiModel struct {
 	UpdatedAt      *time.Time `gorm:"column:updated_at;type:datetime" json:"updated_at"`
 	IsDelete       *bool      `gorm:"column:is_delete;type:tinyint(1);index:idx_t_ai_model_is_delete,priority:1" json:"is_delete"`
 	CreatedBy      *int64     `gorm:"column:created_by;type:bigint unsigned;comment:创建人ID" json:"created_by"`
+	ProviderID     int64      `gorm:"column:provider_id;type:bigint unsigned;not null;default:0;index:idx_t_ai_model_provider_id;comment:关联供应商ID" json:"provider_id"`
 	Name           string     `gorm:"column:name;type:varchar(100);not null;comment:模型名称" json:"name"`
-	Provider       string     `gorm:"column:provider;type:varchar(100);not null;index:idx_t_ai_model_provider,priority:1;comment:厂商" json:"provider"`
+	Provider       string     `gorm:"column:provider;type:varchar(100);not null;index:idx_t_ai_model_provider,priority:1;comment:冗余厂商名称" json:"provider"`
 	ModelID        string     `gorm:"column:model_id;type:varchar(200);not null;comment:模型标识符" json:"model_id"`
 	Version        *string    `gorm:"column:version;type:varchar(50);comment:版本号" json:"version"`
 	Description    *string    `gorm:"column:description;type:varchar(1000);comment:模型描述" json:"description"`
-	APIBaseURL     string     `gorm:"column:api_base_url;type:varchar(500);not null;comment:API Base URL" json:"api_base_url"`
-	APIKey         string     `gorm:"column:api_key;type:varchar(500);not null;comment:API Key" json:"api_key"`
+	APIBaseURL     string     `gorm:"column:api_base_url;type:varchar(500);comment:兼容旧数据" json:"api_base_url"`
+	APIKey         string     `gorm:"column:api_key;type:varchar(500);comment:兼容旧数据" json:"api_key"`
 	ContextLength  *int32     `gorm:"column:context_length;type:int;comment:上下文长度" json:"context_length"`
 	ParamSize      *string    `gorm:"column:param_size;type:varchar(50);comment:参数量" json:"param_size"`
 	CapabilityTags *string    `gorm:"column:capability_tags;type:json;comment:能力标签" json:"capability_tags"`

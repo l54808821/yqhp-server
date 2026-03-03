@@ -670,7 +670,7 @@ func (h *StreamExecutionHandler) resolveAIModelConfig(c *fiber.Ctx, config map[s
 		return nil
 	}
 
-	// 从数据库获取完整模型信息（含 API Key）
+	// 从数据库获取完整模型信息（含 API Key，自动从供应商解析凭证）
 	aiModelLogic := logic.NewAiModelLogic(c.Context())
 	aiModel, err := aiModelLogic.GetByIDWithKey(aiModelID)
 	if err != nil {
@@ -869,7 +869,7 @@ func (h *StreamExecutionHandler) resolveKnowledgeBaseConfigs(c *fiber.Ctx, confi
 			"score_threshold":     kbInfo.SimilarityThreshold,
 		}
 
-		// 如果有嵌入模型 ID，解析模型的 API 配置
+		// 如果有嵌入模型 ID，解析模型的 API 配置（自动从供应商解析凭证）
 		if kbInfo.EmbeddingModelID != nil && *kbInfo.EmbeddingModelID > 0 {
 			aiModelLogic := logic.NewAiModelLogic(c.Context())
 			aiModel, err := aiModelLogic.GetByIDWithKey(*kbInfo.EmbeddingModelID)

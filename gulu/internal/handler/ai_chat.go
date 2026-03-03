@@ -30,7 +30,7 @@ func AiChatStream(c *fiber.Ctx) error {
 		return response.Error(c, "消息不能为空")
 	}
 
-	// 获取模型信息（含API Key）
+	// 获取模型信息（含API Key，自动从供应商解析凭证）
 	aiModelLogic := logic.NewAiModelLogic(c.UserContext())
 	aiModel, err := aiModelLogic.GetByIDWithKey(id)
 	if err != nil {
@@ -43,11 +43,10 @@ func AiChatStream(c *fiber.Ctx) error {
 	}
 
 	// 在进入 stream goroutine 之前，提前捕获所有需要的值
-	// SetBodyStreamWriter 的回调在独立 goroutine 中运行，Fiber ctx 届时已失效
 	apiBaseURL := aiModel.APIBaseURL
 	apiKey := aiModel.APIKey
 	modelID := aiModel.ModelID
-	chatReq := req // 值拷贝
+	chatReq := req
 
 	// 设置 SSE 响应头
 	c.Set("Content-Type", "text/event-stream")
@@ -55,9 +54,7 @@ func AiChatStream(c *fiber.Ctx) error {
 	c.Set("Connection", "keep-alive")
 	c.Set("Transfer-Encoding", "chunked")
 
-	// 使用 fasthttp 的 StreamWriter 进行流式写入
 	c.Context().SetBodyStreamWriter(func(w *bufio.Writer) {
-		// recover 防止 panic 导致整个服务器崩溃
 		defer func() {
 			if r := recover(); r != nil {
 				log.Printf("[AiChatStream] recovered from panic: %v", r)
@@ -67,7 +64,6 @@ func AiChatStream(c *fiber.Ctx) error {
 			}
 		}()
 
-		// 使用独立的 background context，不依赖已失效的 Fiber ctx
 		chatLogic := logic.NewAiChatLogic(context.Background())
 
 		err := chatLogic.ChatStream(apiBaseURL, apiKey, modelID, &chatReq, func(data string) error {

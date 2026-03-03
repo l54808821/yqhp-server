@@ -202,7 +202,7 @@ func (e *UnifiedAgentExecutor) executeReActLoop(
 
 		messages = append(messages, resp)
 
-		toolResults := e.executeToolsConcurrently(ctx, resp.ToolCalls, round, execCtx, mcpClient, config, allToolDefs, mcpToolServerMap, stepID, aiCallback, toolCallback)
+		toolResults := e.executeToolsConcurrently(ctx, resp.ToolCalls, round, execCtx, mcpClient, config, allToolDefs, mcpToolServerMap, stepID, aiCallback, toolCallback, 0)
 
 		var roundToolCalls []ToolCallRecord
 		for _, r := range toolResults {
@@ -414,7 +414,7 @@ func (e *UnifiedAgentExecutor) executePlanMode(
 		// 根据步骤描述过滤可用工具，防止 LLM 越界调用不属于该步骤的 Skill
 		stepTools, stepToolDefs := filterToolsForStep(execTools, allToolDefs, task, config.Skills)
 
-		stepOutput, stepErr := e.executeMiniReAct(ctx, chatModel, stepMessages, stepTools, stepToolDefs, config, stepID, execCtx, aiCallback, toolCallback, mcpClient, mcpToolServerMap)
+		stepOutput, stepErr := e.executeMiniReAct(ctx, chatModel, stepMessages, stepTools, stepToolDefs, config, stepID, execCtx, aiCallback, toolCallback, mcpClient, mcpToolServerMap, i+1)
 		if stepErr != nil {
 			output.AgentTrace.Plan.Steps[i].Status = "failed"
 			output.AgentTrace.Plan.Steps[i].Result = stepErr.Error()
@@ -527,6 +527,7 @@ func (e *UnifiedAgentExecutor) executePlanMode(
 }
 
 // executeMiniReAct 为 Plan 模式中的单个步骤执行的简化 ReAct 循环
+// planStepIndex: 计划步骤索引（1-based），0 表示非计划模式
 func (e *UnifiedAgentExecutor) executeMiniReAct(
 	ctx context.Context,
 	chatModel model.ToolCallingChatModel,
@@ -540,6 +541,7 @@ func (e *UnifiedAgentExecutor) executeMiniReAct(
 	toolCallback types.AIToolCallback,
 	mcpClient *executor.MCPRemoteClient,
 	mcpToolServerMap map[string]int64,
+	planStepIndex int,
 ) (*AIOutput, error) {
 	output := &AIOutput{Model: config.Model}
 
@@ -574,7 +576,7 @@ func (e *UnifiedAgentExecutor) executeMiniReAct(
 		}
 
 		messages = append(messages, resp)
-		toolResults := e.executeToolsConcurrently(ctx, resp.ToolCalls, round, execCtx, mcpClient, config, allToolDefs, mcpToolServerMap, stepID, aiCallback, toolCallback)
+		toolResults := e.executeToolsConcurrently(ctx, resp.ToolCalls, round, execCtx, mcpClient, config, allToolDefs, mcpToolServerMap, stepID, aiCallback, toolCallback, planStepIndex)
 		for _, r := range toolResults {
 			toolMsg := schema.ToolMessage(r.result.Content, r.tc.ID)
 			messages = append(messages, toolMsg)
@@ -611,6 +613,7 @@ func (e *UnifiedAgentExecutor) executeToolsConcurrently(
 	stepID string,
 	aiCallback types.AICallback,
 	toolCallback types.AIToolCallback,
+	planStepIndex int,
 ) []toolCallResult {
 	results := make([]toolCallResult, len(toolCalls))
 	var wg sync.WaitGroup
@@ -634,9 +637,10 @@ func (e *UnifiedAgentExecutor) executeToolsConcurrently(
 			defer toolCancel()
 
 			typesToolCall := &types.ToolCall{
-				ID:        toolCall.ID,
-				Name:      toolCall.Function.Name,
-				Arguments: toolCall.Function.Arguments,
+				ID:            toolCall.ID,
+				Name:          toolCall.Function.Name,
+				Arguments:     toolCall.Function.Arguments,
+				PlanStepIndex: planStepIndex,
 			}
 			if toolCallback != nil {
 				toolCallback.OnAIToolCallStart(toolCtx, stepID, typesToolCall)

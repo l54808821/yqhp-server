@@ -12,9 +12,10 @@ type ToolDefinition struct {
 
 // ToolCall AI 模型发出的工具调用
 type ToolCall struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Arguments string `json:"arguments"` // JSON string
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	Arguments     string `json:"arguments"` // JSON string
+	PlanStepIndex int    `json:"planStepIndex,omitempty"` // 计划模式下的步骤索引（1-based，0 表示非计划模式）
 }
 
 // ToolResult 工具执行结果

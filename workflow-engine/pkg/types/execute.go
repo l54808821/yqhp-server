@@ -130,6 +130,8 @@ const (
 	EventTypeAIPlanStepUpdate ExecutionEventType = "ai_plan_step_update"
 	// AI 执行计划完成
 	EventTypeAIPlanCompleted ExecutionEventType = "ai_plan_completed"
+	// AI 执行计划被修改（动态计划）
+	EventTypeAIPlanModified ExecutionEventType = "ai_plan_modified"
 )
 
 // StepStartedEvent 步骤开始事件数据

@@ -170,4 +170,10 @@ type AIPlanCallback interface {
 
 	// OnAIPlanCompleted 计划执行完成
 	OnAIPlanCompleted(ctx context.Context, stepID string, synthesis string)
+
+	// OnAIPlanModified 计划被动态修改（预留接口，用于动态计划功能）
+	// fromStepIndex: 从哪个步骤开始修改（该步骤之前的保持不变）
+	// reason: 修改原因
+	// newSteps: 新的完整步骤列表
+	OnAIPlanModified(ctx context.Context, stepID string, fromStepIndex int, reason string, newSteps []PlanStepInfo)
 }

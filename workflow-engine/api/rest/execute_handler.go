@@ -825,18 +825,20 @@ func (c *streamCallback) OnAIThinking(ctx context.Context, stepID string, round 
 
 func (c *streamCallback) OnAIToolCallStart(ctx context.Context, stepID string, toolCall *types.ToolCall) {
 	c.writer.WriteEvent(string(types.EventTypeAIToolCallStart), map[string]interface{}{
-		"stepId":    stepID,
-		"toolName":  toolCall.Name,
-		"arguments": toolCall.Arguments,
+		"stepId":        stepID,
+		"toolName":      toolCall.Name,
+		"arguments":     toolCall.Arguments,
+		"planStepIndex": toolCall.PlanStepIndex,
 	})
 }
 
 func (c *streamCallback) OnAIToolCallComplete(ctx context.Context, stepID string, toolCall *types.ToolCall, result *types.ToolResult) {
 	c.writer.WriteEvent(string(types.EventTypeAIToolCallComplete), map[string]interface{}{
-		"stepId":   stepID,
-		"toolName": toolCall.Name,
-		"result":   result.Content,
-		"isError":  result.IsError,
+		"stepId":        stepID,
+		"toolName":      toolCall.Name,
+		"result":        result.Content,
+		"isError":       result.IsError,
+		"planStepIndex": toolCall.PlanStepIndex,
 	})
 }
 
@@ -861,6 +863,15 @@ func (c *streamCallback) OnAIPlanCompleted(ctx context.Context, stepID string, s
 	c.writer.WriteEvent(string(types.EventTypeAIPlanCompleted), map[string]interface{}{
 		"stepId":    stepID,
 		"synthesis": synthesis,
+	})
+}
+
+func (c *streamCallback) OnAIPlanModified(ctx context.Context, stepID string, fromStepIndex int, reason string, newSteps []types.PlanStepInfo) {
+	c.writer.WriteEvent(string(types.EventTypeAIPlanModified), map[string]interface{}{
+		"stepId":        stepID,
+		"fromStepIndex": fromStepIndex,
+		"reason":        reason,
+		"steps":         newSteps,
 	})
 }
 

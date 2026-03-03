@@ -4,66 +4,63 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	"yqhp/gulu/internal/model"
 	"yqhp/gulu/internal/query"
 	"yqhp/gulu/internal/svc"
+
+	"gopkg.in/yaml.v3"
 )
 
-// SkillLogic Skill逻辑
 type SkillLogic struct {
 	ctx context.Context
 }
 
-// NewSkillLogic 创建Skill逻辑
 func NewSkillLogic(ctx context.Context) *SkillLogic {
 	return &SkillLogic{ctx: ctx}
 }
 
-// CreateSkillReq 创建Skill请求
+// ---------- Request / Response types ----------
+
 type CreateSkillReq struct {
-	Name                    string                  `json:"name" validate:"required,max=100"`
-	Description             string                  `json:"description" validate:"max=1000"`
-	Icon                    string                  `json:"icon" validate:"max=100"`
-	Category                string                  `json:"category" validate:"max=50"`
-	Tags                    []string                `json:"tags"`
-	SystemPrompt            string                  `json:"system_prompt" validate:"required"`
-	Variables               []SkillVariable         `json:"variables"`
-	RecommendedModelParams  *RecommendedModelParams `json:"recommended_model_params"`
-	RecommendedTools        []string                `json:"recommended_tools"`
-	RecommendedMcpServerIDs []int64                 `json:"recommended_mcp_server_ids"`
-	Sort                    int32                   `json:"sort"`
-	Status                  int32                   `json:"status"`
-	Slug                    string                  `json:"slug"`
-	License                 string                  `json:"license"`
-	Compatibility           string                  `json:"compatibility"`
-	MetadataJSON            map[string]string       `json:"metadata_json"`
-	AllowedTools            string                  `json:"allowed_tools"`
+	Name         string            `json:"name" validate:"required,max=100"`
+	Description  string            `json:"description" validate:"max=1000"`
+	Icon         string            `json:"icon" validate:"max=100"`
+	Category     string            `json:"category" validate:"max=50"`
+	Tags         []string          `json:"tags"`
+	Sort         int32             `json:"sort"`
+	Status       int32             `json:"status"`
+	Slug         string            `json:"slug"`
+	License      string            `json:"license"`
+	Compatibility string           `json:"compatibility"`
+	MetadataJSON map[string]string `json:"metadata_json"`
+	AllowedTools string            `json:"allowed_tools"`
+	Author       string            `json:"author"`
+	SourceURL    string            `json:"source_url"`
+	InstallCount int32             `json:"install_count"`
+	SkillMD      string            `json:"skill_md"`
 }
 
-// UpdateSkillReq 更新Skill请求
 type UpdateSkillReq struct {
-	Name                    string                  `json:"name" validate:"max=100"`
-	Description             string                  `json:"description" validate:"max=1000"`
-	Icon                    string                  `json:"icon" validate:"max=100"`
-	Category                string                  `json:"category" validate:"max=50"`
-	Tags                    []string                `json:"tags"`
-	SystemPrompt            string                  `json:"system_prompt"`
-	Variables               []SkillVariable         `json:"variables"`
-	RecommendedModelParams  *RecommendedModelParams `json:"recommended_model_params"`
-	RecommendedTools        []string                `json:"recommended_tools"`
-	RecommendedMcpServerIDs []int64                 `json:"recommended_mcp_server_ids"`
-	Sort                    int32                   `json:"sort"`
-	Status                  int32                   `json:"status"`
-	Slug                    string                  `json:"slug"`
-	License                 string                  `json:"license"`
-	Compatibility           string                  `json:"compatibility"`
-	MetadataJSON            map[string]string       `json:"metadata_json"`
-	AllowedTools            string                  `json:"allowed_tools"`
+	Name         string            `json:"name" validate:"max=100"`
+	Description  string            `json:"description" validate:"max=1000"`
+	Icon         string            `json:"icon" validate:"max=100"`
+	Category     string            `json:"category" validate:"max=50"`
+	Tags         []string          `json:"tags"`
+	Sort         int32             `json:"sort"`
+	Status       int32             `json:"status"`
+	Slug         string            `json:"slug"`
+	License      string            `json:"license"`
+	Compatibility string           `json:"compatibility"`
+	MetadataJSON map[string]string `json:"metadata_json"`
+	AllowedTools string            `json:"allowed_tools"`
+	Author       string            `json:"author"`
+	SourceURL    string            `json:"source_url"`
 }
 
-// SkillListReq Skill列表请求
 type SkillListReq struct {
 	Page     int    `query:"page" validate:"min=1"`
 	PageSize int    `query:"pageSize" validate:"min=1,max=100"`
@@ -73,69 +70,53 @@ type SkillListReq struct {
 	Status   *int32 `query:"status"`
 }
 
-// SkillVariable 变量声明
-type SkillVariable struct {
-	Name     string `json:"name"`
-	Label    string `json:"label"`
-	Required bool   `json:"required"`
-	Default  string `json:"default"`
-}
-
-// RecommendedModelParams 推荐模型参数
-type RecommendedModelParams struct {
-	Temperature *float64 `json:"temperature,omitempty"`
-	MaxTokens   *int32   `json:"max_tokens,omitempty"`
-	TopP        *float64 `json:"top_p,omitempty"`
-}
-
-// SkillResourceInfo Skill 资源返回信息
 type SkillResourceInfo struct {
-	ID         int64      `json:"id"`
-	SkillID    int64      `json:"skill_id"`
-	Category   string     `json:"category"`
-	Filename   string     `json:"filename"`
-	ContentType string    `json:"content_type"`
-	Size       int32      `json:"size"`
-	CreatedAt  *time.Time `json:"created_at"`
+	ID          int64      `json:"id"`
+	SkillID     int64      `json:"skill_id"`
+	Path        string     `json:"path"`
+	ContentType string     `json:"content_type"`
+	Size        int32      `json:"size"`
+	CreatedAt   *time.Time `json:"created_at"`
 }
 
-// CreateResourceReq 创建 Skill 资源请求
 type CreateResourceReq struct {
-	Category    string `json:"category"`
-	Filename    string `json:"filename"`
+	Path        string `json:"path"`
 	Content     string `json:"content"`
 	ContentType string `json:"content_type"`
 }
 
-// SkillInfo Skill返回信息
-type SkillInfo struct {
-	ID                      int64                   `json:"id"`
-	CreatedAt               *time.Time              `json:"created_at"`
-	UpdatedAt               *time.Time              `json:"updated_at"`
-	CreatedBy               *int64                  `json:"created_by"`
-	Name                    string                  `json:"name"`
-	Description             string                  `json:"description"`
-	Icon                    string                  `json:"icon"`
-	Category                string                  `json:"category"`
-	Tags                    []string                `json:"tags"`
-	SystemPrompt            string                  `json:"system_prompt"`
-	Variables               []SkillVariable         `json:"variables"`
-	RecommendedModelParams  *RecommendedModelParams `json:"recommended_model_params"`
-	RecommendedTools        []string                `json:"recommended_tools"`
-	RecommendedMcpServerIDs []int64                 `json:"recommended_mcp_server_ids"`
-	Type                    int32                   `json:"type"`
-	IsPublic                int32                   `json:"is_public"`
-	Version                 string                  `json:"version"`
-	Sort                    int32                   `json:"sort"`
-	Status                  int32                   `json:"status"`
-	Slug                    string                  `json:"slug"`
-	License                 string                  `json:"license"`
-	Compatibility           string                  `json:"compatibility"`
-	MetadataJSON            map[string]string       `json:"metadata_json"`
-	AllowedTools            string                  `json:"allowed_tools"`
+type UpdateResourceReq struct {
+	Content     string `json:"content"`
+	ContentType string `json:"content_type"`
 }
 
-// Create 创建Skill
+type SkillInfo struct {
+	ID           int64             `json:"id"`
+	CreatedAt    *time.Time        `json:"created_at"`
+	UpdatedAt    *time.Time        `json:"updated_at"`
+	CreatedBy    *int64            `json:"created_by"`
+	Name         string            `json:"name"`
+	Description  string            `json:"description"`
+	Icon         string            `json:"icon"`
+	Category     string            `json:"category"`
+	Tags         []string          `json:"tags"`
+	Type         int32             `json:"type"`
+	IsPublic     int32             `json:"is_public"`
+	Version      string            `json:"version"`
+	Sort         int32             `json:"sort"`
+	Status       int32             `json:"status"`
+	Slug         string            `json:"slug"`
+	License      string            `json:"license"`
+	Compatibility string           `json:"compatibility"`
+	MetadataJSON map[string]string `json:"metadata_json"`
+	AllowedTools string            `json:"allowed_tools"`
+	Author       string            `json:"author"`
+	SourceURL    string            `json:"source_url"`
+	InstallCount int32             `json:"install_count"`
+}
+
+// ---------- CRUD ----------
+
 func (l *SkillLogic) Create(req *CreateSkillReq) (*SkillInfo, error) {
 	now := time.Now()
 	isDelete := false
@@ -143,7 +124,7 @@ func (l *SkillLogic) Create(req *CreateSkillReq) (*SkillInfo, error) {
 	if status == 0 {
 		status = 1
 	}
-	skillType := int32(0) // 用户自建
+	skillType := int32(0)
 
 	skill := &model.TSkill{
 		CreatedAt:    &now,
@@ -153,29 +134,17 @@ func (l *SkillLogic) Create(req *CreateSkillReq) (*SkillInfo, error) {
 		Description:  strPtr(req.Description),
 		Icon:         strPtr(req.Icon),
 		Category:     strPtr(req.Category),
-		SystemPrompt: req.SystemPrompt,
 		Type:         &skillType,
 		Sort:         &req.Sort,
 		Status:       &status,
+		Author:       strPtr(req.Author),
+		SourceURL:    strPtr(req.SourceURL),
+		InstallCount: &req.InstallCount,
 	}
 
-	// 序列化 JSON 字段
 	if len(req.Tags) > 0 {
 		skill.Tags = marshalJSONPtr(req.Tags)
 	}
-	if len(req.Variables) > 0 {
-		skill.Variables = marshalJSONPtr(req.Variables)
-	}
-	if req.RecommendedModelParams != nil {
-		skill.RecommendedModelParams = marshalJSONPtr(req.RecommendedModelParams)
-	}
-	if len(req.RecommendedTools) > 0 {
-		skill.RecommendedTools = marshalJSONPtr(req.RecommendedTools)
-	}
-	if len(req.RecommendedMcpServerIDs) > 0 {
-		skill.RecommendedMcpServerIDs = marshalJSONPtr(req.RecommendedMcpServerIDs)
-	}
-
 	if req.Slug != "" {
 		skill.Slug = strPtr(req.Slug)
 	}
@@ -187,15 +156,17 @@ func (l *SkillLogic) Create(req *CreateSkillReq) (*SkillInfo, error) {
 	}
 
 	q := query.Use(svc.Ctx.DB)
-	err := q.TSkill.WithContext(l.ctx).Create(skill)
-	if err != nil {
+	if err := q.TSkill.WithContext(l.ctx).Create(skill); err != nil {
 		return nil, err
+	}
+
+	if req.SkillMD != "" {
+		l.upsertResource(skill.ID, "SKILL.md", req.SkillMD, "text/markdown")
 	}
 
 	return l.toSkillInfo(skill), nil
 }
 
-// Update 更新Skill
 func (l *SkillLogic) Update(id int64, req *UpdateSkillReq) error {
 	q := query.Use(svc.Ctx.DB)
 	m := q.TSkill
@@ -204,52 +175,26 @@ func (l *SkillLogic) Update(id int64, req *UpdateSkillReq) error {
 	if err != nil {
 		return errors.New("Skill不存在")
 	}
-
-	// 系统内置 Skill 不允许修改
 	if existing.Type != nil && *existing.Type == 1 {
 		return errors.New("系统内置Skill不允许修改")
 	}
 
 	now := time.Now()
-	updates := map[string]interface{}{
-		"updated_at": now,
-	}
-
+	updates := map[string]interface{}{"updated_at": now}
 	if req.Name != "" {
 		updates["name"] = req.Name
 	}
 	updates["description"] = req.Description
 	updates["icon"] = req.Icon
 	updates["category"] = req.Category
-	if req.SystemPrompt != "" {
-		updates["system_prompt"] = req.SystemPrompt
-	}
 	updates["sort"] = req.Sort
 	updates["status"] = req.Status
-
+	updates["author"] = req.Author
+	updates["source_url"] = req.SourceURL
 	if req.Tags != nil {
 		b, _ := json.Marshal(req.Tags)
 		updates["tags"] = string(b)
 	}
-	if req.Variables != nil {
-		b, _ := json.Marshal(req.Variables)
-		updates["variables"] = string(b)
-	}
-	if req.RecommendedModelParams != nil {
-		b, _ := json.Marshal(req.RecommendedModelParams)
-		updates["recommended_model_params"] = string(b)
-	} else {
-		updates["recommended_model_params"] = nil
-	}
-	if req.RecommendedTools != nil {
-		b, _ := json.Marshal(req.RecommendedTools)
-		updates["recommended_tools"] = string(b)
-	}
-	if req.RecommendedMcpServerIDs != nil {
-		b, _ := json.Marshal(req.RecommendedMcpServerIDs)
-		updates["recommended_mcp_server_ids"] = string(b)
-	}
-
 	if req.Slug != "" {
 		updates["slug"] = req.Slug
 	}
@@ -265,89 +210,72 @@ func (l *SkillLogic) Update(id int64, req *UpdateSkillReq) error {
 	return err
 }
 
-// Delete 删除Skill（软删除）
 func (l *SkillLogic) Delete(id int64) error {
 	q := query.Use(svc.Ctx.DB)
 	m := q.TSkill
-
 	existing, err := m.WithContext(l.ctx).Where(m.ID.Eq(id), m.IsDelete.Is(false)).First()
 	if err != nil {
 		return errors.New("Skill不存在")
 	}
-
 	if existing.Type != nil && *existing.Type == 1 {
 		return errors.New("系统内置Skill不允许删除")
 	}
-
 	isDelete := true
 	_, err = m.WithContext(l.ctx).Where(m.ID.Eq(id)).Update(m.IsDelete, isDelete)
 	return err
 }
 
-// GetByID 根据ID获取Skill
 func (l *SkillLogic) GetByID(id int64) (*SkillInfo, error) {
 	q := query.Use(svc.Ctx.DB)
 	m := q.TSkill
-
 	skill, err := m.WithContext(l.ctx).Where(m.ID.Eq(id), m.IsDelete.Is(false)).First()
 	if err != nil {
 		return nil, err
 	}
-
 	return l.toSkillInfo(skill), nil
 }
 
-// List 获取Skill列表
 func (l *SkillLogic) List(req *SkillListReq) ([]*SkillInfo, int64, error) {
 	q := query.Use(svc.Ctx.DB)
 	m := q.TSkill
-
-	queryBuilder := m.WithContext(l.ctx).Where(m.IsDelete.Is(false))
-
+	qb := m.WithContext(l.ctx).Where(m.IsDelete.Is(false))
 	if req.Name != "" {
-		queryBuilder = queryBuilder.Where(m.Name.Like("%" + req.Name + "%"))
+		qb = qb.Where(m.Name.Like("%" + req.Name + "%"))
 	}
 	if req.Category != "" {
-		queryBuilder = queryBuilder.Where(m.Category.Eq(req.Category))
+		qb = qb.Where(m.Category.Eq(req.Category))
 	}
 	if req.Type != nil {
-		queryBuilder = queryBuilder.Where(m.Type.Eq(*req.Type))
+		qb = qb.Where(m.Type.Eq(*req.Type))
 	}
 	if req.Status != nil {
-		queryBuilder = queryBuilder.Where(m.Status.Eq(*req.Status))
+		qb = qb.Where(m.Status.Eq(*req.Status))
 	}
-
-	total, err := queryBuilder.Count()
+	total, err := qb.Count()
 	if err != nil {
 		return nil, 0, err
 	}
-
 	if req.Page <= 0 {
 		req.Page = 1
 	}
 	if req.PageSize <= 0 {
 		req.PageSize = 20
 	}
-
 	offset := (req.Page - 1) * req.PageSize
-	list, err := queryBuilder.Order(m.Sort.Desc(), m.ID.Desc()).Offset(offset).Limit(req.PageSize).Find()
+	list, err := qb.Order(m.Sort.Desc(), m.ID.Desc()).Offset(offset).Limit(req.PageSize).Find()
 	if err != nil {
 		return nil, 0, err
 	}
-
 	result := make([]*SkillInfo, 0, len(list))
 	for _, item := range list {
 		result = append(result, l.toSkillInfo(item))
 	}
-
 	return result, total, nil
 }
 
-// UpdateStatus 更新Skill状态
 func (l *SkillLogic) UpdateStatus(id int64, status int32) error {
 	q := query.Use(svc.Ctx.DB)
 	m := q.TSkill
-
 	now := time.Now()
 	_, err := m.WithContext(l.ctx).Where(m.ID.Eq(id), m.IsDelete.Is(false)).Updates(map[string]interface{}{
 		"status":     status,
@@ -356,30 +284,92 @@ func (l *SkillLogic) UpdateStatus(id int64, status int32) error {
 	return err
 }
 
-// GetCategories 获取所有分类列表
 func (l *SkillLogic) GetCategories() ([]string, error) {
 	q := query.Use(svc.Ctx.DB)
 	m := q.TSkill
-
 	var categories []string
 	err := m.WithContext(l.ctx).Where(m.IsDelete.Is(false)).Where(m.Category.IsNotNull()).Distinct(m.Category).Pluck(m.Category, &categories)
-	if err != nil {
-		return nil, err
-	}
-
-	return categories, nil
+	return categories, err
 }
 
-// ListResources 获取 Skill 资源列表
+// ---------- SKILL.md 内容读取 ----------
+
+// GetSKILLMDContent 从 t_skill_resource 获取 SKILL.md 的 body（去掉 frontmatter）
+func (l *SkillLogic) GetSKILLMDContent(skillID int64) (string, error) {
+	q := query.Use(svc.Ctx.DB)
+	m := q.TSkillResource
+	res, err := m.WithContext(l.ctx).Where(m.SkillID.Eq(skillID), m.Path.Eq("SKILL.md")).First()
+	if err != nil {
+		return "", err
+	}
+	if res.Content == nil {
+		return "", nil
+	}
+	_, body, parseErr := parseSkillMD(*res.Content)
+	if parseErr != nil {
+		return *res.Content, nil
+	}
+	return body, nil
+}
+
+// GetSKILLMDRaw 从 t_skill_resource 获取 SKILL.md 完整原文
+func (l *SkillLogic) GetSKILLMDRaw(skillID int64) (string, error) {
+	q := query.Use(svc.Ctx.DB)
+	m := q.TSkillResource
+	res, err := m.WithContext(l.ctx).Where(m.SkillID.Eq(skillID), m.Path.Eq("SKILL.md")).First()
+	if err != nil {
+		return "", err
+	}
+	if res.Content == nil {
+		return "", nil
+	}
+	return *res.Content, nil
+}
+
+// SyncMetadataFromSKILLMD 解析 SKILL.md frontmatter 并同步到 t_skill 元数据
+func (l *SkillLogic) SyncMetadataFromSKILLMD(skillID int64, skillMDContent string) error {
+	fm, _, err := parseSkillMD(skillMDContent)
+	if err != nil {
+		return nil
+	}
+
+	q := query.Use(svc.Ctx.DB)
+	m := q.TSkill
+	updates := map[string]interface{}{"updated_at": time.Now()}
+
+	if fm.Name != "" {
+		updates["slug"] = fm.Name
+	}
+	if fm.Description != "" {
+		updates["description"] = fm.Description
+	}
+	if fm.License != "" {
+		updates["license"] = fm.License
+	}
+	if fm.Compatibility != "" {
+		updates["compatibility"] = fm.Compatibility
+	}
+	if fm.AllowedTools != "" {
+		updates["allowed_tools"] = fm.AllowedTools
+	}
+	if len(fm.Metadata) > 0 {
+		b, _ := json.Marshal(fm.Metadata)
+		updates["metadata_json"] = string(b)
+	}
+
+	_, err = m.WithContext(l.ctx).Where(m.ID.Eq(skillID)).Updates(updates)
+	return err
+}
+
+// ---------- 资源文件 CRUD ----------
+
 func (l *SkillLogic) ListResources(skillID int64) ([]*SkillResourceInfo, error) {
 	q := query.Use(svc.Ctx.DB)
 	m := q.TSkillResource
-
-	list, err := m.WithContext(l.ctx).Where(m.SkillID.Eq(skillID)).Find()
+	list, err := m.WithContext(l.ctx).Where(m.SkillID.Eq(skillID)).Order(m.Path).Find()
 	if err != nil {
 		return nil, err
 	}
-
 	result := make([]*SkillResourceInfo, 0, len(list))
 	for _, item := range list {
 		result = append(result, toSkillResourceInfo(item))
@@ -387,36 +377,56 @@ func (l *SkillLogic) ListResources(skillID int64) ([]*SkillResourceInfo, error) 
 	return result, nil
 }
 
-// CreateResource 创建 Skill 资源
+func (l *SkillLogic) GetResourceContent(resourceID int64) (string, error) {
+	q := query.Use(svc.Ctx.DB)
+	m := q.TSkillResource
+	res, err := m.WithContext(l.ctx).Where(m.ID.Eq(resourceID)).First()
+	if err != nil {
+		return "", err
+	}
+	if res.Content == nil {
+		return "", nil
+	}
+	return *res.Content, nil
+}
+
 func (l *SkillLogic) CreateResource(skillID int64, req *CreateResourceReq) (*SkillResourceInfo, error) {
+	return l.upsertResource(skillID, req.Path, req.Content, req.ContentType)
+}
+
+func (l *SkillLogic) UpdateResource(resourceID int64, req *UpdateResourceReq) error {
+	q := query.Use(svc.Ctx.DB)
+	m := q.TSkillResource
+
+	res, err := m.WithContext(l.ctx).Where(m.ID.Eq(resourceID)).First()
+	if err != nil {
+		return errors.New("资源不存在")
+	}
+
 	now := time.Now()
 	size := int32(len(req.Content))
-	content := req.Content
 	contentType := req.ContentType
 	if contentType == "" {
 		contentType = "text/plain"
 	}
 
-	resource := &model.TSkillResource{
-		CreatedAt:   &now,
-		UpdatedAt:   &now,
-		SkillID:     skillID,
-		Category:    req.Category,
-		Filename:    req.Filename,
-		Content:     &content,
-		ContentType: &contentType,
-		Size:        &size,
+	_, err = m.WithContext(l.ctx).Where(m.ID.Eq(resourceID)).Updates(map[string]interface{}{
+		"updated_at":   now,
+		"content":      req.Content,
+		"content_type": contentType,
+		"size":         size,
+	})
+	if err != nil {
+		return err
 	}
 
-	q := query.Use(svc.Ctx.DB)
-	err := q.TSkillResource.WithContext(l.ctx).Create(resource)
-	if err != nil {
-		return nil, err
+	if res.Path == "SKILL.md" {
+		_ = l.SyncMetadataFromSKILLMD(res.SkillID, req.Content)
 	}
-	return toSkillResourceInfo(resource), nil
+
+	return nil
 }
 
-// DeleteResource 删除 Skill 资源
 func (l *SkillLogic) DeleteResource(resourceID int64) error {
 	q := query.Use(svc.Ctx.DB)
 	m := q.TSkillResource
@@ -424,12 +434,55 @@ func (l *SkillLogic) DeleteResource(resourceID int64) error {
 	return err
 }
 
+func (l *SkillLogic) upsertResource(skillID int64, path, content, contentType string) (*SkillResourceInfo, error) {
+	now := time.Now()
+	size := int32(len(content))
+	if contentType == "" {
+		contentType = guessContentType(path)
+	}
+
+	q := query.Use(svc.Ctx.DB)
+	m := q.TSkillResource
+
+	existing, _ := m.WithContext(l.ctx).Where(m.SkillID.Eq(skillID), m.Path.Eq(path)).First()
+	if existing != nil {
+		_, err := m.WithContext(l.ctx).Where(m.ID.Eq(existing.ID)).Updates(map[string]interface{}{
+			"updated_at":   now,
+			"content":      content,
+			"content_type": contentType,
+			"size":         size,
+		})
+		if err != nil {
+			return nil, err
+		}
+		existing.Content = &content
+		existing.ContentType = &contentType
+		existing.Size = &size
+		return toSkillResourceInfo(existing), nil
+	}
+
+	resource := &model.TSkillResource{
+		CreatedAt:   &now,
+		UpdatedAt:   &now,
+		SkillID:     skillID,
+		Path:        path,
+		Content:     &content,
+		ContentType: &contentType,
+		Size:        &size,
+	}
+	if err := q.TSkillResource.WithContext(l.ctx).Create(resource); err != nil {
+		return nil, err
+	}
+	return toSkillResourceInfo(resource), nil
+}
+
+// ---------- Converters ----------
+
 func toSkillResourceInfo(m *model.TSkillResource) *SkillResourceInfo {
 	info := &SkillResourceInfo{
-		ID:       m.ID,
-		SkillID:  m.SkillID,
-		Category: m.Category,
-		Filename: m.Filename,
+		ID:      m.ID,
+		SkillID: m.SkillID,
+		Path:    m.Path,
 	}
 	if m.ContentType != nil {
 		info.ContentType = *m.ContentType
@@ -441,17 +494,14 @@ func toSkillResourceInfo(m *model.TSkillResource) *SkillResourceInfo {
 	return info
 }
 
-// toSkillInfo 转换为返回信息
 func (l *SkillLogic) toSkillInfo(m *model.TSkill) *SkillInfo {
 	info := &SkillInfo{
-		ID:           m.ID,
-		CreatedAt:    m.CreatedAt,
-		UpdatedAt:    m.UpdatedAt,
-		CreatedBy:    m.CreatedBy,
-		Name:         m.Name,
-		SystemPrompt: m.SystemPrompt,
+		ID:        m.ID,
+		CreatedAt: m.CreatedAt,
+		UpdatedAt: m.UpdatedAt,
+		CreatedBy: m.CreatedBy,
+		Name:      m.Name,
 	}
-
 	if m.Description != nil {
 		info.Description = *m.Description
 	}
@@ -488,28 +538,28 @@ func (l *SkillLogic) toSkillInfo(m *model.TSkill) *SkillInfo {
 	if m.AllowedTools != nil {
 		info.AllowedTools = *m.AllowedTools
 	}
+	if m.Author != nil {
+		info.Author = *m.Author
+	}
+	if m.SourceURL != nil {
+		info.SourceURL = *m.SourceURL
+	}
+	if m.InstallCount != nil {
+		info.InstallCount = *m.InstallCount
+	}
 	if m.MetadataJSON != nil {
 		var metadata map[string]string
 		if err := json.Unmarshal([]byte(*m.MetadataJSON), &metadata); err == nil {
 			info.MetadataJSON = metadata
 		}
 	}
-
-	// 解析 JSON 字段
 	info.Tags = unmarshalStringSlice(m.Tags)
-	info.Variables = unmarshalVariables(m.Variables)
-	info.RecommendedModelParams = unmarshalModelParams(m.RecommendedModelParams)
-	info.RecommendedTools = unmarshalStringSlice(m.RecommendedTools)
-	info.RecommendedMcpServerIDs = unmarshalInt64Slice(m.RecommendedMcpServerIDs)
-
 	return info
 }
 
-// 辅助函数
+// ---------- Helpers ----------
 
-func strPtr(s string) *string {
-	return &s
-}
+func strPtr(s string) *string { return &s }
 
 func marshalJSONPtr(v interface{}) *string {
 	b, err := json.Marshal(v)
@@ -531,35 +581,61 @@ func unmarshalStringSlice(s *string) []string {
 	return result
 }
 
-func unmarshalInt64Slice(s *string) []int64 {
-	if s == nil || *s == "" {
-		return []int64{}
+func guessContentType(filename string) string {
+	lower := strings.ToLower(filename)
+	idx := strings.LastIndex(lower, ".")
+	if idx < 0 {
+		return "text/plain"
 	}
-	var result []int64
-	if err := json.Unmarshal([]byte(*s), &result); err != nil {
-		return []int64{}
+	switch lower[idx:] {
+	case ".py":
+		return "text/x-python"
+	case ".sh", ".bash":
+		return "text/x-shellscript"
+	case ".js":
+		return "text/javascript"
+	case ".ts":
+		return "text/typescript"
+	case ".md":
+		return "text/markdown"
+	case ".json":
+		return "application/json"
+	case ".yaml", ".yml":
+		return "text/yaml"
+	case ".txt":
+		return "text/plain"
+	case ".pptx":
+		return "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+	case ".docx":
+		return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+	case ".xlsx":
+		return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+	default:
+		return "text/plain"
 	}
-	return result
 }
 
-func unmarshalVariables(s *string) []SkillVariable {
-	if s == nil || *s == "" {
-		return []SkillVariable{}
+// generateSKILLMD generates SKILL.md content from metadata and body
+func generateSKILLMD(skill *model.TSkill, body string) string {
+	fm := SkillMDFrontmatter{}
+	if skill.Slug != nil && *skill.Slug != "" {
+		fm.Name = *skill.Slug
 	}
-	var result []SkillVariable
-	if err := json.Unmarshal([]byte(*s), &result); err != nil {
-		return []SkillVariable{}
+	if skill.Description != nil {
+		fm.Description = *skill.Description
 	}
-	return result
-}
-
-func unmarshalModelParams(s *string) *RecommendedModelParams {
-	if s == nil || *s == "" {
-		return nil
+	if skill.License != nil && *skill.License != "" {
+		fm.License = *skill.License
 	}
-	var result RecommendedModelParams
-	if err := json.Unmarshal([]byte(*s), &result); err != nil {
-		return nil
+	if skill.Compatibility != nil && *skill.Compatibility != "" {
+		fm.Compatibility = *skill.Compatibility
 	}
-	return &result
+	if skill.AllowedTools != nil && *skill.AllowedTools != "" {
+		fm.AllowedTools = *skill.AllowedTools
+	}
+	if skill.MetadataJSON != nil && *skill.MetadataJSON != "" {
+		_ = json.Unmarshal([]byte(*skill.MetadataJSON), &fm.Metadata)
+	}
+	fmBytes, _ := yaml.Marshal(&fm)
+	return fmt.Sprintf("---\n%s---\n\n%s\n", string(fmBytes), body)
 }

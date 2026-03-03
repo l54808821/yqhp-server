@@ -31,8 +31,7 @@ func newTSkillResource(db *gorm.DB, opts ...gen.DOOption) tSkillResource {
 	_tSkillResource.CreatedAt = field.NewTime(tableName, "created_at")
 	_tSkillResource.UpdatedAt = field.NewTime(tableName, "updated_at")
 	_tSkillResource.SkillID = field.NewInt64(tableName, "skill_id")
-	_tSkillResource.Category = field.NewString(tableName, "category")
-	_tSkillResource.Filename = field.NewString(tableName, "filename")
+	_tSkillResource.Path = field.NewString(tableName, "path")
 	_tSkillResource.Content = field.NewString(tableName, "content")
 	_tSkillResource.ContentType = field.NewString(tableName, "content_type")
 	_tSkillResource.Size = field.NewInt32(tableName, "size")
@@ -51,8 +50,7 @@ type tSkillResource struct {
 	CreatedAt   field.Time
 	UpdatedAt   field.Time
 	SkillID     field.Int64  // 所属Skill ID
-	Category    field.String // 资源类别: scripts/references/assets
-	Filename    field.String // 文件名
+	Path        field.String // 资源路径
 	Content     field.String // 文件内容
 	ContentType field.String // MIME类型
 	Size        field.Int32  // 文件大小
@@ -76,8 +74,7 @@ func (t *tSkillResource) updateTableName(table string) *tSkillResource {
 	t.CreatedAt = field.NewTime(table, "created_at")
 	t.UpdatedAt = field.NewTime(table, "updated_at")
 	t.SkillID = field.NewInt64(table, "skill_id")
-	t.Category = field.NewString(table, "category")
-	t.Filename = field.NewString(table, "filename")
+	t.Path = field.NewString(table, "path")
 	t.Content = field.NewString(table, "content")
 	t.ContentType = field.NewString(table, "content_type")
 	t.Size = field.NewInt32(table, "size")
@@ -107,13 +104,12 @@ func (t *tSkillResource) GetFieldByName(fieldName string) (field.OrderExpr, bool
 }
 
 func (t *tSkillResource) fillFieldMap() {
-	t.fieldMap = make(map[string]field.Expr, 10)
+	t.fieldMap = make(map[string]field.Expr, 8)
 	t.fieldMap["id"] = t.ID
 	t.fieldMap["created_at"] = t.CreatedAt
 	t.fieldMap["updated_at"] = t.UpdatedAt
 	t.fieldMap["skill_id"] = t.SkillID
-	t.fieldMap["category"] = t.Category
-	t.fieldMap["filename"] = t.Filename
+	t.fieldMap["path"] = t.Path
 	t.fieldMap["content"] = t.Content
 	t.fieldMap["content_type"] = t.ContentType
 	t.fieldMap["size"] = t.Size

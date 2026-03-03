@@ -20,17 +20,14 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// SkillImportExportLogic handles import/export of Agent Skills standard format
 type SkillImportExportLogic struct {
 	ctx context.Context
 }
 
-// NewSkillImportExportLogic creates a new SkillImportExportLogic
 func NewSkillImportExportLogic(ctx context.Context) *SkillImportExportLogic {
 	return &SkillImportExportLogic{ctx: ctx}
 }
 
-// SkillMDFrontmatter represents the YAML frontmatter in SKILL.md
 type SkillMDFrontmatter struct {
 	Name          string            `yaml:"name"`
 	Description   string            `yaml:"description"`
@@ -40,15 +37,17 @@ type SkillMDFrontmatter struct {
 	AllowedTools  string            `yaml:"allowed-tools,omitempty"`
 }
 
-// Import imports a skill from a zip file containing SKILL.md and optional resource files
+// Import imports a skill from a zip file. All files (including SKILL.md) go into t_skill_resource.
 func (l *SkillImportExportLogic) Import(zipData []byte) (*SkillInfo, error) {
 	reader, err := zip.NewReader(bytes.NewReader(zipData), int64(len(zipData)))
 	if err != nil {
 		return nil, fmt.Errorf("invalid zip: %w", err)
 	}
 
-	// Find SKILL.md (could be at root or in a subdirectory)
 	var skillMDContent string
+	var skillMDRelPath string
+	var rootPrefix string
+
 	for _, f := range reader.File {
 		if strings.EqualFold(filepath.Base(f.Name), "SKILL.md") {
 			r, err := f.Open()
@@ -61,6 +60,8 @@ func (l *SkillImportExportLogic) Import(zipData []byte) (*SkillInfo, error) {
 				return nil, fmt.Errorf("cannot read SKILL.md: %w", err)
 			}
 			skillMDContent = string(data)
+			skillMDRelPath = filepath.ToSlash(f.Name)
+			rootPrefix = strings.TrimSuffix(skillMDRelPath, "SKILL.md")
 			break
 		}
 	}
@@ -71,10 +72,10 @@ func (l *SkillImportExportLogic) Import(zipData []byte) (*SkillInfo, error) {
 
 	frontmatter, body, err := parseSkillMD(skillMDContent)
 	if err != nil {
-		return nil, err
+		frontmatter = &SkillMDFrontmatter{}
+		body = skillMDContent
 	}
 
-	// Determine name and slug
 	name := slugToDisplayName(frontmatter.Name)
 	slug := frontmatter.Name
 	if frontmatter.Name == "" {
@@ -82,7 +83,6 @@ func (l *SkillImportExportLogic) Import(zipData []byte) (*SkillInfo, error) {
 		slug = "unnamed-skill"
 	}
 
-	// Version from metadata or default
 	version := "1.0.0"
 	if frontmatter.Metadata != nil {
 		if v, ok := frontmatter.Metadata["version"]; ok && v != "" {
@@ -90,7 +90,6 @@ func (l *SkillImportExportLogic) Import(zipData []byte) (*SkillInfo, error) {
 		}
 	}
 
-	// Prepare metadata JSON
 	var metadataJSON *string
 	if len(frontmatter.Metadata) > 0 {
 		b, _ := json.Marshal(frontmatter.Metadata)
@@ -100,8 +99,8 @@ func (l *SkillImportExportLogic) Import(zipData []byte) (*SkillInfo, error) {
 
 	now := time.Now()
 	isDelete := false
-	skillType := int32(2) // imported
-	status := int32(1)   // enabled
+	skillType := int32(2)
+	status := int32(1)
 
 	skill := &model.TSkill{
 		CreatedAt:     &now,
@@ -110,7 +109,6 @@ func (l *SkillImportExportLogic) Import(zipData []byte) (*SkillInfo, error) {
 		Name:          name,
 		Slug:          &slug,
 		Description:   strPtr(frontmatter.Description),
-		SystemPrompt:  body,
 		License:       strPtr(frontmatter.License),
 		Compatibility: strPtr(frontmatter.Compatibility),
 		MetadataJSON:  metadataJSON,
@@ -125,28 +123,22 @@ func (l *SkillImportExportLogic) Import(zipData []byte) (*SkillInfo, error) {
 		return nil, fmt.Errorf("create skill: %w", err)
 	}
 
-	// Scan for resource files in scripts/, references/, assets/
 	for _, f := range reader.File {
 		if f.FileInfo().IsDir() {
 			continue
 		}
 
-		var category string
 		path := filepath.ToSlash(f.Name)
-		switch {
-		case strings.Contains(path, "scripts/"):
-			category = "scripts"
-		case strings.Contains(path, "references/"):
-			category = "references"
-		case strings.Contains(path, "assets/"):
-			category = "assets"
-		default:
+		if rootPrefix != "" {
+			path = strings.TrimPrefix(path, rootPrefix)
+		}
+		if path == "" {
 			continue
 		}
 
 		r, err := f.Open()
 		if err != nil {
-			continue // skip files we can't open
+			continue
 		}
 		content, err := io.ReadAll(r)
 		r.Close()
@@ -155,26 +147,24 @@ func (l *SkillImportExportLogic) Import(zipData []byte) (*SkillInfo, error) {
 		}
 
 		contentStr := string(content)
-		filename := filepath.Base(f.Name)
-		contentType := guessContentType(filename)
+		_ = body // suppress unused warning for the body var from parseSkillMD
+		contentType := guessContentType(filepath.Base(path))
 		size := int32(len(contentStr))
 
 		res := &model.TSkillResource{
 			SkillID:     skill.ID,
-			Category:    category,
-			Filename:    filename,
+			Path:        path,
 			Content:     &contentStr,
 			ContentType: &contentType,
 			Size:        &size,
 		}
-
 		_ = q.TSkillResource.WithContext(l.ctx).Create(res)
 	}
 
 	return NewSkillLogic(l.ctx).GetByID(skill.ID)
 }
 
-// Export exports a skill to a zip file in Agent Skills standard format
+// Export exports a skill to a zip file. Reads all files from t_skill_resource.
 func (l *SkillImportExportLogic) Export(skillID int64) ([]byte, string, error) {
 	q := query.Use(svc.Ctx.DB)
 
@@ -198,24 +188,12 @@ func (l *SkillImportExportLogic) Export(skillID int64) ([]byte, string, error) {
 		dirName = *skill.Slug
 	}
 
-	skillMD := generateSkillMD(skill)
-
 	buf := new(bytes.Buffer)
 	zipWriter := zip.NewWriter(buf)
 
-	// Write SKILL.md
-	skillMDPath := filepath.Join(dirName, "SKILL.md")
-	w, err := zipWriter.Create(skillMDPath)
-	if err != nil {
-		return nil, "", fmt.Errorf("create SKILL.md in zip: %w", err)
-	}
-	if _, err := w.Write([]byte(skillMD)); err != nil {
-		return nil, "", err
-	}
-
-	// Write resource files
+	hasSKILLMD := false
 	for _, res := range resources {
-		filePath := filepath.Join(dirName, res.Category, res.Filename)
+		filePath := filepath.Join(dirName, res.Path)
 		w, err := zipWriter.Create(filePath)
 		if err != nil {
 			continue
@@ -225,6 +203,17 @@ func (l *SkillImportExportLogic) Export(skillID int64) ([]byte, string, error) {
 			content = *res.Content
 		}
 		w.Write([]byte(content))
+		if res.Path == "SKILL.md" {
+			hasSKILLMD = true
+		}
+	}
+
+	if !hasSKILLMD {
+		skillMD := generateSKILLMD(skill, "")
+		filePath := filepath.Join(dirName, "SKILL.md")
+		if w, err := zipWriter.Create(filePath); err == nil {
+			w.Write([]byte(skillMD))
+		}
 	}
 
 	if err := zipWriter.Close(); err != nil {
@@ -236,7 +225,7 @@ func (l *SkillImportExportLogic) Export(skillID int64) ([]byte, string, error) {
 }
 
 func parseSkillMD(content string) (*SkillMDFrontmatter, string, error) {
-	re := regexp.MustCompile(`(?s)^---\n(.*?)\n---\n(.*)$`)
+	re := regexp.MustCompile(`(?s)^---\r?\n(.*?)\r?\n---\r?\n(.*)$`)
 	matches := re.FindStringSubmatch(content)
 	if len(matches) != 3 {
 		return nil, "", errors.New("invalid SKILL.md: missing YAML frontmatter")
@@ -249,39 +238,6 @@ func parseSkillMD(content string) (*SkillMDFrontmatter, string, error) {
 
 	body := strings.TrimSpace(matches[2])
 	return &fm, body, nil
-}
-
-func generateSkillMD(skill *model.TSkill) string {
-	fm := SkillMDFrontmatter{}
-	if skill.Slug != nil && *skill.Slug != "" {
-		fm.Name = *skill.Slug
-	} else {
-		fm.Name = sanitizeSlug(skill.Name)
-	}
-	if skill.Description != nil {
-		fm.Description = *skill.Description
-	}
-	if skill.License != nil && *skill.License != "" {
-		fm.License = *skill.License
-	}
-	if skill.Compatibility != nil && *skill.Compatibility != "" {
-		fm.Compatibility = *skill.Compatibility
-	}
-	if skill.AllowedTools != nil && *skill.AllowedTools != "" {
-		fm.AllowedTools = *skill.AllowedTools
-	}
-	if skill.MetadataJSON != nil && *skill.MetadataJSON != "" {
-		_ = json.Unmarshal([]byte(*skill.MetadataJSON), &fm.Metadata)
-	}
-	if skill.Version != nil && *skill.Version != "" {
-		if fm.Metadata == nil {
-			fm.Metadata = make(map[string]string)
-		}
-		fm.Metadata["version"] = *skill.Version
-	}
-
-	fmBytes, _ := yaml.Marshal(&fm)
-	return fmt.Sprintf("---\n%s---\n\n%s\n", string(fmBytes), skill.SystemPrompt)
 }
 
 func slugToDisplayName(slug string) string {
@@ -307,28 +263,4 @@ func sanitizeSlug(name string) string {
 		name = "unnamed-skill"
 	}
 	return name
-}
-
-func guessContentType(filename string) string {
-	ext := strings.ToLower(filepath.Ext(filename))
-	switch ext {
-	case ".py":
-		return "text/x-python"
-	case ".sh", ".bash":
-		return "text/x-shellscript"
-	case ".js":
-		return "text/javascript"
-	case ".ts":
-		return "text/typescript"
-	case ".md":
-		return "text/markdown"
-	case ".json":
-		return "application/json"
-	case ".yaml", ".yml":
-		return "text/yaml"
-	case ".txt":
-		return "text/plain"
-	default:
-		return "text/plain"
-	}
 }

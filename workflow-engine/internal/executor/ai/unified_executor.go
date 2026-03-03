@@ -709,13 +709,10 @@ func executeSingleTool(
 		return result
 	}
 
-	if len(config.Skills) > 0 && len(toolName) > len(skillToolPrefix) && toolName[:len(skillToolPrefix)] == skillToolPrefix {
-		skill := findSkillByToolName(toolName, config.Skills)
-		if skill != nil {
-			result := executeSkillCall(ctx, skill, tc.Function.Arguments, config)
-			result.ToolCallID = tc.ID
-			return result
-		}
+	if toolName == readSkillToolName && len(config.Skills) > 0 {
+		result := executeReadSkill(tc.Function.Arguments, config.Skills)
+		result.ToolCallID = tc.ID
+		return result
 	}
 
 	if executor.DefaultToolRegistry.Has(toolName) {
@@ -830,8 +827,8 @@ func collectToolDefinitions(ctx context.Context, config *AIConfig, mcpClient *ex
 		}
 	}
 
-	for _, skill := range config.Skills {
-		allDefs = append(allDefs, skillToToolDef(skill))
+	if len(config.Skills) > 0 {
+		allDefs = append(allDefs, readSkillToolDef(config.Skills))
 	}
 
 	if len(config.KnowledgeBases) > 0 {

@@ -38,15 +38,13 @@ func newTSkill(db *gorm.DB, opts ...gen.DOOption) tSkill {
 	_tSkill.Icon = field.NewString(tableName, "icon")
 	_tSkill.Category = field.NewString(tableName, "category")
 	_tSkill.Tags = field.NewString(tableName, "tags")
-	_tSkill.SystemPrompt = field.NewString(tableName, "system_prompt")
-	_tSkill.Variables = field.NewString(tableName, "variables")
-	_tSkill.RecommendedModelParams = field.NewString(tableName, "recommended_model_params")
-	_tSkill.RecommendedTools = field.NewString(tableName, "recommended_tools")
-	_tSkill.RecommendedMcpServerIDs = field.NewString(tableName, "recommended_mcp_server_ids")
 	_tSkill.License = field.NewString(tableName, "license")
 	_tSkill.Compatibility = field.NewString(tableName, "compatibility")
 	_tSkill.MetadataJSON = field.NewString(tableName, "metadata_json")
 	_tSkill.AllowedTools = field.NewString(tableName, "allowed_tools")
+	_tSkill.Author = field.NewString(tableName, "author")
+	_tSkill.SourceURL = field.NewString(tableName, "source_url")
+	_tSkill.InstallCount = field.NewInt32(tableName, "install_count")
 	_tSkill.Type = field.NewInt32(tableName, "type")
 	_tSkill.IsPublic = field.NewInt32(tableName, "is_public")
 	_tSkill.Version = field.NewString(tableName, "version")
@@ -72,17 +70,15 @@ type tSkill struct {
 	Slug                    field.String // 标准化名称kebab-case
 	Description             field.String // Skill描述
 	Icon                    field.String // 图标标识
-	Category                field.String // 分类
-	Tags                    field.String // 标签
-	SystemPrompt            field.String // 系统提示词
-	Variables               field.String // 变量声明
-	RecommendedModelParams  field.String // 推荐模型参数
-	RecommendedTools        field.String // 推荐内置工具
-	RecommendedMcpServerIDs field.String // 推荐MCP服务ID
-	License                 field.String // 许可证
+	Category      field.String // 分类
+	Tags          field.String // 标签
+	License       field.String // 许可证
 	Compatibility           field.String // 环境要求
 	MetadataJSON            field.String // 扩展元数据
 	AllowedTools            field.String // 预批准工具列表
+	Author                  field.String // 作者来源
+	SourceURL               field.String // 来源URL
+	InstallCount            field.Int32  // 安装量
 	Type                    field.Int32  // 类型: 0-用户自建 1-系统内置 2-导入
 	IsPublic                field.Int32  // 是否公开
 	Version                 field.String // 版本号
@@ -115,15 +111,13 @@ func (t *tSkill) updateTableName(table string) *tSkill {
 	t.Icon = field.NewString(table, "icon")
 	t.Category = field.NewString(table, "category")
 	t.Tags = field.NewString(table, "tags")
-	t.SystemPrompt = field.NewString(table, "system_prompt")
-	t.Variables = field.NewString(table, "variables")
-	t.RecommendedModelParams = field.NewString(table, "recommended_model_params")
-	t.RecommendedTools = field.NewString(table, "recommended_tools")
-	t.RecommendedMcpServerIDs = field.NewString(table, "recommended_mcp_server_ids")
 	t.License = field.NewString(table, "license")
 	t.Compatibility = field.NewString(table, "compatibility")
 	t.MetadataJSON = field.NewString(table, "metadata_json")
 	t.AllowedTools = field.NewString(table, "allowed_tools")
+	t.Author = field.NewString(table, "author")
+	t.SourceURL = field.NewString(table, "source_url")
+	t.InstallCount = field.NewInt32(table, "install_count")
 	t.Type = field.NewInt32(table, "type")
 	t.IsPublic = field.NewInt32(table, "is_public")
 	t.Version = field.NewString(table, "version")
@@ -155,7 +149,7 @@ func (t *tSkill) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (t *tSkill) fillFieldMap() {
-	t.fieldMap = make(map[string]field.Expr, 25)
+	t.fieldMap = make(map[string]field.Expr, 23)
 	t.fieldMap["id"] = t.ID
 	t.fieldMap["created_at"] = t.CreatedAt
 	t.fieldMap["updated_at"] = t.UpdatedAt
@@ -167,15 +161,13 @@ func (t *tSkill) fillFieldMap() {
 	t.fieldMap["icon"] = t.Icon
 	t.fieldMap["category"] = t.Category
 	t.fieldMap["tags"] = t.Tags
-	t.fieldMap["system_prompt"] = t.SystemPrompt
-	t.fieldMap["variables"] = t.Variables
-	t.fieldMap["recommended_model_params"] = t.RecommendedModelParams
-	t.fieldMap["recommended_tools"] = t.RecommendedTools
-	t.fieldMap["recommended_mcp_server_ids"] = t.RecommendedMcpServerIDs
 	t.fieldMap["license"] = t.License
 	t.fieldMap["compatibility"] = t.Compatibility
 	t.fieldMap["metadata_json"] = t.MetadataJSON
 	t.fieldMap["allowed_tools"] = t.AllowedTools
+	t.fieldMap["author"] = t.Author
+	t.fieldMap["source_url"] = t.SourceURL
+	t.fieldMap["install_count"] = t.InstallCount
 	t.fieldMap["type"] = t.Type
 	t.fieldMap["is_public"] = t.IsPublic
 	t.fieldMap["version"] = t.Version

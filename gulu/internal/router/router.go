@@ -165,7 +165,16 @@ func Setup(app *fiber.App) {
 	skills.Get("/:id/export", handler.SkillExport)
 	skills.Get("/:id/resources", handler.SkillResourceList)
 	skills.Post("/:id/resources", handler.SkillResourceCreate)
+	skills.Get("/:id/resources/:resourceId/content", handler.SkillResourceGetContent)
+	skills.Put("/:id/resources/:resourceId", handler.SkillResourceUpdate)
 	skills.Delete("/:id/resources/:resourceId", handler.SkillResourceDelete)
+
+	// Skills.sh 市场路由
+	skillshub := api.Group("/skillshub")
+	skillshub.Get("/search", handler.SkillshubSearch)
+	skillshub.Get("/detail", handler.SkillshubDetail)
+	skillshub.Post("/install", handler.SkillshubInstall)
+	skillshub.Post("/install-url", handler.SkillshubInstallFromURL)
 
 	// MCP 服务器管理路由
 	mcpServers := api.Group("/mcp-servers")

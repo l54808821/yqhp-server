@@ -799,11 +799,12 @@ func (h *StreamExecutionHandler) resolveSkillConfigs(c *fiber.Ctx, config map[st
 			logger.Warn("Skill 已禁用，跳过", "id", id, "name", skillInfo.Name)
 			continue
 		}
+		body, _ := skillLogic.GetSKILLMDContent(skillInfo.ID)
 		skills = append(skills, map[string]interface{}{
-			"id":            skillInfo.ID,
-			"name":          skillInfo.Name,
-			"description":   skillInfo.Description,
-			"system_prompt": skillInfo.SystemPrompt,
+			"id":          skillInfo.ID,
+			"name":        skillInfo.Name,
+			"description": skillInfo.Description,
+			"body":        body,
 		})
 	}
 

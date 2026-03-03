@@ -1,107 +1,53 @@
 package ai
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
-
-	"github.com/cloudwego/eino/schema"
 
 	"yqhp/workflow-engine/pkg/types"
 )
 
-const skillToolPrefix = "skill__"
+const readSkillToolName = "read_skill"
 
-func skillToToolDef(skill *SkillInfo) *types.ToolDefinition {
-	toolName := skillToolPrefix + sanitizeToolName(skill.Name)
+func readSkillToolDef(skills []*SkillInfo) *types.ToolDefinition {
+	names := make([]string, 0, len(skills))
+	for _, s := range skills {
+		names = append(names, s.Name)
+	}
+	namesJSON, _ := json.Marshal(names)
 	return &types.ToolDefinition{
-		Name:        toolName,
-		Description: fmt.Sprintf("[Skill] %s", skill.Description),
-		Parameters: json.RawMessage(`{
+		Name:        readSkillToolName,
+		Description: "加载指定 Skill 的完整操作指令。当任务需要某个专业领域知识时，先调用此工具获取指令，然后按指令使用现有工具执行。",
+		Parameters: json.RawMessage(fmt.Sprintf(`{
 			"type": "object",
 			"properties": {
-				"task": {
+				"name": {
 					"type": "string",
-					"description": "需要该专家处理的具体任务内容，请提供完整上下文"
+					"enum": %s,
+					"description": "要加载的 Skill 名称"
 				}
 			},
-			"required": ["task"]
-		}`),
+			"required": ["name"]
+		}`, string(namesJSON))),
 	}
 }
 
-func findSkillByToolName(toolName string, skills []*SkillInfo) *SkillInfo {
-	for _, skill := range skills {
-		if skillToolPrefix+sanitizeToolName(skill.Name) == toolName {
-			return skill
-		}
-	}
-	return nil
-}
-
-func executeSkillCall(ctx context.Context, skill *SkillInfo, arguments string, config *AIConfig) *types.ToolResult {
+func executeReadSkill(arguments string, skills []*SkillInfo) *types.ToolResult {
 	var args struct {
-		Task string `json:"task"`
+		Name string `json:"name"`
 	}
 	if err := json.Unmarshal([]byte(arguments), &args); err != nil {
-		return &types.ToolResult{IsError: true, Content: fmt.Sprintf("Skill 参数解析失败: %v", err)}
+		return &types.ToolResult{IsError: true, Content: fmt.Sprintf("参数解析失败: %v", err)}
 	}
 
-	if args.Task == "" {
-		return &types.ToolResult{IsError: true, Content: "Skill 调用缺少 task 参数"}
+	if args.Name == "" {
+		return &types.ToolResult{IsError: true, Content: "缺少 name 参数"}
 	}
 
-	messages := []*schema.Message{
-		schema.SystemMessage(skill.SystemPrompt),
-		schema.UserMessage(args.Task),
-	}
-
-	modelConfig := config
-	if skill.ModelID != "" {
-		modelConfig = &AIConfig{
-			Provider: skill.Provider,
-			Model:    skill.ModelID,
-			APIKey:   skill.APIKey,
-			BaseURL:  skill.BaseURL,
-		}
-		if modelConfig.Provider == "" {
-			modelConfig.Provider = config.Provider
-		}
-		if modelConfig.APIKey == "" {
-			modelConfig.APIKey = config.APIKey
+	for _, s := range skills {
+		if s.Name == args.Name {
+			return &types.ToolResult{Content: s.Body}
 		}
 	}
-
-	chatModel, err := createChatModelFromConfig(ctx, modelConfig)
-	if err != nil {
-		return &types.ToolResult{IsError: true, Content: fmt.Sprintf("Skill 创建模型失败: %v", err)}
-	}
-
-	resp, err := chatModel.Generate(ctx, messages)
-	if err != nil {
-		return &types.ToolResult{IsError: true, Content: fmt.Sprintf("Skill 执行失败: %v", err)}
-	}
-
-	return &types.ToolResult{IsError: false, Content: resp.Content}
-}
-
-// sanitizeToolName converts names with special/Chinese characters into valid tool names.
-// NOTE: This is the canonical implementation; the simpler version in unified_tools.go is removed.
-func sanitizeToolName(name string) string {
-	var result strings.Builder
-	for _, r := range name {
-		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' {
-			result.WriteRune(r)
-		} else if r >= 0x4e00 && r <= 0x9fff {
-			result.WriteRune(r)
-		} else {
-			result.WriteRune('_')
-		}
-	}
-	s := result.String()
-	if s == "" {
-		s = "unnamed"
-	}
-	return s
+	return &types.ToolResult{IsError: true, Content: fmt.Sprintf("Skill 未找到: %s", args.Name)}
 }

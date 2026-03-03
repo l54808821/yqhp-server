@@ -137,8 +137,7 @@ func buildPlanStepPrompt(originalTask string, steps []string, currentIndex int, 
 	sb.WriteString(`
 重要要求：
 - 只需输出执行结果，不要重复计划内容
-- 你必须在回复中包含完整的执行结果数据（如生成的文档全文），不要只给出摘要或简短描述，后续步骤需要使用这些完整数据
-- 调用 Skill 工具时，必须在 task 参数中提供需要处理的实际数据，绝对不要使用"与上一步相同"、"见前文"等占位符`)
+- 你必须在回复中包含完整的执行结果数据（如生成的文档全文），不要只给出摘要或简短描述，后续步骤需要使用这些完整数据`)
 
 	return sb.String()
 }
@@ -228,18 +227,11 @@ func truncateRunes(s string, maxRunes int) string {
 
 func buildSkillInstruction(skills []*SkillInfo) string {
 	var sb strings.Builder
-	sb.WriteString("\n\n[专业能力（Skill）]\n")
-	sb.WriteString("你拥有以下专业能力，当用户的问题需要某个专业领域的深度分析时，请调用对应的工具：\n\n")
+	sb.WriteString("\n\n[可用专业能力（Skills）]\n")
+	sb.WriteString("以下是你可以使用的专业能力。需要时调用 read_skill 工具加载完整指令，然后按指令使用现有工具完成任务。\n\n")
 
 	for _, skill := range skills {
-		toolName := skillToolPrefix + sanitizeToolName(skill.Name)
-		sb.WriteString(fmt.Sprintf("- %s: %s\n", toolName, skill.Description))
+		sb.WriteString(fmt.Sprintf("- %s: %s\n", skill.Name, skill.Description))
 	}
-
-	sb.WriteString(`
-[Skill 调用规则]
-- 调用 Skill 时，必须在 task 参数中提供完整的原始数据和上下文信息
-- 绝对不要使用占位符、引用或"与上一步相同"、"见前文"、"[xxx内容]"等描述来替代实际内容
-- 必须将需要处理的实际数据完整地放入 task 参数中，Skill 无法访问之前步骤的上下文`)
 	return sb.String()
 }

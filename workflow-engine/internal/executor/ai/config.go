@@ -46,17 +46,12 @@ type AIConfig struct {
 	AgentMode string `json:"agent_mode,omitempty"`
 }
 
-// SkillInfo Skill 能力信息
+// SkillInfo Skill 能力信息（知识模块，而非子代理）
 type SkillInfo struct {
-	ID           int64  `json:"id"`
-	Name         string `json:"name"`
-	Description  string `json:"description"`
-	SystemPrompt string `json:"system_prompt"`
-	// 可选：Skill 独立的模型配置，为空时回退到主 Agent 的模型
-	ModelID  string `json:"model_id,omitempty"`
-	Provider string `json:"provider,omitempty"`
-	APIKey   string `json:"api_key,omitempty"`
-	BaseURL  string `json:"base_url,omitempty"`
+	ID          int64  `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Body        string `json:"body"` // SKILL.md 完整指令内容（Markdown）
 }
 
 // KnowledgeBaseInfo 知识库信息

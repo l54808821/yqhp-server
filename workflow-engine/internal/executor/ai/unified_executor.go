@@ -157,19 +157,16 @@ func buildToolRegistry(ctx context.Context, config *AIConfig, execCtx *executor.
 		reg.Register(NewSkillTool(config.Skills))
 	}
 
-	// MCP 工具
-	if len(config.MCPServerIDs) > 0 {
-		mcpClient := createMCPClient(config)
-		if mcpClient != nil {
-			for _, serverID := range config.MCPServerIDs {
-				tools, err := mcpClient.GetTools(ctx, serverID)
-				if err != nil {
-					log.Printf("[WARN] 获取 MCP 服务器 %d 工具列表失败: %v", serverID, err)
-					continue
-				}
-				for _, t := range tools {
-					reg.Register(NewMCPToolWrapper(t, mcpClient, serverID))
-				}
+	// MCP 工具（直连 MCP Server）
+	if len(config.MCPServers) > 0 {
+		for _, serverCfg := range config.MCPServers {
+			tools, _, err := loadMCPTools(ctx, serverCfg)
+			if err != nil {
+				log.Printf("[WARN] MCP Server %q 加载失败: %v", serverCfg.Name, err)
+				continue
+			}
+			for _, t := range tools {
+				reg.Register(t)
 			}
 		}
 	}
@@ -870,51 +867,6 @@ func mergeTokenUsage(dst, src *AIOutput) {
 	dst.PromptTokens += src.PromptTokens
 	dst.CompletionTokens += src.CompletionTokens
 	dst.TotalTokens += src.TotalTokens
-}
-
-func collectToolDefinitions(ctx context.Context, config *AIConfig, mcpClient *executor.MCPRemoteClient) ([]*types.ToolDefinition, map[string]int64, error) {
-	var allDefs []*types.ToolDefinition
-	mcpToolServerMap := make(map[string]int64)
-
-	for _, toolName := range config.Tools {
-		if executor.DefaultToolRegistry.Has(toolName) {
-			tool, _ := executor.DefaultToolRegistry.Get(toolName)
-			allDefs = append(allDefs, tool.Definition())
-		} else {
-			log.Printf("[WARN] 未知的内置工具名称，已跳过: %s", toolName)
-		}
-	}
-
-	if config.Interactive {
-		interactionTool := NewHumanInteractionTool(config)
-		allDefs = append(allDefs, interactionTool.Definition())
-	}
-
-	if mcpClient != nil {
-		for _, serverID := range config.MCPServerIDs {
-			tools, err := mcpClient.GetTools(ctx, serverID)
-			if err != nil {
-				log.Printf("[WARN] 获取 MCP 服务器 %d 工具列表失败: %v", serverID, err)
-				continue
-			}
-			for _, t := range tools {
-				mcpToolServerMap[t.Name] = serverID
-			}
-			allDefs = append(allDefs, tools...)
-		}
-	}
-
-	if len(config.Skills) > 0 {
-		skillTool := NewSkillTool(config.Skills)
-		allDefs = append(allDefs, skillTool.Definition())
-	}
-
-	if len(config.KnowledgeBases) > 0 {
-		knowledgeTool := NewKnowledgeTool(config.KnowledgeBases, config)
-		allDefs = append(allDefs, knowledgeTool.Definition())
-	}
-
-	return allDefs, mcpToolServerMap, nil
 }
 
 func toSchemaTools(defs []*types.ToolDefinition) []*schema.ToolInfo {

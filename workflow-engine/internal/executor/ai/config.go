@@ -1,8 +1,6 @@
 package ai
 
-import (
-	"yqhp/workflow-engine/internal/executor"
-)
+import "yqhp/workflow-engine/internal/executor"
 
 // AIConfig 统一 AI Agent 配置
 type AIConfig struct {
@@ -23,9 +21,8 @@ type AIConfig struct {
 
 	// ===== 工具配置 =====
 	Tools              []string             `json:"tools,omitempty"`
-	MCPServerIDs       []int64              `json:"mcp_server_ids,omitempty"`
+	MCPServers         []*MCPServerConfig   `json:"mcp_servers,omitempty"`
 	MaxToolRounds      int                  `json:"max_tool_rounds,omitempty"`
-	MCPProxyBaseURL    string               `json:"mcp_proxy_base_url,omitempty"`
 	Interactive        bool                 `json:"interactive"`
 	InteractionTimeout int                  `json:"interaction_timeout,omitempty"`
 	Skills             []*SkillInfo         `json:"skills,omitempty"`
@@ -77,6 +74,18 @@ type KnowledgeBaseInfo struct {
 	EmbeddingAPIKey    string  `json:"embedding_api_key,omitempty"`
 	EmbeddingBaseURL   string  `json:"embedding_base_url,omitempty"`
 	EmbeddingDimension int     `json:"embedding_dimension,omitempty"`
+}
+
+// MCPServerConfig MCP 服务器连接配置（由 gulu handler 从数据库解析注入）
+type MCPServerConfig struct {
+	ID        int64             `json:"id"`
+	Name      string            `json:"name"`
+	Transport string            `json:"transport"`
+	URL       string            `json:"url,omitempty"`
+	Command   string            `json:"command,omitempty"`
+	Args      []string          `json:"args,omitempty"`
+	Env       map[string]string `json:"env,omitempty"`
+	Timeout   int               `json:"timeout,omitempty"`
 }
 
 func parseConfig(config map[string]any) (*AIConfig, error) {

@@ -58,6 +58,12 @@ gulu:
   app_code: gulu # 应用编码，用于权限过滤
   admin_url: http://localhost:5320 # Admin 服务地址
 
+# 内置 MCP Server 配置
+mcp_server:
+  enabled: true
+  port: 5322
+  name: gulu-builtin-mcp
+
 # Workflow Engine 配置
 workflow_engine:
   embedded: true # 是否使用内置 Master（默认 true）

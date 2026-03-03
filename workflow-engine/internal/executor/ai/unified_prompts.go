@@ -70,6 +70,13 @@ const shellToolInstruction = `
 - 调用服务器上安装的 CLI 工具
 注意：命令有超时限制（默认 60 秒），危险操作（如 rm -rf /）会被拒绝。`
 
+const mcpToolInstruction = `
+
+[MCP 外部工具]
+你已接入 MCP（Model Context Protocol）外部服务提供的工具。这些工具可以查询和操作外部系统的数据。
+当用户的问题涉及项目管理、工作流、执行记录等业务数据时，应优先使用这些 MCP 工具获取准确信息，而不是猜测。
+请根据工具的名称和参数描述选择合适的工具进行调用。`
+
 func buildPlanningPrompt(skills []*SkillInfo) string {
 	var sb strings.Builder
 	sb.WriteString(`请为当前任务制定一个分步执行计划。
@@ -124,6 +131,10 @@ func buildUnifiedSystemPrompt(config *AIConfig, hasTools bool) string {
 		sb.WriteString(webToolsInstruction)
 		sb.WriteString(codeToolInstruction)
 		sb.WriteString(shellToolInstruction)
+	}
+
+	if len(config.MCPServers) > 0 {
+		sb.WriteString(mcpToolInstruction)
 	}
 
 	if len(config.Skills) > 0 {

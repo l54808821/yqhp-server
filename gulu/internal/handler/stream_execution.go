@@ -123,6 +123,9 @@ func (h *StreamExecutionHandler) Execute(c *fiber.Ctx) error {
 			if err := h.resolveKnowledgeBaseConfigs(c, req.Step.Config); err != nil {
 				logger.Warn("解析知识库配置失败", "error", err)
 			}
+			if err := h.resolveMCPServerConfigs(c, req.Step.Config); err != nil {
+				logger.Warn("解析 MCP 服务器配置失败", "error", err)
+			}
 		}
 
 		// 构建单步工作流
@@ -727,6 +730,9 @@ func (h *StreamExecutionHandler) resolveAIModelConfigsInWorkflow(c *fiber.Ctx, w
 					if err := h.resolveKnowledgeBaseConfigs(c, config); err != nil {
 						logger.Warn("解析知识库配置失败", "error", err)
 					}
+					if err := h.resolveMCPServerConfigs(c, config); err != nil {
+						logger.Warn("解析 MCP 服务器配置失败", "error", err)
+					}
 				}
 			}
 		}
@@ -909,6 +915,76 @@ func (h *StreamExecutionHandler) resolveKnowledgeBaseConfigs(c *fiber.Ctx, confi
 			}
 			config["gulu_host"] = fmt.Sprintf("http://127.0.0.1:%d", serverPort)
 		}
+	}
+
+	return nil
+}
+
+// resolveMCPServerConfigs 解析 AI 节点中的 MCP 服务器配置
+// 将 mcp_server_ids 解析为 mcp_servers（包含完整连接信息），供 workflow engine 直连
+func (h *StreamExecutionHandler) resolveMCPServerConfigs(c *fiber.Ctx, config map[string]interface{}) error {
+	idsRaw, ok := config["mcp_server_ids"]
+	if !ok || idsRaw == nil {
+		return nil
+	}
+
+	idsSlice, ok := idsRaw.([]interface{})
+	if !ok || len(idsSlice) == 0 {
+		return nil
+	}
+
+	var ids []int64
+	for _, idRaw := range idsSlice {
+		switch v := idRaw.(type) {
+		case float64:
+			ids = append(ids, int64(v))
+		case int:
+			ids = append(ids, int64(v))
+		case int64:
+			ids = append(ids, v)
+		}
+	}
+
+	if len(ids) == 0 {
+		return nil
+	}
+
+	mcpLogic := logic.NewMcpServerLogic(c.Context())
+	var mcpServers []map[string]interface{}
+	for _, id := range ids {
+		info, err := mcpLogic.GetByID(id)
+		if err != nil {
+			logger.Warn("获取 MCP 服务器失败", "id", id, "error", err)
+			continue
+		}
+		if info.Status != 1 {
+			logger.Warn("MCP 服务器已禁用，跳过", "id", id, "name", info.Name)
+			continue
+		}
+
+		serverData := map[string]interface{}{
+			"id":        info.ID,
+			"name":      info.Name,
+			"transport": info.Transport,
+			"timeout":   info.Timeout,
+		}
+		if info.URL != "" {
+			serverData["url"] = info.URL
+		}
+		if info.Command != "" {
+			serverData["command"] = info.Command
+		}
+		if len(info.Args) > 0 {
+			serverData["args"] = info.Args
+		}
+		if len(info.Env) > 0 {
+			serverData["env"] = info.Env
+		}
+		mcpServers = append(mcpServers, serverData)
+	}
+
+	if len(mcpServers) > 0 {
+		config["mcp_servers"] = mcpServers
 	}
 
 	return nil

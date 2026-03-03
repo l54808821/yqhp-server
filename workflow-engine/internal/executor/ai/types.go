@@ -13,9 +13,8 @@ const (
 	defaultToolTimeout       = 180 * time.Second
 	defaultMaxToolConcurrent = 5
 
-	defaultMCPProxyBaseURL = "http://localhost:8080"
-	defaultQdrantHost      = "http://127.0.0.1:6333"
-	defaultGuluHost        = "http://127.0.0.1:5321"
+	defaultQdrantHost = "http://127.0.0.1:6333"
+	defaultGuluHost   = "http://127.0.0.1:5321"
 )
 
 // AIOutput AI 节点输出

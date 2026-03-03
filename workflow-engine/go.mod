@@ -10,6 +10,7 @@ require (
 	github.com/gofiber/fiber/v2 v2.52.9
 	github.com/google/uuid v1.6.0
 	github.com/leanovate/gopter v0.2.11
+	github.com/mark3labs/mcp-go v0.43.2
 	github.com/ohler55/ojg v1.27.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1

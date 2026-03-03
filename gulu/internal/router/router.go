@@ -230,7 +230,7 @@ func Setup(app *fiber.App) {
 	kb.Get("/:id/graph/entities", handler.KnowledgeGraphEntities)
 	kb.Get("/:id/graph/relations", handler.KnowledgeGraphRelations)
 
-	// MCP 代理服务路由
+	// MCP 代理服务路由（供前端管理页面测试连接、查看工具等）
 	mcpProxyService := mcpproxy.NewMCPProxyService()
 	mcpProxyHandler := handler.NewMCPProxyHandler(mcpProxyService)
 	mcpProxy := api.Group("/mcp-proxy")

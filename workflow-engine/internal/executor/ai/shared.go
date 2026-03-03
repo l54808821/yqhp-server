@@ -75,17 +75,6 @@ func createChatModelFromConfig(ctx context.Context, config *AIConfig) (einomodel
 	return openai.NewChatModel(ctx, chatConfig)
 }
 
-// getMCPProxyBaseURL 获取 MCP 代理服务地址
-func getMCPProxyBaseURL(config *AIConfig) string {
-	if config.MCPProxyBaseURL != "" {
-		return config.MCPProxyBaseURL
-	}
-	if envURL := os.Getenv("MCP_PROXY_BASE_URL"); envURL != "" {
-		return envURL
-	}
-	return defaultMCPProxyBaseURL
-}
-
 // getQdrantHost 获取 Qdrant 服务地址
 func getQdrantHost(config *AIConfig) string {
 	if config.QdrantHost != "" {
@@ -108,17 +97,9 @@ func getGuluHost(config *AIConfig) string {
 	return defaultGuluHost
 }
 
-// createMCPClient 创建 MCP 远程客户端（如果有 MCP 服务器配置）
-func createMCPClient(config *AIConfig) *executor.MCPRemoteClient {
-	if len(config.MCPServerIDs) > 0 {
-		return executor.NewMCPRemoteClient(getMCPProxyBaseURL(config))
-	}
-	return nil
-}
-
 // hasToolsConfig 检查配置中是否启用了工具
 func hasToolsConfig(config *AIConfig) bool {
-	return len(config.Tools) > 0 || len(config.MCPServerIDs) > 0 ||
+	return len(config.Tools) > 0 || len(config.MCPServers) > 0 ||
 		config.Interactive || len(config.Skills) > 0 || len(config.KnowledgeBases) > 0
 }
 

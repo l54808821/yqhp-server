@@ -14,6 +14,7 @@ import (
 	"yqhp/gulu/internal/auth"
 	"yqhp/gulu/internal/config"
 	"yqhp/gulu/internal/logic"
+	"yqhp/gulu/internal/mcpserver"
 	"yqhp/gulu/internal/router"
 	"yqhp/gulu/internal/svc"
 	"yqhp/gulu/internal/workflow"
@@ -87,6 +88,11 @@ func main() {
 	// 设置路由
 	router.Setup(app)
 
+	// 启动内置 MCP Server
+	if err := mcpserver.Start(&cfg.MCPServer); err != nil {
+		log.Fatalf("启动内置 MCP Server 失败: %v", err)
+	}
+
 	// 启动服务器
 	addr := fmt.Sprintf("%s:%d", cfg.Server.Host, cfg.Server.Port)
 	go func() {
@@ -102,6 +108,9 @@ func main() {
 	<-quit
 
 	log.Println("正在关闭服务器...")
+
+	// 停止内置 MCP Server
+	mcpserver.Stop()
 
 	// 停止工作流引擎
 	if engine := workflow.GetEngine(); engine != nil {

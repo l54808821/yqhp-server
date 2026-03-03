@@ -121,7 +121,6 @@ func resolveConfigVariables(config *AIConfig, execCtx *executor.ExecutionContext
 	config.SystemPrompt = resolver.ResolveString(config.SystemPrompt, evalCtx)
 	config.Prompt = resolver.ResolveString(config.Prompt, evalCtx)
 	config.BaseURL = resolver.ResolveString(config.BaseURL, evalCtx)
-	config.MCPProxyBaseURL = resolver.ResolveString(config.MCPProxyBaseURL, evalCtx)
 	config.QdrantHost = resolver.ResolveString(config.QdrantHost, evalCtx)
 	config.GuluHost = resolver.ResolveString(config.GuluHost, evalCtx)
 

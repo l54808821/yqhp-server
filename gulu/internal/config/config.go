@@ -53,6 +53,13 @@ type Neo4jConfig struct {
 	Enabled  bool   `yaml:"enabled"`
 }
 
+// MCPServerConfig 内置 MCP Server 配置
+type MCPServerConfig struct {
+	Enabled bool   `yaml:"enabled"` // 是否启用内置 MCP Server
+	Port    int    `yaml:"port"`    // SSE 监听端口
+	Name    string `yaml:"name"`    // MCP Server 名称
+}
+
 // StorageConfig 文件存储配置
 type StorageConfig struct {
 	Type  string             `yaml:"type"` // local 或 s3
@@ -69,6 +76,7 @@ type Config struct {
 	commonConfig.Config `yaml:",inline"`
 	Gulu                GuluConfig           `yaml:"gulu"`
 	WorkflowEngine      WorkflowEngineConfig `yaml:"workflow_engine"`
+	MCPServer           MCPServerConfig      `yaml:"mcp_server"`
 	Qdrant              QdrantConfig         `yaml:"qdrant"`
 	Neo4j               Neo4jConfig          `yaml:"neo4j"`
 	Storage             StorageConfig        `yaml:"storage"`

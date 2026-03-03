@@ -11,15 +11,28 @@ import (
 	"strings"
 	"time"
 
+	"yqhp/workflow-engine/internal/executor"
 	"yqhp/workflow-engine/pkg/types"
 )
 
-const knowledgeSearchToolName = "knowledge_search"
+// KnowledgeTool knowledge_search 工具，实现统一 Tool 接口
+type KnowledgeTool struct {
+	knowledgeBases []*KnowledgeBaseInfo
+	config         *AIConfig
+}
 
-func knowledgeSearchToolDef(kbNames []string) *types.ToolDefinition {
+func NewKnowledgeTool(kbs []*KnowledgeBaseInfo, config *AIConfig) *KnowledgeTool {
+	return &KnowledgeTool{knowledgeBases: kbs, config: config}
+}
+
+func (t *KnowledgeTool) Definition() *types.ToolDefinition {
+	var kbNames []string
+	for _, kb := range t.knowledgeBases {
+		kbNames = append(kbNames, kb.Name)
+	}
 	kbList := strings.Join(kbNames, "、")
 	return &types.ToolDefinition{
-		Name:        knowledgeSearchToolName,
+		Name:        "knowledge_search",
 		Description: fmt.Sprintf("[知识库检索] 从以下知识库中检索相关信息：%s。当你需要获取更精确的知识来回答用户问题时，可调用此工具。", kbList),
 		Parameters: json.RawMessage(`{
 			"type": "object",
@@ -38,28 +51,26 @@ func knowledgeSearchToolDef(kbNames []string) *types.ToolDefinition {
 	}
 }
 
-func executeKnowledgeSearch(ctx context.Context, arguments string, knowledgeBases []*KnowledgeBaseInfo, config *AIConfig) *types.ToolResult {
+func (t *KnowledgeTool) Execute(ctx context.Context, arguments string, execCtx *executor.ExecutionContext) (*types.ToolResult, error) {
 	var args struct {
 		Query string `json:"query"`
 		TopK  int    `json:"top_k"`
 	}
 	if err := json.Unmarshal([]byte(arguments), &args); err != nil {
-		return &types.ToolResult{IsError: true, Content: fmt.Sprintf("知识库检索参数解析失败: %v", err)}
+		return types.NewErrorResult(fmt.Sprintf("知识库检索参数解析失败: %v", err)), nil
 	}
-
 	if args.Query == "" {
-		return &types.ToolResult{IsError: true, Content: "检索查询内容不能为空"}
+		return types.NewErrorResult("检索查询内容不能为空"), nil
 	}
-
 	topK := args.TopK
 	if topK <= 0 {
 		topK = 5
 	}
 
 	var allResults []knowledgeChunk
-	qdrantHost := getQdrantHost(config)
-	guluHost := getGuluHost(config)
-	for _, kb := range knowledgeBases {
+	qdrantHost := getQdrantHost(t.config)
+	guluHost := getGuluHost(t.config)
+	for _, kb := range t.knowledgeBases {
 		if kb.QdrantCollection != "" {
 			results := searchQdrant(ctx, kb, args.Query, topK, qdrantHost)
 			allResults = append(allResults, results...)
@@ -71,9 +82,8 @@ func executeKnowledgeSearch(ctx context.Context, arguments string, knowledgeBase
 	}
 
 	if len(allResults) == 0 {
-		return &types.ToolResult{IsError: false, Content: "未找到与查询相关的知识库内容。"}
+		return types.NewToolResult("未找到与查询相关的知识库内容。"), nil
 	}
-
 	if len(allResults) > topK {
 		allResults = allResults[:topK]
 	}
@@ -82,8 +92,17 @@ func executeKnowledgeSearch(ctx context.Context, arguments string, knowledgeBase
 	for i, chunk := range allResults {
 		sb.WriteString(fmt.Sprintf("[%d] (来源: %s, 相关度: %.2f)\n%s\n\n", i+1, chunk.Source, chunk.Score, chunk.Content))
 	}
+	return types.NewToolResult(sb.String()), nil
+}
 
-	return &types.ToolResult{IsError: false, Content: sb.String()}
+// ========== 以下为知识库搜索的辅助函数 ==========
+
+type knowledgeChunk struct {
+	Content    string  `json:"content"`
+	Score      float64 `json:"score"`
+	Source     string  `json:"source"`
+	DocumentID int64   `json:"document_id"`
+	ChunkIndex int     `json:"chunk_index"`
 }
 
 func searchQdrant(ctx context.Context, kb *KnowledgeBaseInfo, query string, topK int, qdrantHost string) []knowledgeChunk {
@@ -197,8 +216,7 @@ func callEmbeddingAPI(ctx context.Context, baseURL, apiKey, model, text string) 
 		httpReq.Header.Set("Authorization", "Bearer "+apiKey)
 	}
 
-	httpClient := &http.Client{Timeout: 30 * time.Second}
-	resp, err := httpClient.Do(httpReq)
+	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("Embedding HTTP 请求失败: %w", err)
 	}
@@ -278,29 +296,4 @@ func searchGraph(ctx context.Context, kb *KnowledgeBaseInfo, query string, topK 
 		})
 	}
 	return chunks
-}
-
-type knowledgeChunk struct {
-	Content    string  `json:"content"`
-	Score      float64 `json:"score"`
-	Source     string  `json:"source"`
-	DocumentID int64   `json:"document_id"`
-	ChunkIndex int     `json:"chunk_index"`
-}
-
-func buildKnowledgeInstruction(kbs []*KnowledgeBaseInfo) string {
-	var sb strings.Builder
-	sb.WriteString("\n\n[知识库]\n")
-	sb.WriteString("你已接入以下知识库，可随时通过 knowledge_search 工具检索更精确的信息：\n\n")
-
-	for _, kb := range kbs {
-		typeLabel := "向量知识库"
-		if kb.Type == "graph" {
-			typeLabel = "图知识库"
-		}
-		sb.WriteString(fmt.Sprintf("- %s (%s)\n", kb.Name, typeLabel))
-	}
-
-	sb.WriteString("\n当用户的问题可能需要专业知识或事实依据时，请主动使用 knowledge_search 工具检索。")
-	return sb.String()
 }

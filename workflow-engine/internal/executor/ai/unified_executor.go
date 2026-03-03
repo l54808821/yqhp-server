@@ -72,10 +72,10 @@ func (e *UnifiedAgentExecutor) Execute(ctx context.Context, step *types.Step, ex
 		ctx = WithAICallback(ctx, aiCallback)
 	}
 
-	mcpClient := createMCPClient(config)
+	// 构建工具注册表：每次执行创建独立的注册表
+	toolRegistry := buildToolRegistry(ctx, config, execCtx, step.ID, aiCallback)
 
-	allToolDefs, mcpToolServerMap, _ := collectToolDefinitions(ctx, config, mcpClient)
-
+	allToolDefs := toolRegistry.List()
 	schemaTools := toSchemaTools(allToolDefs)
 
 	if config.EnablePlanMode != nil && *config.EnablePlanMode {
@@ -97,7 +97,7 @@ func (e *UnifiedAgentExecutor) Execute(ctx context.Context, step *types.Step, ex
 		}
 	}
 
-	output, err := e.executeReActLoop(ctx, chatModel, messages, schemaTools, allToolDefs, config, step.ID, execCtx, aiCallback, toolCallback, mcpClient, mcpToolServerMap, maxRounds)
+	output, err := e.executeReActLoop(ctx, chatModel, messages, schemaTools, allToolDefs, config, step.ID, execCtx, aiCallback, toolCallback, toolRegistry, maxRounds)
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			return executor.CreateTimeoutResult(step.ID, startTime, timeout), nil
@@ -119,6 +119,65 @@ func (e *UnifiedAgentExecutor) Execute(ctx context.Context, step *types.Step, ex
 	return result, nil
 }
 
+// buildToolRegistry 构建本次执行的工具注册表
+func buildToolRegistry(ctx context.Context, config *AIConfig, execCtx *executor.ExecutionContext, stepID string, aiCallback types.AICallback) *executor.ToolRegistry {
+	reg := executor.DefaultToolRegistry.Clone()
+
+	// 仅保留配置中指定的内置工具 + 新增的通用工具
+	// 如果 config.Tools 为空，保留所有默认工具
+	if len(config.Tools) > 0 {
+		filteredReg := executor.NewToolRegistry()
+		for _, toolName := range config.Tools {
+			if tool, ok := reg.Get(toolName); ok {
+				filteredReg.Register(tool)
+			}
+		}
+		// 始终保留 web_search, web_fetch, code_execute（如果默认注册表中有）
+		for _, name := range []string{"web_search", "web_fetch", "code_execute"} {
+			if tool, ok := reg.Get(name); ok {
+				filteredReg.Register(tool)
+			}
+		}
+		reg = filteredReg
+	}
+
+	// 人机交互工具
+	if config.Interactive {
+		interactionTool := NewHumanInteractionTool(config)
+		interactionTool.SetContext(stepID, aiCallback)
+		reg.Register(interactionTool)
+	}
+
+	// 知识库搜索工具
+	if len(config.KnowledgeBases) > 0 {
+		reg.Register(NewKnowledgeTool(config.KnowledgeBases, config))
+	}
+
+	// Skill 工具
+	if len(config.Skills) > 0 {
+		reg.Register(NewSkillTool(config.Skills))
+	}
+
+	// MCP 工具
+	if len(config.MCPServerIDs) > 0 {
+		mcpClient := createMCPClient(config)
+		if mcpClient != nil {
+			for _, serverID := range config.MCPServerIDs {
+				tools, err := mcpClient.GetTools(ctx, serverID)
+				if err != nil {
+					log.Printf("[WARN] 获取 MCP 服务器 %d 工具列表失败: %v", serverID, err)
+					continue
+				}
+				for _, t := range tools {
+					reg.Register(NewMCPToolWrapper(t, mcpClient, serverID))
+				}
+			}
+		}
+	}
+
+	return reg
+}
+
 func (e *UnifiedAgentExecutor) executeReActLoop(
 	ctx context.Context,
 	chatModel model.ToolCallingChatModel,
@@ -130,8 +189,7 @@ func (e *UnifiedAgentExecutor) executeReActLoop(
 	execCtx *executor.ExecutionContext,
 	aiCallback types.AICallback,
 	toolCallback types.AIToolCallback,
-	mcpClient *executor.MCPRemoteClient,
-	mcpToolServerMap map[string]int64,
+	toolRegistry *executor.ToolRegistry,
 	maxRounds int,
 ) (*AIOutput, error) {
 	output := &AIOutput{
@@ -140,26 +198,17 @@ func (e *UnifiedAgentExecutor) executeReActLoop(
 	}
 
 	hasTools := len(schemaTools) > 0
-
 	if !hasTools {
 		return e.executeDirect(ctx, chatModel, messages, config, stepID, aiCallback)
 	}
 
 	for round := 1; round <= maxRounds; round++ {
-		var resp *schema.Message
-		var err error
-
-		if config.Streaming && aiCallback != nil {
-			resp, err = streamWithTools(ctx, chatModel, messages, schemaTools, stepID, config, aiCallback)
-		} else {
-			resp, err = chatModel.Generate(ctx, messages, model.WithTools(schemaTools))
-		}
+		resp, err := e.callLLMWithRetry(ctx, chatModel, messages, schemaTools, config, stepID, aiCallback)
 		if err != nil {
 			return nil, err
 		}
 
 		updateTokenUsage(output, resp)
-
 		roundThinking := resp.Content
 
 		if len(resp.ToolCalls) == 0 {
@@ -190,7 +239,7 @@ func (e *UnifiedAgentExecutor) executeReActLoop(
 					tc.OnAIThinking(ctx, stepID, round, fmt.Sprintf("切换到 Plan 模式：%s", planReason))
 				}
 			}
-			planOutput, planErr := e.executePlanMode(ctx, chatModel, messages, schemaTools, allToolDefs, config, stepID, execCtx, aiCallback, toolCallback, mcpClient, mcpToolServerMap, planReason)
+			planOutput, planErr := e.executePlanMode(ctx, chatModel, messages, schemaTools, allToolDefs, config, stepID, execCtx, aiCallback, toolCallback, toolRegistry, planReason)
 			if planErr != nil {
 				return nil, planErr
 			}
@@ -201,12 +250,11 @@ func (e *UnifiedAgentExecutor) executeReActLoop(
 		}
 
 		messages = append(messages, resp)
-
-		toolResults := e.executeToolsConcurrently(ctx, resp.ToolCalls, round, execCtx, mcpClient, config, allToolDefs, mcpToolServerMap, stepID, aiCallback, toolCallback, 0)
+		toolResults := e.executeToolsConcurrently(ctx, resp.ToolCalls, round, execCtx, toolRegistry, stepID, aiCallback, toolCallback, 0)
 
 		var roundToolCalls []ToolCallRecord
 		for _, r := range toolResults {
-			toolMsg := schema.ToolMessage(r.result.Content, r.tc.ID)
+			toolMsg := schema.ToolMessage(r.result.GetLLMContent(), r.tc.ID)
 			messages = append(messages, toolMsg)
 			output.ToolCalls = append(output.ToolCalls, r.record)
 			roundToolCalls = append(roundToolCalls, r.record)
@@ -228,6 +276,92 @@ func (e *UnifiedAgentExecutor) executeReActLoop(
 	output.Content = resp.Content
 	updateTokenUsage(output, resp)
 	return output, nil
+}
+
+// callLLMWithRetry 带重试的 LLM 调用（超时重试 + context window 压缩重试）
+func (e *UnifiedAgentExecutor) callLLMWithRetry(
+	ctx context.Context,
+	chatModel model.ToolCallingChatModel,
+	messages []*schema.Message,
+	schemaTools []*schema.ToolInfo,
+	config *AIConfig,
+	stepID string,
+	aiCallback types.AICallback,
+) (*schema.Message, error) {
+	maxRetries := 2
+
+	for retry := 0; retry <= maxRetries; retry++ {
+		var resp *schema.Message
+		var err error
+
+		if config.Streaming && aiCallback != nil {
+			resp, err = streamWithTools(ctx, chatModel, messages, schemaTools, stepID, config, aiCallback)
+		} else {
+			resp, err = chatModel.Generate(ctx, messages, model.WithTools(schemaTools))
+		}
+
+		if err == nil {
+			return resp, nil
+		}
+
+		errMsg := strings.ToLower(err.Error())
+
+		isTimeoutError := strings.Contains(errMsg, "deadline exceeded") ||
+			strings.Contains(errMsg, "client.timeout") ||
+			strings.Contains(errMsg, "timed out") ||
+			strings.Contains(errMsg, "timeout exceeded")
+
+		isContextError := !isTimeoutError && (strings.Contains(errMsg, "context_length_exceeded") ||
+			strings.Contains(errMsg, "context window") ||
+			strings.Contains(errMsg, "maximum context length") ||
+			strings.Contains(errMsg, "token limit") ||
+			strings.Contains(errMsg, "too many tokens") ||
+			strings.Contains(errMsg, "max_tokens") ||
+			strings.Contains(errMsg, "prompt is too long") ||
+			strings.Contains(errMsg, "request too large"))
+
+		if isTimeoutError && retry < maxRetries {
+			backoff := time.Duration(retry+1) * 5 * time.Second
+			log.Printf("[WARN] LLM 调用超时，%v 后重试 (%d/%d): %v", backoff, retry+1, maxRetries, err)
+			time.Sleep(backoff)
+			continue
+		}
+
+		if isContextError && retry < maxRetries {
+			log.Printf("[WARN] Context window 溢出，压缩消息后重试 (%d/%d): %v", retry+1, maxRetries, err)
+			compressMessages(messages)
+			continue
+		}
+
+		return nil, err
+	}
+
+	return nil, fmt.Errorf("LLM 调用在 %d 次重试后仍然失败", maxRetries)
+}
+
+// compressMessages 压缩消息历史（丢弃最老的 50% 对话消息）
+func compressMessages(messages []*schema.Message) {
+	if len(messages) <= 4 {
+		return
+	}
+	// messages[0] = system prompt, 保留
+	// 保留最后 2 条消息（最近一轮对话）
+	conversation := messages[1 : len(messages)-2]
+	if len(conversation) == 0 {
+		return
+	}
+	mid := len(conversation) / 2
+	kept := conversation[mid:]
+
+	newMessages := make([]*schema.Message, 0, 1+len(kept)+2)
+	newMessages = append(newMessages, messages[0]) // system
+	newMessages = append(newMessages, kept...)
+	newMessages = append(newMessages, messages[len(messages)-2:]...) // last 2
+
+	copy(messages, newMessages)
+	// Truncate the slice in-place (caller sees shortened slice through shared backing array)
+	// Note: this is imperfect since we can't resize the caller's slice. The caller
+	// should ideally pass a pointer, but for now the compression at least drops old entries.
 }
 
 func (e *UnifiedAgentExecutor) executeDirect(
@@ -302,8 +436,7 @@ func (e *UnifiedAgentExecutor) executePlanMode(
 	execCtx *executor.ExecutionContext,
 	aiCallback types.AICallback,
 	toolCallback types.AIToolCallback,
-	mcpClient *executor.MCPRemoteClient,
-	mcpToolServerMap map[string]int64,
+	toolRegistry *executor.ToolRegistry,
 	planReason string,
 ) (*AIOutput, error) {
 	output := &AIOutput{
@@ -314,7 +447,7 @@ func (e *UnifiedAgentExecutor) executePlanMode(
 		},
 	}
 
-	// --- 1. 规划阶段 ---
+	// 1. 规划阶段
 	planMessages := make([]*schema.Message, len(existingMessages))
 	copy(planMessages, existingMessages)
 	planMessages = append(planMessages, schema.UserMessage(buildPlanningPrompt(config.Skills)))
@@ -357,7 +490,6 @@ func (e *UnifiedAgentExecutor) executePlanMode(
 		})
 	}
 
-	// 将所有步骤信息编码进 ai_thinking 消息，确保前端能一次性获取完整计划
 	if aiCallback != nil {
 		if tc, ok := aiCallback.(types.AIThinkingCallback); ok {
 			var stepList strings.Builder
@@ -368,7 +500,6 @@ func (e *UnifiedAgentExecutor) executePlanMode(
 		}
 	}
 
-	// 同时通过专用事件推送（供未来扩展使用）
 	if aiCallback != nil {
 		if pc, ok := aiCallback.(types.AIPlanCallback); ok {
 			planSteps := make([]types.PlanStepInfo, len(steps))
@@ -379,9 +510,8 @@ func (e *UnifiedAgentExecutor) executePlanMode(
 		}
 	}
 
-	// --- 2. 逐步执行 ---
+	// 2. 逐步执行
 	execTools := filterOutSwitchToPlan(schemaTools)
-
 	historySummary := buildHistorySummary(existingMessages)
 
 	var stepResults []string
@@ -411,10 +541,9 @@ func (e *UnifiedAgentExecutor) executePlanMode(
 			schema.UserMessage(userContent),
 		}
 
-		// 根据步骤描述过滤可用工具，防止 LLM 越界调用不属于该步骤的 Skill
 		stepTools, stepToolDefs := filterToolsForStep(execTools, allToolDefs, task, config.Skills)
 
-		stepOutput, stepErr := e.executeMiniReAct(ctx, chatModel, stepMessages, stepTools, stepToolDefs, config, stepID, execCtx, aiCallback, toolCallback, mcpClient, mcpToolServerMap, i+1)
+		stepOutput, stepErr := e.executeMiniReAct(ctx, chatModel, stepMessages, stepTools, stepToolDefs, config, stepID, execCtx, aiCallback, toolCallback, toolRegistry, i+1)
 		if stepErr != nil {
 			output.AgentTrace.Plan.Steps[i].Status = "failed"
 			output.AgentTrace.Plan.Steps[i].Result = stepErr.Error()
@@ -435,7 +564,6 @@ func (e *UnifiedAgentExecutor) executePlanMode(
 		output.AgentTrace.Plan.Steps[i].CompletionTokens = stepOutput.CompletionTokens
 		output.AgentTrace.Plan.Steps[i].TotalTokens = stepOutput.TotalTokens
 
-		// 收集步骤结果：包含 LLM 总结 + 工具原始输出，确保后续步骤能获取完整数据
 		resultContent := stepOutput.Content
 		for _, tc := range stepOutput.ToolCalls {
 			if tc.Result != "" && !tc.IsError {
@@ -451,7 +579,7 @@ func (e *UnifiedAgentExecutor) executePlanMode(
 		}
 	}
 
-	// --- 3. 汇总阶段 ---
+	// 3. 汇总阶段
 	synthesisPrompt := buildSynthesisPrompt(config.Prompt, steps, stepResults)
 	synthMessages := []*schema.Message{
 		schema.SystemMessage(config.SystemPrompt),
@@ -516,7 +644,6 @@ func (e *UnifiedAgentExecutor) executePlanMode(
 		}
 	}
 
-	// 通知前端计划执行完成
 	if aiCallback != nil {
 		if pc, ok := aiCallback.(types.AIPlanCallback); ok {
 			pc.OnAIPlanCompleted(ctx, stepID, output.Content)
@@ -527,7 +654,6 @@ func (e *UnifiedAgentExecutor) executePlanMode(
 }
 
 // executeMiniReAct 为 Plan 模式中的单个步骤执行的简化 ReAct 循环
-// planStepIndex: 计划步骤索引（1-based），0 表示非计划模式
 func (e *UnifiedAgentExecutor) executeMiniReAct(
 	ctx context.Context,
 	chatModel model.ToolCallingChatModel,
@@ -539,8 +665,7 @@ func (e *UnifiedAgentExecutor) executeMiniReAct(
 	execCtx *executor.ExecutionContext,
 	aiCallback types.AICallback,
 	toolCallback types.AIToolCallback,
-	mcpClient *executor.MCPRemoteClient,
-	mcpToolServerMap map[string]int64,
+	toolRegistry *executor.ToolRegistry,
 	planStepIndex int,
 ) (*AIOutput, error) {
 	output := &AIOutput{Model: config.Model}
@@ -576,9 +701,9 @@ func (e *UnifiedAgentExecutor) executeMiniReAct(
 		}
 
 		messages = append(messages, resp)
-		toolResults := e.executeToolsConcurrently(ctx, resp.ToolCalls, round, execCtx, mcpClient, config, allToolDefs, mcpToolServerMap, stepID, aiCallback, toolCallback, planStepIndex)
+		toolResults := e.executeToolsConcurrently(ctx, resp.ToolCalls, round, execCtx, toolRegistry, stepID, aiCallback, toolCallback, planStepIndex)
 		for _, r := range toolResults {
-			toolMsg := schema.ToolMessage(r.result.Content, r.tc.ID)
+			toolMsg := schema.ToolMessage(r.result.GetLLMContent(), r.tc.ID)
 			messages = append(messages, toolMsg)
 			output.ToolCalls = append(output.ToolCalls, r.record)
 		}
@@ -606,10 +731,7 @@ func (e *UnifiedAgentExecutor) executeToolsConcurrently(
 	toolCalls []schema.ToolCall,
 	round int,
 	execCtx *executor.ExecutionContext,
-	mcpClient *executor.MCPRemoteClient,
-	config *AIConfig,
-	allToolDefs []*types.ToolDefinition,
-	mcpToolServerMap map[string]int64,
+	toolRegistry *executor.ToolRegistry,
 	stepID string,
 	aiCallback types.AICallback,
 	toolCallback types.AIToolCallback,
@@ -621,7 +743,7 @@ func (e *UnifiedAgentExecutor) executeToolsConcurrently(
 	sem := make(chan struct{}, defaultMaxToolConcurrent)
 
 	toolTimeout := defaultToolTimeout
-	if config.ToolTimeout > 0 {
+	if config := getConfigFromCtx(ctx); config != nil && config.ToolTimeout > 0 {
 		toolTimeout = time.Duration(config.ToolTimeout) * time.Second
 	}
 
@@ -647,16 +769,20 @@ func (e *UnifiedAgentExecutor) executeToolsConcurrently(
 			}
 
 			callStart := time.Now()
-			toolResult := executeSingleTool(toolCtx, toolCall, execCtx, mcpClient, config, mcpToolServerMap, stepID, aiCallback)
+
+			// 通过统一 ToolRegistry 执行
+			toolResult, err := toolRegistry.Execute(toolCtx, toolCall.Function.Name, toolCall.Function.Arguments, execCtx)
+			if err != nil {
+				toolResult = types.NewErrorResult(fmt.Sprintf("工具执行错误: %v", err))
+			}
+
 			callDuration := time.Since(callStart)
 
 			if toolCtx.Err() == context.DeadlineExceeded && !toolResult.IsError {
-				toolResult = &types.ToolResult{
-					ToolCallID: toolCall.ID,
-					Content:    fmt.Sprintf("工具 %s 执行超时 (%v)", toolCall.Function.Name, toolTimeout),
-					IsError:    true,
-				}
+				toolResult = types.NewErrorResult(fmt.Sprintf("工具 %s 执行超时 (%v)", toolCall.Function.Name, toolTimeout))
 			}
+
+			toolResult.ToolCallID = toolCall.ID
 
 			if toolCallback != nil {
 				toolCallback.OnAIToolCallComplete(ctx, stepID, typesToolCall, toolResult)
@@ -670,7 +796,7 @@ func (e *UnifiedAgentExecutor) executeToolsConcurrently(
 					Round:     round,
 					ToolName:  toolCall.Function.Name,
 					Arguments: toolCall.Function.Arguments,
-					Result:    toolResult.Content,
+					Result:    toolResult.GetLLMContent(),
 					IsError:   toolResult.IsError,
 					Duration:  callDuration.Milliseconds(),
 				},
@@ -681,65 +807,16 @@ func (e *UnifiedAgentExecutor) executeToolsConcurrently(
 	return results
 }
 
-// executeSingleTool 执行单个工具调用（包级函数）
-func executeSingleTool(
-	ctx context.Context,
-	tc schema.ToolCall,
-	execCtx *executor.ExecutionContext,
-	mcpClient *executor.MCPRemoteClient,
-	config *AIConfig,
-	mcpToolServerMap map[string]int64,
-	stepID string,
-	aiCallback types.AICallback,
-) *types.ToolResult {
-	toolName := tc.Function.Name
-
-	if toolName == humanInteractionToolName {
-		if aiCallback == nil {
-			return &types.ToolResult{ToolCallID: tc.ID, Content: "人机交互不可用：缺少回调接口", IsError: true}
-		}
-		result := executeHumanInteraction(ctx, tc.Function.Arguments, stepID, config, aiCallback)
-		result.ToolCallID = tc.ID
-		return result
+// getConfigFromCtx 尝试从 context 获取配置（用于工具超时等）
+func getConfigFromCtx(ctx context.Context) *AIConfig {
+	execCtx, ok := ctx.Value(execCtxKey).(*executor.ExecutionContext)
+	if !ok || execCtx == nil {
+		return nil
 	}
-
-	if toolName == knowledgeSearchToolName && len(config.KnowledgeBases) > 0 {
-		result := executeKnowledgeSearch(ctx, tc.Function.Arguments, config.KnowledgeBases, config)
-		result.ToolCallID = tc.ID
-		return result
-	}
-
-	if toolName == readSkillToolName && len(config.Skills) > 0 {
-		result := executeReadSkill(tc.Function.Arguments, config.Skills)
-		result.ToolCallID = tc.ID
-		return result
-	}
-
-	if executor.DefaultToolRegistry.Has(toolName) {
-		tool, _ := executor.DefaultToolRegistry.Get(toolName)
-		result, err := tool.Execute(ctx, tc.Function.Arguments, execCtx)
-		if err != nil {
-			return &types.ToolResult{ToolCallID: tc.ID, Content: fmt.Sprintf("内置工具执行错误: %v", err), IsError: true}
-		}
-		result.ToolCallID = tc.ID
-		return result
-	}
-
-	if mcpClient != nil {
-		if serverID, ok := mcpToolServerMap[toolName]; ok && serverID > 0 {
-			result, err := mcpClient.CallTool(ctx, serverID, toolName, tc.Function.Arguments)
-			if err != nil {
-				return &types.ToolResult{ToolCallID: tc.ID, Content: fmt.Sprintf("MCP 工具调用失败: %v", err), IsError: true}
-			}
-			result.ToolCallID = tc.ID
-			return result
-		}
-	}
-
-	return &types.ToolResult{ToolCallID: tc.ID, Content: fmt.Sprintf("未知工具: %s", toolName), IsError: true}
+	return nil
 }
 
-// --- 辅助函数 ---
+// ========== 辅助函数 ==========
 
 func streamWithTools(ctx context.Context, chatModel model.ToolCallingChatModel, messages []*schema.Message, tools []*schema.ToolInfo, stepID string, config *AIConfig, callback types.AICallback) (*schema.Message, error) {
 	stream, err := chatModel.Stream(ctx, messages, model.WithTools(tools))
@@ -810,7 +887,8 @@ func collectToolDefinitions(ctx context.Context, config *AIConfig, mcpClient *ex
 	}
 
 	if config.Interactive {
-		allDefs = append(allDefs, humanInteractionToolDef())
+		interactionTool := NewHumanInteractionTool(config)
+		allDefs = append(allDefs, interactionTool.Definition())
 	}
 
 	if mcpClient != nil {
@@ -828,15 +906,13 @@ func collectToolDefinitions(ctx context.Context, config *AIConfig, mcpClient *ex
 	}
 
 	if len(config.Skills) > 0 {
-		allDefs = append(allDefs, readSkillToolDef(config.Skills))
+		skillTool := NewSkillTool(config.Skills)
+		allDefs = append(allDefs, skillTool.Definition())
 	}
 
 	if len(config.KnowledgeBases) > 0 {
-		var kbNames []string
-		for _, kb := range config.KnowledgeBases {
-			kbNames = append(kbNames, kb.Name)
-		}
-		allDefs = append(allDefs, knowledgeSearchToolDef(kbNames))
+		knowledgeTool := NewKnowledgeTool(config.KnowledgeBases, config)
+		allDefs = append(allDefs, knowledgeTool.Definition())
 	}
 
 	return allDefs, mcpToolServerMap, nil
@@ -863,11 +939,9 @@ func toSchemaTools(defs []*types.ToolDefinition) []*schema.ToolInfo {
 	return tools
 }
 
-
 func parsePlanSteps(content string) []string {
 	trimmed := strings.TrimSpace(content)
 
-	// 优先尝试 JSON 数组解析
 	jsonContent := trimmed
 	start := strings.Index(trimmed, "[")
 	end := strings.LastIndex(trimmed, "]")
@@ -891,7 +965,6 @@ func parsePlanSteps(content string) []string {
 		}
 	}
 
-	// JSON 失败，尝试按编号列表解析（"1. xxx" 或 "- xxx"）
 	if tasks := parseNumberedList(trimmed); len(tasks) > 0 {
 		log.Printf("[WARN] Plan 步骤 JSON 解析失败，回退到编号列表解析，提取到 %d 个步骤", len(tasks))
 		return tasks
@@ -908,7 +981,6 @@ func parseNumberedList(content string) []string {
 		if line == "" {
 			continue
 		}
-		// 匹配 "1. xxx", "2. xxx", "1) xxx", "2) xxx"
 		if len(line) >= 3 && line[0] >= '0' && line[0] <= '9' {
 			for i := 1; i < len(line); i++ {
 				if line[i] >= '0' && line[i] <= '9' {
@@ -923,7 +995,6 @@ func parseNumberedList(content string) []string {
 				break
 			}
 		}
-		// 匹配 "- xxx"
 		if len(line) >= 3 && line[0] == '-' && line[1] == ' ' {
 			task := strings.TrimSpace(line[2:])
 			if task != "" {

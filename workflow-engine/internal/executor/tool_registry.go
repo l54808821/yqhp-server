@@ -1,51 +1,40 @@
 package executor
 
 import (
+	"context"
 	"fmt"
+	"sort"
 	"sync"
 
 	"yqhp/workflow-engine/pkg/types"
 )
 
 // ToolRegistry 工具注册表，管理和查询已注册的工具。
-// 使用 sync.RWMutex 保证并发安全。
 type ToolRegistry struct {
 	tools map[string]Tool
 	mu    sync.RWMutex
 }
 
-// NewToolRegistry 创建一个新的工具注册表。
 func NewToolRegistry() *ToolRegistry {
 	return &ToolRegistry{
 		tools: make(map[string]Tool),
 	}
 }
 
-// Register 注册一个工具到注册表。
-// 如果工具名称已存在，返回名称冲突错误。
-func (r *ToolRegistry) Register(tool Tool) error {
+// Register 注册工具，同名覆盖（与 picoclaw 一致，方便扩展）
+func (r *ToolRegistry) Register(tool Tool) {
 	if tool == nil {
-		return fmt.Errorf("不能注册空工具")
+		return
 	}
-
 	def := tool.Definition()
 	if def == nil || def.Name == "" {
-		return fmt.Errorf("工具定义不能为空且名称不能为空")
+		return
 	}
-
 	r.mu.Lock()
 	defer r.mu.Unlock()
-
-	if _, exists := r.tools[def.Name]; exists {
-		return fmt.Errorf("工具名称已注册: %s", def.Name)
-	}
-
 	r.tools[def.Name] = tool
-	return nil
 }
 
-// Get 按名称获取工具。
-// 返回工具实例和是否存在的标志。
 func (r *ToolRegistry) Get(name string) (Tool, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -53,19 +42,6 @@ func (r *ToolRegistry) Get(name string) (Tool, bool) {
 	return tool, exists
 }
 
-// List 返回所有已注册工具的定义列表。
-func (r *ToolRegistry) List() []*types.ToolDefinition {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	defs := make([]*types.ToolDefinition, 0, len(r.tools))
-	for _, tool := range r.tools {
-		defs = append(defs, tool.Definition())
-	}
-	return defs
-}
-
-// Has 检查指定名称的工具是否已注册。
 func (r *ToolRegistry) Has(name string) bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -73,25 +49,78 @@ func (r *ToolRegistry) Has(name string) bool {
 	return exists
 }
 
-// DefaultToolRegistry 全局默认工具注册表。
-var DefaultToolRegistry = NewToolRegistry()
-
-// RegisterTool 在默认工具注册表中注册工具。
-func RegisterTool(tool Tool) error {
-	return DefaultToolRegistry.Register(tool)
+// SortedNames 返回排序后的工具名，保证 KV cache 稳定性
+func (r *ToolRegistry) SortedNames() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	names := make([]string, 0, len(r.tools))
+	for name := range r.tools {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
 }
 
-// GetTool 从默认工具注册表获取工具。
+// List 返回所有已注册工具的定义列表（按名称排序）
+func (r *ToolRegistry) List() []*types.ToolDefinition {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	names := make([]string, 0, len(r.tools))
+	for name := range r.tools {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	defs := make([]*types.ToolDefinition, 0, len(names))
+	for _, name := range names {
+		defs = append(defs, r.tools[name].Definition())
+	}
+	return defs
+}
+
+// Count 返回已注册工具数量
+func (r *ToolRegistry) Count() int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return len(r.tools)
+}
+
+// Clone 创建注册表的浅拷贝，用于多 Agent 场景下基于共享注册表扩展
+func (r *ToolRegistry) Clone() *ToolRegistry {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	newReg := NewToolRegistry()
+	for name, tool := range r.tools {
+		newReg.tools[name] = tool
+	}
+	return newReg
+}
+
+// Execute 执行工具并返回结果
+func (r *ToolRegistry) Execute(ctx context.Context, name string, arguments string, execCtx *ExecutionContext) (*types.ToolResult, error) {
+	tool, ok := r.Get(name)
+	if !ok {
+		return types.NewErrorResult(fmt.Sprintf("未知工具: %s", name)), nil
+	}
+	return tool.Execute(ctx, arguments, execCtx)
+}
+
+// DefaultToolRegistry 全局默认工具注册表
+var DefaultToolRegistry = NewToolRegistry()
+
+func RegisterTool(tool Tool) {
+	DefaultToolRegistry.Register(tool)
+}
+
 func GetTool(name string) (Tool, bool) {
 	return DefaultToolRegistry.Get(name)
 }
 
-// ListTools 返回默认工具注册表中所有工具的定义。
 func ListTools() []*types.ToolDefinition {
 	return DefaultToolRegistry.List()
 }
 
-// HasTool 检查默认工具注册表中是否存在指定名称的工具。
 func HasTool(name string) bool {
 	return DefaultToolRegistry.Has(name)
 }

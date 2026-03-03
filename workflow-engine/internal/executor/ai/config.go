@@ -37,21 +37,29 @@ type AIConfig struct {
 	EnablePlanMode *bool `json:"enable_plan_mode,omitempty"`
 	MaxPlanSteps   int   `json:"max_plan_steps,omitempty"`
 
+	// ===== Fallback 配置 =====
+	FallbackModels []FallbackModelConfig `json:"fallback_models,omitempty"`
+
 	// ===== 基础设施地址 =====
 	QdrantHost  string `json:"qdrant_host,omitempty"`
 	GuluHost    string `json:"gulu_host,omitempty"`
 	ToolTimeout int    `json:"tool_timeout,omitempty"`
-
-	// ===== 兼容旧版字段（解析时保留，运行时忽略）=====
-	AgentMode string `json:"agent_mode,omitempty"`
 }
 
-// SkillInfo Skill 能力信息（知识模块，而非子代理）
+// FallbackModelConfig 备选模型配置
+type FallbackModelConfig struct {
+	Provider string `json:"provider"`
+	Model    string `json:"model"`
+	APIKey   string `json:"api_key"`
+	BaseURL  string `json:"base_url,omitempty"`
+}
+
+// SkillInfo Skill 能力信息
 type SkillInfo struct {
 	ID          int64  `json:"id"`
 	Name        string `json:"name"`
 	Description string `json:"description"`
-	Body        string `json:"body"` // SKILL.md 完整指令内容（Markdown）
+	Body        string `json:"body"`
 }
 
 // KnowledgeBaseInfo 知识库信息
@@ -71,12 +79,10 @@ type KnowledgeBaseInfo struct {
 	EmbeddingDimension int     `json:"embedding_dimension,omitempty"`
 }
 
-// parseConfig 从 map 解析配置（兼容旧版）
 func parseConfig(config map[string]any) (*AIConfig, error) {
 	return parseAIConfig(config)
 }
 
-// resolveVariables 解析配置中的变量引用
 func resolveVariables(config *AIConfig, execCtx *executor.ExecutionContext) *AIConfig {
 	return resolveConfigVariables(config, execCtx)
 }

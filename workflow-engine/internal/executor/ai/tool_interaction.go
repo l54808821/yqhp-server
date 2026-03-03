@@ -5,14 +5,29 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"yqhp/workflow-engine/internal/executor"
 	"yqhp/workflow-engine/pkg/types"
 )
 
-const humanInteractionToolName = "human_interaction"
+// HumanInteractionTool 人机交互工具，实现统一 Tool 接口
+type HumanInteractionTool struct {
+	config   *AIConfig
+	stepID   string
+	callback types.AICallback
+}
 
-func humanInteractionToolDef() *types.ToolDefinition {
+func NewHumanInteractionTool(config *AIConfig) *HumanInteractionTool {
+	return &HumanInteractionTool{config: config}
+}
+
+func (t *HumanInteractionTool) SetContext(stepID string, callback types.AICallback) {
+	t.stepID = stepID
+	t.callback = callback
+}
+
+func (t *HumanInteractionTool) Definition() *types.ToolDefinition {
 	return &types.ToolDefinition{
-		Name:        humanInteractionToolName,
+		Name:        "human_interaction",
 		Description: "当你需要用户确认、输入信息或从选项中选择时，调用此工具与用户进行交互。用户将看到你提供的提示并作出响应。仅在确实需要人类介入时使用。",
 		Parameters: json.RawMessage(`{
 			"type": "object",
@@ -24,7 +39,7 @@ func humanInteractionToolDef() *types.ToolDefinition {
 				},
 				"prompt": {
 					"type": "string",
-					"description": "展示给用户的提示信息，应清晰说明需要用户做什么"
+					"description": "展示给用户的提示信息"
 				},
 				"options": {
 					"type": "array",
@@ -41,47 +56,46 @@ func humanInteractionToolDef() *types.ToolDefinition {
 	}
 }
 
-type humanInteractionArgs struct {
-	Type         string   `json:"type"`
-	Prompt       string   `json:"prompt"`
-	Options      []string `json:"options,omitempty"`
-	DefaultValue string   `json:"default_value,omitempty"`
-}
-
-func executeHumanInteraction(ctx context.Context, arguments string, stepID string, config *AIConfig, callback types.AICallback) *types.ToolResult {
-	var args humanInteractionArgs
-	if err := json.Unmarshal([]byte(arguments), &args); err != nil {
-		return &types.ToolResult{IsError: true, Content: fmt.Sprintf("参数解析失败: %v", err)}
+func (t *HumanInteractionTool) Execute(ctx context.Context, arguments string, execCtx *executor.ExecutionContext) (*types.ToolResult, error) {
+	if t.callback == nil {
+		return types.NewErrorResult("人机交互不可用：缺少回调接口"), nil
 	}
 
+	var args struct {
+		Type         string   `json:"type"`
+		Prompt       string   `json:"prompt"`
+		Options      []string `json:"options,omitempty"`
+		DefaultValue string   `json:"default_value,omitempty"`
+	}
+	if err := json.Unmarshal([]byte(arguments), &args); err != nil {
+		return types.NewErrorResult(fmt.Sprintf("参数解析失败: %v", err)), nil
+	}
 	if args.Type == "" {
 		args.Type = "confirm"
 	}
 	if args.Prompt == "" {
-		return &types.ToolResult{IsError: true, Content: "缺少必填参数: prompt"}
+		return types.NewErrorResult("缺少必填参数: prompt"), nil
 	}
 
 	request := &types.InteractionRequest{
 		Type:         types.InteractionType(args.Type),
 		Prompt:       args.Prompt,
 		DefaultValue: args.DefaultValue,
-		Timeout:      config.InteractionTimeout,
+		Timeout:      t.config.InteractionTimeout,
 	}
-
 	if args.Type == "select" && len(args.Options) > 0 {
 		request.Options = make([]types.InteractionOption, len(args.Options))
 		for i, opt := range args.Options {
 			request.Options[i] = types.InteractionOption{Value: opt, Label: opt}
 		}
 	}
-
 	if request.Timeout <= 0 {
 		request.Timeout = 300
 	}
 
-	resp, err := callback.OnAIInteractionRequired(ctx, stepID, request)
+	resp, err := t.callback.OnAIInteractionRequired(ctx, t.stepID, request)
 	if err != nil {
-		return &types.ToolResult{IsError: true, Content: fmt.Sprintf("交互处理失败: %v", err)}
+		return types.NewErrorResult(fmt.Sprintf("交互处理失败: %v", err)), nil
 	}
 
 	if resp == nil || resp.Skipped {
@@ -89,8 +103,10 @@ func executeHumanInteraction(ctx context.Context, arguments string, stepID strin
 		if defaultVal == "" {
 			defaultVal = "(用户未响应)"
 		}
-		return &types.ToolResult{IsError: false, Content: fmt.Sprintf(`{"skipped": true, "value": %q}`, defaultVal)}
+		return types.NewToolResult(fmt.Sprintf(`{"skipped": true, "value": %q}`, defaultVal)), nil
 	}
 
-	return &types.ToolResult{IsError: false, Content: fmt.Sprintf(`{"skipped": false, "value": %q}`, resp.Value)}
+	return types.NewToolResult(fmt.Sprintf(`{"skipped": false, "value": %q}`, resp.Value)), nil
 }
+
+var _ executor.ContextualTool = (*HumanInteractionTool)(nil)

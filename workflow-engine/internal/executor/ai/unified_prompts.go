@@ -9,7 +9,7 @@ import (
 
 const unifiedBaseInstruction = `
 [工作模式]
-你是一个智能助手，能够自主分析问题并选择最佳策略来完成任务。
+你是一个能力全面的智能助手，能够自主分析问题并选择最佳策略来完成任务。
 
 1. 简单问题：直接回答，不需要调用工具
 2. 需要信息或操作：使用可用工具获取信息或执行操作（思考 → 行动 → 观察循环）
@@ -17,7 +17,9 @@ const unifiedBaseInstruction = `
 [ReAct 推理规则]
 - 在每次调用工具之前，必须先输出你的思考过程
 - 思考应包含：对当前情况的分析、选择该工具的原因、预期结果
-- 当所有必要信息收集完毕后，直接输出最终的完整回答`
+- 当所有必要信息收集完毕后，直接输出最终的完整回答
+- 善于组合使用多个工具来完成复杂任务
+- 如果一个工具失败了，尝试用其他方式达成目标`
 
 const planModeInstruction = `
 3. 复杂多步任务：当你判断任务需要多个步骤的系统性规划时，调用 switch_to_plan 工具
@@ -38,6 +40,23 @@ const interactiveInstruction = `
 3. 需要用户从固定选项中选择：type 设为 "select"，并提供 options
 4. 如果任务需要多项用户输入，请逐一通过工具询问
 5. 所有必要信息收集完毕后，直接输出完整的最终内容`
+
+const webToolsInstruction = `
+
+[联网能力]
+你可以通过以下工具获取互联网上的信息：
+- web_search：搜索互联网获取最新信息、事实验证
+- web_fetch：获取指定 URL 的网页内容
+当用户的问题涉及实时信息、最新数据、或你不确定的事实时，应主动使用搜索工具。`
+
+const codeToolInstruction = `
+
+[代码执行]
+你可以使用 code_execute 工具执行 Python 或 JavaScript 代码。适用场景：
+- 数学计算和数据处理
+- 格式转换和文本处理
+- 生成图表或数据可视化
+- 验证代码逻辑`
 
 func buildPlanningPrompt(skills []*SkillInfo) string {
 	var sb strings.Builder
@@ -89,8 +108,18 @@ func buildUnifiedSystemPrompt(config *AIConfig, hasTools bool) string {
 		sb.WriteString(interactiveInstruction)
 	}
 
+	// 如果配置了联网工具，添加联网能力说明
+	if hasTools {
+		sb.WriteString(webToolsInstruction)
+		sb.WriteString(codeToolInstruction)
+	}
+
 	if len(config.Skills) > 0 {
 		sb.WriteString(buildSkillInstruction(config.Skills))
+	}
+
+	if len(config.KnowledgeBases) > 0 {
+		sb.WriteString(buildKnowledgeInstruction(config.KnowledgeBases))
 	}
 
 	return sb.String()
@@ -165,7 +194,6 @@ func buildSynthesisPrompt(originalTask string, steps []string, stepResults []str
 
 const maxHistorySummaryRunes = 1500
 
-// buildHistorySummary 从消息历史中提取最近几轮对话的摘要，用于 Plan 模式的步骤上下文
 func buildHistorySummary(messages []*schema.Message) string {
 	var userAssistantPairs []struct{ user, assistant string }
 	var currentUser string
@@ -189,7 +217,6 @@ func buildHistorySummary(messages []*schema.Message) string {
 		return ""
 	}
 
-	// 取最近 3 轮
 	maxTurns := 3
 	start := len(userAssistantPairs) - maxTurns
 	if start < 0 {
@@ -233,5 +260,22 @@ func buildSkillInstruction(skills []*SkillInfo) string {
 	for _, skill := range skills {
 		sb.WriteString(fmt.Sprintf("- %s: %s\n", skill.Name, skill.Description))
 	}
+	return sb.String()
+}
+
+func buildKnowledgeInstruction(kbs []*KnowledgeBaseInfo) string {
+	var sb strings.Builder
+	sb.WriteString("\n\n[知识库]\n")
+	sb.WriteString("你已接入以下知识库，可随时通过 knowledge_search 工具检索更精确的信息：\n\n")
+
+	for _, kb := range kbs {
+		typeLabel := "向量知识库"
+		if kb.Type == "graph" {
+			typeLabel = "图知识库"
+		}
+		sb.WriteString(fmt.Sprintf("- %s (%s)\n", kb.Name, typeLabel))
+	}
+
+	sb.WriteString("\n当用户的问题可能需要专业知识或事实依据时，请主动使用 knowledge_search 工具检索。")
 	return sb.String()
 }

@@ -384,9 +384,11 @@ func validateAIStep(step *types.Step, prefix string) []ValidationError {
 			"var_write":         true,
 			"json_parse":        true,
 			"human_interaction": true,
-			"web_search":        true,
+			"bing_search":       true,
+			"google_search":     true,
 			"web_fetch":         true,
 			"code_execute":      true,
+			"shell_exec":        true,
 		}
 		for i, t := range tools {
 			if name, ok := t.(string); ok {

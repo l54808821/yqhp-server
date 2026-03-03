@@ -132,8 +132,7 @@ func buildToolRegistry(ctx context.Context, config *AIConfig, execCtx *executor.
 				filteredReg.Register(tool)
 			}
 		}
-		// 始终保留 web_search, web_fetch, code_execute（如果默认注册表中有）
-		for _, name := range []string{"web_search", "web_fetch", "code_execute"} {
+		for _, name := range []string{"bing_search", "google_search", "web_fetch", "code_execute"} {
 			if tool, ok := reg.Get(name); ok {
 				filteredReg.Register(tool)
 			}

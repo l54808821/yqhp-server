@@ -45,9 +45,10 @@ const webToolsInstruction = `
 
 [联网能力]
 你可以通过以下工具获取互联网上的信息：
-- web_search：搜索互联网获取最新信息、事实验证
+- bing_search：使用 Bing 搜索引擎搜索互联网信息，适合中文搜索
+- google_search：使用 Google 搜索引擎搜索互联网信息（需要能访问 Google 的网络环境）
 - web_fetch：获取指定 URL 的网页内容
-当用户的问题涉及实时信息、最新数据、或你不确定的事实时，应主动使用搜索工具。`
+当用户的问题涉及实时信息、最新数据、或你不确定的事实时，应主动使用搜索工具。优先使用 bing_search。`
 
 const codeToolInstruction = `
 
@@ -57,6 +58,17 @@ const codeToolInstruction = `
 - 格式转换和文本处理
 - 生成图表或数据可视化
 - 验证代码逻辑`
+
+const shellToolInstruction = `
+
+[命令行执行]
+你可以使用 shell_exec 工具在服务器上执行 Shell (bash) 命令。适用场景：
+- 系统信息查询（如 uname, df, free, top）
+- 文件和目录操作（如 ls, cat, find, cp, mv）
+- 网络诊断（如 curl, ping, dig, netstat）
+- 文本处理（如 grep, awk, sed, sort, wc）
+- 调用服务器上安装的 CLI 工具
+注意：命令有超时限制（默认 60 秒），危险操作（如 rm -rf /）会被拒绝。`
 
 func buildPlanningPrompt(skills []*SkillInfo) string {
 	var sb strings.Builder
@@ -108,10 +120,10 @@ func buildUnifiedSystemPrompt(config *AIConfig, hasTools bool) string {
 		sb.WriteString(interactiveInstruction)
 	}
 
-	// 如果配置了联网工具，添加联网能力说明
 	if hasTools {
 		sb.WriteString(webToolsInstruction)
 		sb.WriteString(codeToolInstruction)
+		sb.WriteString(shellToolInstruction)
 	}
 
 	if len(config.Skills) > 0 {

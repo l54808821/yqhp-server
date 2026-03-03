@@ -157,10 +157,3 @@ func (a *InMemoryMQAdapter) Clear() {
 	a.topics = make(map[string][]MQMessage)
 	a.queues = make(map[string][]MQMessage)
 }
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

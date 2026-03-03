@@ -97,9 +97,9 @@ func (e *Engine) Start() error {
 		}
 		e.restServer = rest.NewServer(e.master, e.registry, restCfg)
 		go func() {
-			logger.Info("Workflow Engine REST API 启动", "address", e.config.HTTPAddress)
+			logger.Info("Workflow Engine REST API 启动在 %s", e.config.HTTPAddress)
 			if err := e.restServer.Start(); err != nil {
-				logger.Error("REST API 服务器启动失败", "error", err)
+				logger.Error("REST API 服务器启动失败: %v", err)
 			}
 		}()
 	}
@@ -123,7 +123,7 @@ func (e *Engine) Stop() error {
 	// 停止 REST API 服务器
 	if e.restServer != nil {
 		if err := e.restServer.Shutdown(); err != nil {
-			logger.Warn("停止 REST API 服务器失败", "error", err)
+			logger.Warn("停止 REST API 服务器失败: %v", err)
 		}
 	}
 

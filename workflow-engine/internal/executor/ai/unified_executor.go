@@ -15,7 +15,23 @@ import (
 
 	"yqhp/workflow-engine/internal/executor"
 	"yqhp/workflow-engine/pkg/types"
+
+	mcpclient "github.com/mark3labs/mcp-go/client"
 )
+
+// mcpCloser 记录需要在执行结束后关闭的 MCP 连接
+type mcpCloser struct {
+	name   string
+	client *mcpclient.Client
+}
+
+func closeMCPClients(clients []mcpCloser) {
+	for _, c := range clients {
+		if err := c.client.Close(); err != nil {
+			log.Printf("[MCPTool] 关闭 MCP Server %q 连接失败: %v", c.name, err)
+		}
+	}
+}
 
 const UnifiedAgentType = "ai_agent"
 
@@ -73,7 +89,10 @@ func (e *UnifiedAgentExecutor) Execute(ctx context.Context, step *types.Step, ex
 	}
 
 	// 构建工具注册表：每次执行创建独立的注册表
-	toolRegistry := buildToolRegistry(ctx, config, execCtx, step.ID, aiCallback)
+	toolRegistry, mcpClients := buildToolRegistry(ctx, config, execCtx, step.ID, aiCallback)
+	if len(mcpClients) > 0 {
+		defer closeMCPClients(mcpClients)
+	}
 
 	allToolDefs := toolRegistry.List()
 	schemaTools := toSchemaTools(allToolDefs)
@@ -119,12 +138,10 @@ func (e *UnifiedAgentExecutor) Execute(ctx context.Context, step *types.Step, ex
 	return result, nil
 }
 
-// buildToolRegistry 构建本次执行的工具注册表
-func buildToolRegistry(ctx context.Context, config *AIConfig, execCtx *executor.ExecutionContext, stepID string, aiCallback types.AICallback) *executor.ToolRegistry {
+// buildToolRegistry 构建本次执行的工具注册表，同时返回需要在执行结束后关闭的 MCP client 列表
+func buildToolRegistry(ctx context.Context, config *AIConfig, execCtx *executor.ExecutionContext, stepID string, aiCallback types.AICallback) (*executor.ToolRegistry, []mcpCloser) {
 	reg := executor.DefaultToolRegistry.Clone()
 
-	// 仅保留配置中指定的内置工具 + 新增的通用工具
-	// 如果 config.Tools 为空，保留所有默认工具
 	if len(config.Tools) > 0 {
 		filteredReg := executor.NewToolRegistry()
 		for _, toolName := range config.Tools {
@@ -140,38 +157,37 @@ func buildToolRegistry(ctx context.Context, config *AIConfig, execCtx *executor.
 		reg = filteredReg
 	}
 
-	// 人机交互工具
 	if config.Interactive {
 		interactionTool := NewHumanInteractionTool(config)
 		interactionTool.SetContext(stepID, aiCallback)
 		reg.Register(interactionTool)
 	}
 
-	// 知识库搜索工具
 	if len(config.KnowledgeBases) > 0 {
 		reg.Register(NewKnowledgeTool(config.KnowledgeBases, config))
 	}
 
-	// Skill 工具
 	if len(config.Skills) > 0 {
 		reg.Register(NewSkillTool(config.Skills))
 	}
 
 	// MCP 工具（直连 MCP Server）
+	var mcpClients []mcpCloser
 	if len(config.MCPServers) > 0 {
 		for _, serverCfg := range config.MCPServers {
-			tools, _, err := loadMCPTools(ctx, serverCfg)
+			tools, cli, err := loadMCPTools(ctx, serverCfg)
 			if err != nil {
 				log.Printf("[WARN] MCP Server %q 加载失败: %v", serverCfg.Name, err)
 				continue
 			}
+			mcpClients = append(mcpClients, mcpCloser{name: serverCfg.Name, client: cli})
 			for _, t := range tools {
 				reg.Register(t)
 			}
 		}
 	}
 
-	return reg
+	return reg, mcpClients
 }
 
 func (e *UnifiedAgentExecutor) executeReActLoop(

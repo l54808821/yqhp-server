@@ -98,7 +98,7 @@ func connectMCPServer(ctx context.Context, cfg *MCPServerConfig) (*client.Client
 		if err != nil {
 			return nil, fmt.Errorf("MCP Server %q: 创建 SSE client 失败: %w", cfg.Name, err)
 		}
-		if err := c.Start(ctx); err != nil {
+		if err := c.Start(context.Background()); err != nil {
 			return nil, fmt.Errorf("MCP Server %q: 启动 SSE 连接失败: %w", cfg.Name, err)
 		}
 	default:

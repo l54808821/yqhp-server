@@ -1,4 +1,4 @@
-package executor
+package tools
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"yqhp/workflow-engine/internal/executor"
 	"yqhp/workflow-engine/pkg/types"
 )
 
@@ -63,7 +64,7 @@ func (t *HTTPTool) Definition() *types.ToolDefinition {
 	}
 }
 
-func (t *HTTPTool) Execute(ctx context.Context, arguments string, execCtx *ExecutionContext) (*types.ToolResult, error) {
+func (t *HTTPTool) Execute(ctx context.Context, arguments string, execCtx *executor.ExecutionContext) (*types.ToolResult, error) {
 	var args httpRequestArgs
 	if err := json.Unmarshal([]byte(arguments), &args); err != nil {
 		return types.NewErrorResult(fmt.Sprintf("参数解析失败: %v", err)), nil
@@ -151,7 +152,7 @@ func (t *VarReadTool) Definition() *types.ToolDefinition {
 	}
 }
 
-func (t *VarReadTool) Execute(ctx context.Context, arguments string, execCtx *ExecutionContext) (*types.ToolResult, error) {
+func (t *VarReadTool) Execute(ctx context.Context, arguments string, execCtx *executor.ExecutionContext) (*types.ToolResult, error) {
 	var args struct {
 		Name string `json:"name"`
 	}
@@ -201,7 +202,7 @@ func (t *VarWriteTool) Definition() *types.ToolDefinition {
 	}
 }
 
-func (t *VarWriteTool) Execute(ctx context.Context, arguments string, execCtx *ExecutionContext) (*types.ToolResult, error) {
+func (t *VarWriteTool) Execute(ctx context.Context, arguments string, execCtx *executor.ExecutionContext) (*types.ToolResult, error) {
 	if execCtx == nil {
 		return types.NewErrorResult("执行上下文不可用"), nil
 	}
@@ -246,7 +247,7 @@ func (t *JSONParseTool) Definition() *types.ToolDefinition {
 	}
 }
 
-func (t *JSONParseTool) Execute(ctx context.Context, arguments string, execCtx *ExecutionContext) (*types.ToolResult, error) {
+func (t *JSONParseTool) Execute(ctx context.Context, arguments string, execCtx *executor.ExecutionContext) (*types.ToolResult, error) {
 	var args struct {
 		JSONString string `json:"json_string"`
 		Path       string `json:"path,omitempty"`
@@ -318,16 +319,4 @@ func parseArrayIndex(seg string, length int) (int, error) {
 		return 0, fmt.Errorf("数组索引 %d 超出范围 [0, %d)", idx, length)
 	}
 	return idx, nil
-}
-
-func init() {
-	builtinTools := []Tool{
-		&HTTPTool{},
-		&VarReadTool{},
-		&VarWriteTool{},
-		&JSONParseTool{},
-	}
-	for _, tool := range builtinTools {
-		RegisterTool(tool)
-	}
 }

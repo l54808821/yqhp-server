@@ -8,7 +8,8 @@ import (
 	"time"
 
 	"yqhp/workflow-engine/internal/executor"
-	_ "yqhp/workflow-engine/internal/executor/ai" // 注册 AI 执行器
+	_ "yqhp/workflow-engine/internal/executor/ai"    // 注册 AI 执行器
+	_ "yqhp/workflow-engine/internal/executor/tools" // 注册内置工具
 	"yqhp/workflow-engine/internal/slave"
 	"yqhp/workflow-engine/pkg/logger"
 	"yqhp/workflow-engine/pkg/output"

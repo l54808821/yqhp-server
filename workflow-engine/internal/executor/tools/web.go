@@ -1,4 +1,4 @@
-package executor
+package tools
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"yqhp/workflow-engine/internal/executor"
 	"yqhp/workflow-engine/pkg/types"
 )
 
@@ -38,7 +39,7 @@ func (t *BingSearchTool) Definition() *types.ToolDefinition {
 	}
 }
 
-func (t *BingSearchTool) Execute(ctx context.Context, arguments string, execCtx *ExecutionContext) (*types.ToolResult, error) {
+func (t *BingSearchTool) Execute(ctx context.Context, arguments string, execCtx *executor.ExecutionContext) (*types.ToolResult, error) {
 	var args struct {
 		Query      string `json:"query"`
 		MaxResults int    `json:"max_results"`
@@ -190,7 +191,7 @@ func extractBingTitle(block string) string {
 	if closeIdx < 0 {
 		return ""
 	}
-	return stripTags(h2HTML[:closeIdx])
+	return StripTags(h2HTML[:closeIdx])
 }
 
 func extractBingSnippet(block string) string {
@@ -211,7 +212,7 @@ func extractBingSnippet(block string) string {
 			section = section[tagEnd+1:]
 			pClose := strings.Index(section, "</p>")
 			if pClose >= 0 {
-				return stripTags(section[:pClose])
+				return StripTags(section[:pClose])
 			}
 		}
 
@@ -220,7 +221,7 @@ func extractBingSnippet(block string) string {
 			section = section[tagEnd+1:]
 			closeDiv := strings.Index(section, "</div>")
 			if closeDiv >= 0 && closeDiv < 2000 {
-				return stripTags(section[:closeDiv])
+				return StripTags(section[:closeDiv])
 			}
 		}
 	}
@@ -252,7 +253,7 @@ func (t *GoogleSearchTool) Definition() *types.ToolDefinition {
 	}
 }
 
-func (t *GoogleSearchTool) Execute(ctx context.Context, arguments string, execCtx *ExecutionContext) (*types.ToolResult, error) {
+func (t *GoogleSearchTool) Execute(ctx context.Context, arguments string, execCtx *executor.ExecutionContext) (*types.ToolResult, error) {
 	var args struct {
 		Query      string `json:"query"`
 		MaxResults int    `json:"max_results"`
@@ -316,17 +317,14 @@ func parseGoogleHTML(html string, maxResults int) []searchResult {
 	remaining := html
 
 	for len(results) < maxResults {
-		// Google 搜索结果链接在 <a href="/url?q=..." 或直接 <a href="https://..."
 		var linkURL, title, snippet string
 
-		// 查找搜索结果块（class="g" 是 Google 的标准结果块）
 		gIdx := strings.Index(remaining, `class="g"`)
 		if gIdx < 0 {
 			break
 		}
 		remaining = remaining[gIdx:]
 
-		// 提取链接
 		hrefIdx := strings.Index(remaining, `<a href="`)
 		if hrefIdx < 0 || hrefIdx > 500 {
 			remaining = remaining[10:]
@@ -340,7 +338,6 @@ func parseGoogleHTML(html string, maxResults int) []searchResult {
 		rawURL := remaining[:hrefEnd]
 		remaining = remaining[hrefEnd:]
 
-		// 解析 Google 重定向 URL
 		if strings.HasPrefix(rawURL, "/url?") {
 			if u, err := url.Parse(rawURL); err == nil {
 				if q := u.Query().Get("q"); q != "" {
@@ -351,7 +348,6 @@ func parseGoogleHTML(html string, maxResults int) []searchResult {
 			linkURL = rawURL
 		}
 
-		// 提取标题
 		h3Idx := strings.Index(remaining[:min(len(remaining), 1000)], "<h3")
 		if h3Idx >= 0 {
 			h3HTML := remaining[h3Idx:]
@@ -360,12 +356,11 @@ func parseGoogleHTML(html string, maxResults int) []searchResult {
 				h3HTML = h3HTML[tagEnd+1:]
 				closeIdx := strings.Index(h3HTML, "</h3>")
 				if closeIdx >= 0 {
-					title = stripTags(h3HTML[:closeIdx])
+					title = StripTags(h3HTML[:closeIdx])
 				}
 			}
 		}
 
-		// 提取摘要（通常在 data-sncf 或 class 含 "VwiC3b" 的 span 中）
 		for _, marker := range []string{`class="VwiC3b"`, `data-sncf=`} {
 			sIdx := strings.Index(remaining[:min(len(remaining), 3000)], marker)
 			if sIdx >= 0 {
@@ -378,7 +373,7 @@ func parseGoogleHTML(html string, maxResults int) []searchResult {
 						sClose = strings.Index(sHTML, "</div>")
 					}
 					if sClose >= 0 && sClose < 2000 {
-						snippet = stripTags(sHTML[:sClose])
+						snippet = StripTags(sHTML[:sClose])
 					}
 				}
 				break
@@ -396,50 +391,6 @@ func parseGoogleHTML(html string, maxResults int) []searchResult {
 	return results
 }
 
-// ========== 共享类型和辅助函数 ==========
-
-type searchResult struct {
-	Title   string
-	Snippet string
-	URL     string
-}
-
-func stripTags(s string) string {
-	var result strings.Builder
-	inTag := false
-	for _, ch := range s {
-		if ch == '<' {
-			inTag = true
-		} else if ch == '>' {
-			inTag = false
-		} else if !inTag {
-			result.WriteRune(ch)
-		}
-	}
-	return decodeHTMLEntities(strings.TrimSpace(result.String()))
-}
-
-func decodeHTMLEntities(s string) string {
-	r := strings.NewReplacer(
-		"&nbsp;", " ",
-		"&ensp;", " ",
-		"&emsp;", " ",
-		"&amp;", "&",
-		"&lt;", "<",
-		"&gt;", ">",
-		"&quot;", "\"",
-		"&#39;", "'",
-		"&#0183;", "·",
-		"&#183;", "·",
-		"&middot;", "·",
-		"&hellip;", "...",
-		"&mdash;", "—",
-		"&ndash;", "–",
-		"&laquo;", "«",
-		"&raquo;", "»",
-	)
-	return r.Replace(s)
-}
 // ========== Web 内容抓取工具 ==========
 
 type WebFetchTool struct{}
@@ -465,7 +416,7 @@ func (t *WebFetchTool) Definition() *types.ToolDefinition {
 	}
 }
 
-func (t *WebFetchTool) Execute(ctx context.Context, arguments string, execCtx *ExecutionContext) (*types.ToolResult, error) {
+func (t *WebFetchTool) Execute(ctx context.Context, arguments string, execCtx *executor.ExecutionContext) (*types.ToolResult, error) {
 	var args struct {
 		URL       string `json:"url"`
 		MaxLength int    `json:"max_length"`
@@ -506,7 +457,7 @@ func (t *WebFetchTool) Execute(ctx context.Context, arguments string, execCtx *E
 	content := string(body)
 	contentType := resp.Header.Get("Content-Type")
 	if strings.Contains(contentType, "text/html") {
-		content = htmlToText(content)
+		content = HTMLToText(content)
 	}
 
 	if len(content) > args.MaxLength {
@@ -514,110 +465,4 @@ func (t *WebFetchTool) Execute(ctx context.Context, arguments string, execCtx *E
 	}
 
 	return types.NewToolResult(content), nil
-}
-
-func htmlToText(html string) string {
-	for _, tag := range []string{"script", "style", "noscript"} {
-		for {
-			startTag := strings.Index(strings.ToLower(html), "<"+tag)
-			if startTag < 0 {
-				break
-			}
-			endTag := strings.Index(strings.ToLower(html[startTag:]), "</"+tag+">")
-			if endTag < 0 {
-				html = html[:startTag]
-				break
-			}
-			html = html[:startTag] + html[startTag+endTag+len("</"+tag+">"):]
-		}
-	}
-
-	text := stripTags(html)
-
-	lines := strings.Split(text, "\n")
-	var cleaned []string
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed != "" {
-			cleaned = append(cleaned, trimmed)
-		}
-	}
-	return strings.Join(cleaned, "\n")
-}
-
-// ========== 代码执行工具 ==========
-
-type CodeExecuteTool struct{}
-
-func (t *CodeExecuteTool) Definition() *types.ToolDefinition {
-	return &types.ToolDefinition{
-		Name:        "code_execute",
-		Description: "执行代码片段。支持 Python 和 JavaScript (Node.js)。用于数据计算、格式转换、文本处理等场景。代码在沙箱中运行，有 30 秒超时限制。",
-		Parameters: json.RawMessage(`{
-			"type": "object",
-			"properties": {
-				"language": {
-					"type": "string",
-					"enum": ["python", "javascript"],
-					"description": "编程语言"
-				},
-				"code": {
-					"type": "string",
-					"description": "要执行的代码"
-				}
-			},
-			"required": ["language", "code"]
-		}`),
-	}
-}
-
-func (t *CodeExecuteTool) Execute(ctx context.Context, arguments string, execCtx *ExecutionContext) (*types.ToolResult, error) {
-	var args struct {
-		Language string `json:"language"`
-		Code     string `json:"code"`
-	}
-	if err := json.Unmarshal([]byte(arguments), &args); err != nil {
-		return types.NewErrorResult(fmt.Sprintf("参数解析失败: %v", err)), nil
-	}
-	if args.Language == "" {
-		return types.NewErrorResult("缺少必填参数: language"), nil
-	}
-	if args.Code == "" {
-		return types.NewErrorResult("缺少必填参数: code"), nil
-	}
-
-	var cmd string
-	var cmdArgs []string
-	switch args.Language {
-	case "python":
-		cmd = "python3"
-		cmdArgs = []string{"-c", args.Code}
-	case "javascript":
-		cmd = "node"
-		cmdArgs = []string{"-e", args.Code}
-	default:
-		return types.NewErrorResult(fmt.Sprintf("不支持的语言: %s，仅支持 python 和 javascript", args.Language)), nil
-	}
-
-	execCtx2, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	execCmd := execCommandContext(execCtx2, cmd, cmdArgs...)
-	output, err := execCmd.CombinedOutput()
-	if err != nil {
-		result := string(output)
-		if result == "" {
-			result = err.Error()
-		}
-		return types.NewErrorResult(fmt.Sprintf("执行失败:\n%s", result)), nil
-	}
-
-	return types.NewToolResult(string(output)), nil
-}
-
-func init() {
-	RegisterTool(&BingSearchTool{})
-	RegisterTool(&GoogleSearchTool{})
-	RegisterTool(&WebFetchTool{})
-	RegisterTool(&CodeExecuteTool{})
 }

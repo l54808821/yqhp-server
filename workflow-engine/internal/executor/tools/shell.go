@@ -1,4 +1,4 @@
-package executor
+package tools
 
 import (
 	"bytes"
@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"yqhp/workflow-engine/internal/executor"
 	"yqhp/workflow-engine/pkg/types"
 )
 
@@ -18,7 +19,7 @@ const (
 	shellMaxOutputBytes = 128 * 1024 // 128KB
 )
 
-// ShellExecTool 在受控环境中执行 Shell 命令，支持 bash/sh。
+// ShellExecTool 在受控环境中执行 Shell 命令，支持 bash。
 // 参考 https://github.com/cloudwego/eino-ext/components/tool/commandline
 type ShellExecTool struct{}
 
@@ -60,7 +61,7 @@ var shellDangerousPatterns = []string{
 	"init 6",
 }
 
-func (t *ShellExecTool) Execute(ctx context.Context, arguments string, execCtx *ExecutionContext) (*types.ToolResult, error) {
+func (t *ShellExecTool) Execute(ctx context.Context, arguments string, execCtx *executor.ExecutionContext) (*types.ToolResult, error) {
 	var args struct {
 		Command    string `json:"command"`
 		WorkingDir string `json:"working_dir"`
@@ -91,7 +92,7 @@ func (t *ShellExecTool) Execute(ctx context.Context, arguments string, execCtx *
 	execCtx2, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	cmd := execCommandContext(execCtx2, "bash", "-c", args.Command)
+	cmd := ExecCommandContext(execCtx2, "bash", "-c", args.Command)
 
 	if args.WorkingDir != "" {
 		absDir, err := filepath.Abs(args.WorkingDir)
@@ -146,8 +147,4 @@ func (t *ShellExecTool) Execute(ctx context.Context, arguments string, execCtx *
 	}
 
 	return types.NewToolResult(result.String()), nil
-}
-
-func init() {
-	RegisterTool(&ShellExecTool{})
 }

@@ -3,10 +3,11 @@ package ai
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
 
 	"github.com/cloudwego/eino/schema"
+
+	"yqhp/workflow-engine/pkg/logger"
 )
 
 // ReActAgent 实现 Think → Act → Observe 循环。
@@ -41,8 +42,10 @@ func (a *ReActAgent) Run(ctx context.Context, req *AgentRequest) (*AIOutput, err
 	toolTimeout := getToolTimeout(req.Config)
 
 	for round := 1; round <= maxRounds; round++ {
+		logger.Debug("[ReAct] ===== 第 %d 轮开始 (stepID=%s, model=%s) =====", round, req.StepID, req.Config.Model)
 		resp, err := callLLM(ctx, req.ChatModel, messages, req.SchemaTools, req.Config, req.StepID, req.Callbacks.AI)
 		if err != nil {
+			logger.Debug("[ReAct] 第 %d 轮 LLM 调用失败: %v", round, err)
 			return nil, err
 		}
 
@@ -50,12 +53,19 @@ func (a *ReActAgent) Run(ctx context.Context, req *AgentRequest) (*AIOutput, err
 		roundThinking := resp.Content
 
 		if len(resp.ToolCalls) == 0 {
+			logger.Debug("[ReAct] 第 %d 轮 LLM 未返回工具调用，直接输出文本 (长度=%d)", round, len(resp.Content))
 			output.Content = resp.Content
 			if round == 1 {
 				output.AgentTrace.Mode = string(AgentModeDirect)
 			}
 			return output, nil
 		}
+
+		toolNames := make([]string, 0, len(resp.ToolCalls))
+		for _, tc := range resp.ToolCalls {
+			toolNames = append(toolNames, tc.Function.Name)
+		}
+		logger.Debug("[ReAct] 第 %d 轮 LLM 返回 %d 个工具调用: %s", round, len(resp.ToolCalls), strings.Join(toolNames, ", "))
 
 		a.notifyThinking(ctx, req, round, roundThinking, resp.ToolCalls)
 
@@ -67,6 +77,8 @@ func (a *ReActAgent) Run(ctx context.Context, req *AgentRequest) (*AIOutput, err
 
 		var roundToolCalls []ToolCallRecord
 		for _, r := range toolResults {
+			logger.Debug("[ReAct] 第 %d 轮工具 [%s] 执行完成, isError=%v, 耗时=%dms, 结果长度=%d",
+				round, r.record.ToolName, r.record.IsError, r.record.Duration, len(r.record.Result))
 			messages = append(messages, schema.ToolMessage(r.result.GetLLMContent(), r.tc.ID))
 			output.ToolCalls = append(output.ToolCalls, r.record)
 			roundToolCalls = append(roundToolCalls, r.record)
@@ -79,7 +91,7 @@ func (a *ReActAgent) Run(ctx context.Context, req *AgentRequest) (*AIOutput, err
 		})
 	}
 
-	log.Printf("[WARN] ReAct 工具调用轮次达到最大值 %d，生成最终回复", maxRounds)
+	logger.Warn("[ReAct] 工具调用轮次达到最大值 %d，生成最终回复", maxRounds)
 	resp, err := callLLM(ctx, req.ChatModel, messages, nil, req.Config, req.StepID, nil)
 	if err != nil {
 		return output, fmt.Errorf("最终回复生成失败: %w", err)

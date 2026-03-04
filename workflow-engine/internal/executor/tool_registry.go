@@ -6,6 +6,7 @@ import (
 	"sort"
 	"sync"
 
+	"yqhp/workflow-engine/pkg/logger"
 	"yqhp/workflow-engine/pkg/types"
 )
 
@@ -101,8 +102,10 @@ func (r *ToolRegistry) Clone() *ToolRegistry {
 func (r *ToolRegistry) Execute(ctx context.Context, name string, arguments string, execCtx *ExecutionContext) (*types.ToolResult, error) {
 	tool, ok := r.Get(name)
 	if !ok {
+		logger.Debug("[ToolRegistry] 未找到工具: %s", name)
 		return types.NewErrorResult(fmt.Sprintf("未知工具: %s", name)), nil
 	}
+	logger.Debug("[ToolRegistry] 分发工具调用: %s", name)
 	return tool.Execute(ctx, arguments, execCtx)
 }
 

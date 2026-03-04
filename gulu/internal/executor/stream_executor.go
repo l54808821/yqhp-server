@@ -64,8 +64,6 @@ func NewStreamExecutor(sessionManager *SessionManager, defaultTimeout time.Durat
 
 // ExecuteStream 流式执行（SSE）
 func (e *StreamExecutor) ExecuteStream(ctx context.Context, req *ExecuteRequest, wf *types.Workflow, writer *sse.Writer) error {
-	logger.Debug("ExecuteStream 开始", "workflow_id", req.WorkflowID, "steps", len(wf.Steps))
-
 	session, err := e.sessionManager.CreateSession(req.WorkflowID, writer)
 	if err != nil {
 		return fmt.Errorf("创建会话失败: %w", err)

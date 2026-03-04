@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"strings"
 	"sync"
 	"time"
@@ -14,6 +13,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"yqhp/workflow-engine/internal/executor"
+	"yqhp/workflow-engine/pkg/logger"
 	"yqhp/workflow-engine/pkg/types"
 )
 
@@ -91,6 +91,9 @@ func callLLM(
 		var resp *schema.Message
 		var err error
 
+		logger.Debug("[LLM] 调用 LLM, streaming=%v, tools数量=%d, messages数量=%d, stepID=%s",
+			config.Streaming, len(tools), len(messages), stepID)
+
 		if config.Streaming && aiCallback != nil && len(tools) > 0 {
 			resp, err = streamWithToolsCalls(ctx, chatModel, messages, tools, stepID, config, aiCallback)
 		} else if config.Streaming && aiCallback != nil {
@@ -109,13 +112,13 @@ func callLLM(
 
 		if errClass == llmErrorTimeout && retry < maxRetries {
 			backoff := time.Duration(retry+1) * 5 * time.Second
-			log.Printf("[WARN] LLM 调用超时，%v 后重试 (%d/%d): %v", backoff, retry+1, maxRetries, err)
+			logger.Warn("[LLM] 调用超时，%v 后重试 (%d/%d): %v", backoff, retry+1, maxRetries, err)
 			time.Sleep(backoff)
 			continue
 		}
 
 		if errClass == llmErrorContextWindow && retry < maxRetries {
-			log.Printf("[WARN] Context window 溢出，压缩消息后重试 (%d/%d): %v", retry+1, maxRetries, err)
+			logger.Warn("[LLM] Context window 溢出，压缩消息后重试 (%d/%d): %v", retry+1, maxRetries, err)
 			messages = compressMessagesCopy(messages)
 			continue
 		}
@@ -319,13 +322,17 @@ func executeToolsConcurrently(
 			}
 
 			callStart := time.Now()
+			logger.Debug("[ToolExec] 开始执行工具 [%s], round=%d, 参数=%s", toolCall.Function.Name, round, toolCall.Function.Arguments)
 
 			toolResult, err := toolRegistry.Execute(toolCtx, toolCall.Function.Name, toolCall.Function.Arguments, execCtx)
 			if err != nil {
+				logger.Debug("[ToolExec] 工具 [%s] 执行出错: %v", toolCall.Function.Name, err)
 				toolResult = types.NewErrorResult(fmt.Sprintf("工具执行错误: %v", err))
 			}
 
 			callDuration := time.Since(callStart)
+			logger.Debug("[ToolExec] 工具 [%s] 执行完成, 耗时=%v, isError=%v, 结果=%s",
+				toolCall.Function.Name, callDuration, toolResult.IsError, truncateForLog(toolResult.GetLLMContent(), 500))
 
 			if toolCtx.Err() == context.DeadlineExceeded && !toolResult.IsError {
 				toolResult = types.NewErrorResult(fmt.Sprintf("工具 %s 执行超时 (%v)", toolCall.Function.Name, toolTimeout))
@@ -364,6 +371,14 @@ func appendToolResults(messages []*schema.Message, output *AIOutput, results []t
 		output.ToolCalls = append(output.ToolCalls, r.record)
 	}
 	return messages
+}
+
+// truncateForLog 截断字符串用于日志输出，避免超长日志
+func truncateForLog(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "...(truncated)"
 }
 
 // --- Token 统计辅助 ---

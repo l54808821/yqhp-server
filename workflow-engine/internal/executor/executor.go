@@ -571,14 +571,6 @@ func (n *NestedExecutorBase) ExecuteNestedSteps(ctx context.Context, steps []typ
 		default:
 		}
 
-		// 跳过禁用的步骤
-		if step.Disabled {
-			if callback != nil {
-				callback.OnStepSkipped(ctx, step, "步骤已禁用", parentID, iteration)
-			}
-			continue
-		}
-
 		// 发送步骤开始事件
 		if callback != nil {
 			callback.OnStepStart(ctx, step, parentID, iteration)

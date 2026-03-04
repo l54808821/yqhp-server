@@ -300,6 +300,9 @@ func convertToWorkflow(def *WorkflowDefinition, executionID string, debugMode bo
 		return nil
 	}
 
+	// 过滤掉禁用的步骤，避免传给引擎执行
+	def.Steps = filterDisabledSteps(def.Steps)
+
 	if debugMode {
 		applyDebugErrorStrategy(def.Steps)
 	}
@@ -328,6 +331,29 @@ func convertToWorkflow(def *WorkflowDefinition, executionID string, debugMode bo
 	}
 
 	return wf
+}
+
+// filterDisabledSteps 递归过滤掉禁用的步骤
+func filterDisabledSteps(steps []types.Step) []types.Step {
+	var result []types.Step
+	for _, step := range steps {
+		if step.Disabled {
+			continue
+		}
+		if step.Loop != nil && len(step.Loop.Steps) > 0 {
+			step.Loop.Steps = filterDisabledSteps(step.Loop.Steps)
+		}
+		if len(step.Children) > 0 {
+			step.Children = filterDisabledSteps(step.Children)
+		}
+		if len(step.Branches) > 0 {
+			for j := range step.Branches {
+				step.Branches[j].Steps = filterDisabledSteps(step.Branches[j].Steps)
+			}
+		}
+		result = append(result, step)
+	}
+	return result
 }
 
 // applyDebugErrorStrategy 递归地将所有步骤的错误策略设为 abort

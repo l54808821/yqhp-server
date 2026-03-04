@@ -639,10 +639,11 @@ func (fw *fasthttpFlushWriter) Write(p []byte) (n int, err error) {
 
 func (fw *fasthttpFlushWriter) Flush() {}
 
-// isAINodeType 检查节点类型是否为 AI 类型（包含旧版 ai 和 6 种新类型）
+// isAINodeType 检查节点类型是否为 AI 类型
 func isAINodeType(nodeType string) bool {
 	switch nodeType {
-	case "ai", "ai_chat", "ai_agent", "ai_plan_execute", "ai_reflection", "ai_supervisor", "ai_deep_agent":
+	case "ai", "ai_chat", "ai_agent", "ai_react", "ai_plan", "ai_direct",
+		"ai_plan_execute", "ai_reflection", "ai_supervisor", "ai_deep_agent":
 		return true
 	}
 	return false

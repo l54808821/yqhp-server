@@ -24,6 +24,12 @@ func RegisterAll(registry *executor.ToolRegistry) {
 		&CodeExecuteTool{},
 		// 命令行
 		&ShellExecTool{},
+		// 文件操作
+		&ReadFileTool{},
+		&WriteFileTool{},
+		&EditFileTool{},
+		&AppendFileTool{},
+		&ListDirTool{},
 	}
 	for _, tool := range allTools {
 		registry.Register(tool)

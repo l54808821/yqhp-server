@@ -7,76 +7,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 )
 
-const unifiedBaseInstruction = `
-[工作模式]
-你是一个能力全面的智能助手，能够自主分析问题并选择最佳策略来完成任务。
-
-1. 简单问题：直接回答，不需要调用工具
-2. 需要信息或操作：使用可用工具获取信息或执行操作（思考 → 行动 → 观察循环）
-
-[ReAct 推理规则]
-- 在每次调用工具之前，必须先输出你的思考过程
-- 思考应包含：对当前情况的分析、选择该工具的原因、预期结果
-- 当所有必要信息收集完毕后，直接输出最终的完整回答
-- 善于组合使用多个工具来完成复杂任务
-- 如果一个工具失败了，尝试用其他方式达成目标`
-
-const planModeInstruction = `
-3. 复杂多步任务：当你判断任务需要多个步骤的系统性规划时，调用 switch_to_plan 工具
-
-[Plan 模式触发条件]
-当你判断任务符合以下条件之一时，应调用 switch_to_plan 工具：
-- 任务涉及 3 个以上独立子任务
-- 需要按特定顺序执行多个操作
-- 任务结果相互依赖，需要全局规划
-调用时请在 reason 参数中说明为什么需要规划`
-
-const interactiveInstruction = `
-
-[人机交互规则]
-你可以使用 human_interaction 工具与用户进行实时交互。规则：
-1. 需要用户确认（是/否）：type 设为 "confirm"
-2. 需要用户自由输入文本：type 设为 "input"
-3. 需要用户从固定选项中选择：type 设为 "select"，并提供 options
-4. 如果任务需要多项用户输入，请逐一通过工具询问
-5. 所有必要信息收集完毕后，直接输出完整的最终内容`
-
-const webToolsInstruction = `
-
-[联网能力]
-你可以通过以下工具获取互联网上的信息：
-- bing_search：使用 Bing 搜索引擎搜索互联网信息，适合中文搜索
-- google_search：使用 Google 搜索引擎搜索互联网信息（需要能访问 Google 的网络环境）
-- web_fetch：获取指定 URL 的网页内容
-当用户的问题涉及实时信息、最新数据、或你不确定的事实时，应主动使用搜索工具。优先使用 bing_search。`
-
-const codeToolInstruction = `
-
-[代码执行]
-你可以使用 code_execute 工具执行 Python 或 JavaScript 代码。适用场景：
-- 数学计算和数据处理
-- 格式转换和文本处理
-- 生成图表或数据可视化
-- 验证代码逻辑`
-
-const shellToolInstruction = `
-
-[命令行执行]
-你可以使用 shell_exec 工具在服务器上执行 Shell (bash) 命令。适用场景：
-- 系统信息查询（如 uname, df, free, top）
-- 文件和目录操作（如 ls, cat, find, cp, mv）
-- 网络诊断（如 curl, ping, dig, netstat）
-- 文本处理（如 grep, awk, sed, sort, wc）
-- 调用服务器上安装的 CLI 工具
-注意：命令有超时限制（默认 60 秒），危险操作（如 rm -rf /）会被拒绝。`
-
-const mcpToolInstruction = `
-
-[MCP 外部工具]
-你已接入 MCP（Model Context Protocol）外部服务提供的工具。这些工具可以查询和操作外部系统的数据。
-当用户的问题涉及项目管理、工作流、执行记录等业务数据时，应优先使用这些 MCP 工具获取准确信息，而不是猜测。
-请根据工具的名称和参数描述选择合适的工具进行调用。`
-
+// buildPlanningPrompt 构建规划阶段的提示词
 func buildPlanningPrompt(skills []*SkillInfo) string {
 	var sb strings.Builder
 	sb.WriteString(`请为当前任务制定一个分步执行计划。
@@ -98,9 +29,8 @@ func buildPlanningPrompt(skills []*SkillInfo) string {
 	}
 
 	sb.WriteString(`
-严格按以下 JSON 数组格式输出，不要输出其他任何内容
+请调用 create_plan 工具来提交你的计划。如果无法使用该工具，请严格按以下 JSON 数组格式输出：
 
-输出格式：
 [
   {"step": 1, "task": "具体任务描述"},
   {"step": 2, "task": "具体任务描述"}
@@ -108,46 +38,7 @@ func buildPlanningPrompt(skills []*SkillInfo) string {
 	return sb.String()
 }
 
-func buildUnifiedSystemPrompt(config *AIConfig, hasTools bool) string {
-	var sb strings.Builder
-
-	if config.SystemPrompt != "" {
-		sb.WriteString(config.SystemPrompt)
-	}
-
-	if hasTools {
-		sb.WriteString(unifiedBaseInstruction)
-	}
-
-	if config.EnablePlanMode != nil && *config.EnablePlanMode && hasTools {
-		sb.WriteString(planModeInstruction)
-	}
-
-	if config.Interactive {
-		sb.WriteString(interactiveInstruction)
-	}
-
-	if hasTools {
-		sb.WriteString(webToolsInstruction)
-		sb.WriteString(codeToolInstruction)
-		sb.WriteString(shellToolInstruction)
-	}
-
-	if len(config.MCPServers) > 0 {
-		sb.WriteString(mcpToolInstruction)
-	}
-
-	if len(config.Skills) > 0 {
-		sb.WriteString(buildSkillInstruction(config.Skills))
-	}
-
-	if len(config.KnowledgeBases) > 0 {
-		sb.WriteString(buildKnowledgeInstruction(config.KnowledgeBases))
-	}
-
-	return sb.String()
-}
-
+// buildUnifiedMessages 构建消息列表
 func buildUnifiedMessages(systemPrompt string, chatHistory []*schema.Message, config *AIConfig) []*schema.Message {
 	var messages []*schema.Message
 
@@ -161,6 +52,7 @@ func buildUnifiedMessages(systemPrompt string, chatHistory []*schema.Message, co
 	return messages
 }
 
+// buildPlanStepPrompt 构建 Plan 步骤执行提示词
 func buildPlanStepPrompt(originalTask string, steps []string, currentIndex int, previousResults []string) string {
 	var sb strings.Builder
 
@@ -194,6 +86,7 @@ func buildPlanStepPrompt(originalTask string, steps []string, currentIndex int, 
 	return sb.String()
 }
 
+// buildSynthesisPrompt 构建 Plan 汇总阶段提示词
 func buildSynthesisPrompt(originalTask string, steps []string, stepResults []string) string {
 	var sb strings.Builder
 
@@ -217,6 +110,7 @@ func buildSynthesisPrompt(originalTask string, steps []string, stepResults []str
 
 const maxHistorySummaryRunes = 1500
 
+// buildHistorySummary 构建对话历史摘要
 func buildHistorySummary(messages []*schema.Message) string {
 	var userAssistantPairs []struct{ user, assistant string }
 	var currentUser string
@@ -273,32 +167,4 @@ func truncateRunes(s string, maxRunes int) string {
 		return s
 	}
 	return string(runes[:maxRunes]) + "..."
-}
-
-func buildSkillInstruction(skills []*SkillInfo) string {
-	var sb strings.Builder
-	sb.WriteString("\n\n[可用专业能力（Skills）]\n")
-	sb.WriteString("以下是你可以使用的专业能力。需要时调用 read_skill 工具加载完整指令，然后按指令使用现有工具完成任务。\n\n")
-
-	for _, skill := range skills {
-		sb.WriteString(fmt.Sprintf("- %s: %s\n", skill.Name, skill.Description))
-	}
-	return sb.String()
-}
-
-func buildKnowledgeInstruction(kbs []*KnowledgeBaseInfo) string {
-	var sb strings.Builder
-	sb.WriteString("\n\n[知识库]\n")
-	sb.WriteString("你已接入以下知识库，可随时通过 knowledge_search 工具检索更精确的信息：\n\n")
-
-	for _, kb := range kbs {
-		typeLabel := "向量知识库"
-		if kb.Type == "graph" {
-			typeLabel = "图知识库"
-		}
-		sb.WriteString(fmt.Sprintf("- %s (%s)\n", kb.Name, typeLabel))
-	}
-
-	sb.WriteString("\n当用户的问题可能需要专业知识或事实依据时，请主动使用 knowledge_search 工具检索。")
-	return sb.String()
 }

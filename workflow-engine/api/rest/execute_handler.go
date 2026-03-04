@@ -122,15 +122,30 @@ func (s *Server) executeWorkflow(c *fiber.Ctx) error {
 	}
 
 	// AI 工作流：将对话历史和用户消息注入变量
-	if len(req.ChatHistory) > 0 || req.UserMessage != "" {
+	hasUserMsg := len(req.UserMessage) > 0 && string(req.UserMessage) != `""`
+	if len(req.ChatHistory) > 0 || hasUserMsg {
 		if wf.Variables == nil {
 			wf.Variables = make(map[string]interface{})
 		}
 		if len(req.ChatHistory) > 0 {
-			wf.Variables["__chat_history__"] = req.ChatHistory
+			historySlice := make([]interface{}, len(req.ChatHistory))
+			for i, m := range req.ChatHistory {
+				var content interface{}
+				if err := json.Unmarshal(m.Content, &content); err != nil {
+					content = string(m.Content)
+				}
+				historySlice[i] = map[string]interface{}{
+					"role":    m.Role,
+					"content": content,
+				}
+			}
+			wf.Variables["__chat_history__"] = historySlice
 		}
-		if req.UserMessage != "" {
-			wf.Variables["__user_message__"] = req.UserMessage
+		if hasUserMsg {
+			var userMsg interface{}
+			if err := json.Unmarshal(req.UserMessage, &userMsg); err == nil {
+				wf.Variables["__user_message__"] = userMsg
+			}
 		}
 		if req.ConversationID != "" {
 			wf.Variables["__conversation_id__"] = req.ConversationID

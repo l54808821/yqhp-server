@@ -38,7 +38,7 @@ func buildPlanningPrompt(skills []*SkillInfo) string {
 	return sb.String()
 }
 
-// buildUnifiedMessages 构建消息列表
+// buildUnifiedMessages 构建消息列表（支持纯文本和多模态用户消息）
 func buildUnifiedMessages(systemPrompt string, chatHistory []*schema.Message, config *AIConfig) []*schema.Message {
 	var messages []*schema.Message
 
@@ -47,7 +47,17 @@ func buildUnifiedMessages(systemPrompt string, chatHistory []*schema.Message, co
 	}
 
 	messages = append(messages, chatHistory...)
-	messages = append(messages, schema.UserMessage(config.Prompt))
+
+	if len(config.PromptMultiContent) > 0 {
+		msg := buildUserMessage(config.PromptMultiContent)
+		if msg != nil {
+			messages = append(messages, msg)
+		} else {
+			messages = append(messages, schema.UserMessage(config.Prompt))
+		}
+	} else {
+		messages = append(messages, schema.UserMessage(config.Prompt))
+	}
 
 	return messages
 }

@@ -39,6 +39,9 @@ func Setup(app *fiber.App) {
 	// 知识库图片访问（无需认证，支持前端直接渲染）
 	app.Get("/api/knowledge-bases/:id/images/:filename", handler.KnowledgeImageServe)
 
+	// 附件文件访问（无需认证，支持前端直接渲染和 LLM 访问）
+	app.Get("/api/attachments/files/*", handler.AttachmentServe)
+
 	// 创建执行相关组件（需要依赖注入的 handler）
 	engineClient := client.NewWorkflowEngineClient()
 	sched := scheduler.NewScheduler(engineClient)
@@ -140,6 +143,9 @@ func Setup(app *fiber.App) {
 	executors.Put("/:id", handler.ExecutorUpdate)
 	executors.Delete("/:id", handler.ExecutorDelete)
 	executors.Put("/:id/status", handler.ExecutorUpdateStatus)
+
+	// 附件上传路由
+	api.Post("/attachments/upload", handler.AttachmentUpload)
 
 	// AI 供应商管理路由
 	aiProviders := api.Group("/ai-providers")

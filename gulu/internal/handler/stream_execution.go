@@ -41,10 +41,10 @@ func NewStreamExecutionHandler(sched scheduler.Scheduler, streamExec *executor.S
 	}
 }
 
-// ChatMessage AI 工作流对话消息
+// ChatMessage AI 工作流对话消息（Content 支持纯文本字符串或多模态 ContentPart 数组）
 type ChatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role    string          `json:"role"`
+	Content json.RawMessage `json:"content"`
 }
 
 // ExecuteRequest 统一执行请求
@@ -71,9 +71,9 @@ type ExecuteRequest struct {
 	Persist *bool `json:"persist,omitempty"`
 
 	// === AI 工作流专用字段 ===
-	ConversationID string        `json:"conversationId,omitempty"`
-	UserMessage    string        `json:"userMessage,omitempty"`
-	ChatHistory    []ChatMessage `json:"chatHistory,omitempty"`
+	ConversationID string          `json:"conversationId,omitempty"`
+	UserMessage    json.RawMessage `json:"userMessage,omitempty"`
+	ChatHistory    []ChatMessage   `json:"chatHistory,omitempty"`
 }
 
 // StepConfig 步骤配置（单步执行快捷方式）
@@ -150,19 +150,27 @@ func (h *StreamExecutionHandler) Execute(c *fiber.Ctx) error {
 	}
 
 	// AI 工作流：将对话历史和用户消息注入变量
-	if req.UserMessage != "" || len(req.ChatHistory) > 0 {
+	hasUserMessage := len(req.UserMessage) > 0 && string(req.UserMessage) != `""`
+	if hasUserMessage || len(req.ChatHistory) > 0 {
 		if req.Variables == nil {
 			req.Variables = make(map[string]interface{})
 		}
-		if req.UserMessage != "" {
-			req.Variables["__user_message__"] = req.UserMessage
+		if hasUserMessage {
+			var userMsg interface{}
+			if err := json.Unmarshal(req.UserMessage, &userMsg); err == nil {
+				req.Variables["__user_message__"] = userMsg
+			}
 		}
 		if len(req.ChatHistory) > 0 {
 			historySlice := make([]interface{}, len(req.ChatHistory))
 			for i, m := range req.ChatHistory {
+				var content interface{}
+				if err := json.Unmarshal(m.Content, &content); err != nil {
+					content = string(m.Content)
+				}
 				historySlice[i] = map[string]interface{}{
 					"role":    m.Role,
-					"content": m.Content,
+					"content": content,
 				}
 			}
 			req.Variables["__chat_history__"] = historySlice
@@ -173,7 +181,7 @@ func (h *StreamExecutionHandler) Execute(c *fiber.Ctx) error {
 	}
 
 	// 流程执行时环境ID必填，单步调试和AI工作流对话调试时可选
-	if req.Workflow != nil && req.EnvID <= 0 && req.UserMessage == "" {
+	if req.Workflow != nil && req.EnvID <= 0 && !hasUserMessage {
 		return response.Error(c, "流程执行时环境ID不能为空")
 	}
 

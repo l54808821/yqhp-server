@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -93,4 +94,44 @@ func (s *FileStorage) SaveBytes(relPath string, data []byte) error {
 // FullPath 返回完整物理路径
 func (s *FileStorage) FullPath(relPath string) string {
 	return filepath.Join(s.basePath, relPath)
+}
+
+// SaveAttachment 保存通用附件，返回相对路径
+func (s *FileStorage) SaveAttachment(category, filename string, reader io.Reader) (string, error) {
+	dir := filepath.Join(s.basePath, "attachments", category)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return "", fmt.Errorf("创建附件目录失败: %w", err)
+	}
+
+	ts := time.Now().UnixMilli()
+	ext := filepath.Ext(filename)
+	storedName := fmt.Sprintf("%d%s", ts, ext)
+	relPath := filepath.Join("attachments", category, storedName)
+	fullPath := filepath.Join(s.basePath, relPath)
+
+	f, err := os.Create(fullPath)
+	if err != nil {
+		return "", fmt.Errorf("创建文件失败: %w", err)
+	}
+	defer f.Close()
+
+	if _, err := io.Copy(f, reader); err != nil {
+		return "", fmt.Errorf("写入文件失败: %w", err)
+	}
+
+	return relPath, nil
+}
+
+// InferMediaType 根据 MIME 类型推断媒体分类
+func InferMediaType(mimeType string) string {
+	if strings.HasPrefix(mimeType, "image/") {
+		return "image"
+	}
+	if strings.HasPrefix(mimeType, "audio/") {
+		return "audio"
+	}
+	if strings.HasPrefix(mimeType, "video/") {
+		return "video"
+	}
+	return "file"
 }

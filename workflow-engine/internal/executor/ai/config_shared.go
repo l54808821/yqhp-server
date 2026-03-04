@@ -3,6 +3,7 @@ package ai
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/cloudwego/eino/schema"
 
@@ -65,7 +66,7 @@ func (c *AIConfig) Validate() error {
 	return nil
 }
 
-// extractChatHistory 从执行上下文中提取多轮对话历史
+// extractChatHistory 从执行上下文中提取多轮对话历史（支持纯文本和多模态消息）
 func extractChatHistory(execCtx *executor.ExecutionContext) []*schema.Message {
 	if execCtx == nil || execCtx.Variables == nil {
 		return nil
@@ -85,27 +86,161 @@ func extractChatHistory(execCtx *executor.ExecutionContext) []*schema.Message {
 			continue
 		}
 		role, _ := m["role"].(string)
-		content, _ := m["content"].(string)
-		if content == "" {
-			continue
-		}
+		content := m["content"]
+
 		switch role {
 		case "user":
-			messages = append(messages, schema.UserMessage(content))
+			msg := buildUserMessage(content)
+			if msg != nil {
+				messages = append(messages, msg)
+			}
 		case "assistant":
-			messages = append(messages, schema.AssistantMessage(content, nil))
+			if s, ok := content.(string); ok && s != "" {
+				messages = append(messages, schema.AssistantMessage(s, nil))
+			}
 		}
 	}
 	return messages
 }
 
+// buildUserMessage 根据 content 类型构建用户消息（支持纯文本和多模态 ContentPart 数组）
+func buildUserMessage(content interface{}) *schema.Message {
+	if content == nil {
+		return nil
+	}
+
+	if s, ok := content.(string); ok && s != "" {
+		return schema.UserMessage(s)
+	}
+
+	parts, ok := content.([]interface{})
+	if !ok || len(parts) == 0 {
+		return nil
+	}
+
+	msg := &schema.Message{Role: schema.User}
+	for _, part := range parts {
+		p, ok := part.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		partType, _ := p["type"].(string)
+		switch partType {
+		case "text":
+			text, _ := p["text"].(string)
+			if text != "" {
+				msg.UserInputMultiContent = append(msg.UserInputMultiContent, schema.MessageInputPart{
+					Type: schema.ChatMessagePartTypeText,
+					Text: text,
+				})
+			}
+		case "image_url":
+			imgMap, _ := p["image_url"].(map[string]interface{})
+			if imgMap != nil {
+				url, _ := imgMap["url"].(string)
+				if url != "" {
+					msg.UserInputMultiContent = append(msg.UserInputMultiContent, schema.MessageInputPart{
+						Type: schema.ChatMessagePartTypeImageURL,
+						Image: &schema.MessageInputImage{
+							MessagePartCommon: schema.MessagePartCommon{URL: &url},
+						},
+					})
+				}
+			}
+		case "input_audio":
+			audioMap, _ := p["input_audio"].(map[string]interface{})
+			if audioMap != nil {
+				url, _ := audioMap["url"].(string)
+				if url != "" {
+					msg.UserInputMultiContent = append(msg.UserInputMultiContent, schema.MessageInputPart{
+						Type: schema.ChatMessagePartTypeAudioURL,
+						Audio: &schema.MessageInputAudio{
+							MessagePartCommon: schema.MessagePartCommon{URL: &url},
+						},
+					})
+				}
+			}
+		case "video_url":
+			videoMap, _ := p["video_url"].(map[string]interface{})
+			if videoMap != nil {
+				url, _ := videoMap["url"].(string)
+				if url != "" {
+					msg.UserInputMultiContent = append(msg.UserInputMultiContent, schema.MessageInputPart{
+						Type: schema.ChatMessagePartTypeVideoURL,
+						Video: &schema.MessageInputVideo{
+							MessagePartCommon: schema.MessagePartCommon{URL: &url},
+						},
+					})
+				}
+			}
+		case "file_url":
+			fileMap, _ := p["file_url"].(map[string]interface{})
+			if fileMap != nil {
+				url, _ := fileMap["url"].(string)
+				name, _ := fileMap["name"].(string)
+				if url != "" {
+					msg.UserInputMultiContent = append(msg.UserInputMultiContent, schema.MessageInputPart{
+						Type: schema.ChatMessagePartTypeFileURL,
+						File: &schema.MessageInputFile{
+							MessagePartCommon: schema.MessagePartCommon{URL: &url},
+							Name:              name,
+						},
+					})
+				}
+			}
+		}
+	}
+
+	if len(msg.UserInputMultiContent) == 0 {
+		return nil
+	}
+	return msg
+}
+
+// extractMultimodalTextContent 从多模态内容中提取纯文本部分（用于 Plan 模式等需要文本的场景）
+func extractMultimodalTextContent(content interface{}) string {
+	if s, ok := content.(string); ok {
+		return s
+	}
+	parts, ok := content.([]interface{})
+	if !ok {
+		return fmt.Sprintf("%v", content)
+	}
+	var texts []string
+	for _, part := range parts {
+		p, ok := part.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if t, _ := p["type"].(string); t == "text" {
+			if text, ok := p["text"].(string); ok {
+				texts = append(texts, text)
+			}
+		}
+	}
+	return strings.Join(texts, "\n")
+}
+
 // applyUserMessage 如果执行上下文中有 __user_message__，用它覆盖 config.Prompt
+// 支持纯文本字符串和多模态 ContentPart 数组
 func applyUserMessage(config *AIConfig, execCtx *executor.ExecutionContext) {
 	if execCtx == nil || execCtx.Variables == nil {
 		return
 	}
-	if userMsg, ok := execCtx.Variables["__user_message__"].(string); ok && userMsg != "" {
-		config.Prompt = userMsg
+	userMsg := execCtx.Variables["__user_message__"]
+	if userMsg == nil {
+		return
+	}
+
+	if s, ok := userMsg.(string); ok && s != "" {
+		config.Prompt = s
+		config.PromptMultiContent = nil
+		return
+	}
+
+	if parts, ok := userMsg.([]interface{}); ok && len(parts) > 0 {
+		config.PromptMultiContent = parts
+		config.Prompt = extractMultimodalTextContent(userMsg)
 	}
 }
 

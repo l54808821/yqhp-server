@@ -14,9 +14,10 @@ type AIConfig struct {
 	MaxTokens       *int     `json:"max_tokens,omitempty"`
 	TopP            *float32 `json:"top_p,omitempty"`
 	PresencePenalty *float32 `json:"presence_penalty,omitempty"`
-	SystemPrompt    string   `json:"system_prompt,omitempty"`
-	Prompt          string   `json:"prompt"`
-	Streaming       bool     `json:"streaming"`
+	SystemPrompt      string        `json:"system_prompt,omitempty"`
+	Prompt            string        `json:"prompt"`
+	PromptMultiContent []interface{} `json:"-"` // 运行时填充，多模态用户消息的原始 ContentPart 数组
+	Streaming         bool          `json:"streaming"`
 	Timeout         int      `json:"timeout,omitempty"`
 
 	// ===== 工具配置 =====

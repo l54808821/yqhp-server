@@ -1,9 +1,11 @@
 package types
 
-// ChatMessage AI 工作流的对话消息
+import "encoding/json"
+
+// ChatMessage AI 工作流的对话消息（Content 支持纯文本字符串或多模态 ContentPart 数组）
 type ChatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role    string          `json:"role"`
+	Content json.RawMessage `json:"content"`
 }
 
 // ExecuteWorkflowRequest 执行工作流请求
@@ -40,8 +42,8 @@ type ExecuteWorkflowRequest struct {
 	// === AI 工作流专用字段 ===
 	// 会话 ID（AI 工作流多轮对话）
 	ConversationID string `json:"conversationId,omitempty"`
-	// 用户消息（AI 工作流当前轮输入）
-	UserMessage string `json:"userMessage,omitempty"`
+	// 用户消息（AI 工作流当前轮输入，支持纯文本或多模态 ContentPart 数组）
+	UserMessage json.RawMessage `json:"userMessage,omitempty"`
 	// 对话历史（AI 工作流多轮记忆）
 	ChatHistory []ChatMessage `json:"chatHistory,omitempty"`
 }

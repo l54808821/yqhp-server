@@ -45,16 +45,18 @@ type ToolCallRecord struct {
 // AgentTrace 统一 Agent 执行轨迹
 // Mode: "direct" (直接回答) | "react" (ReAct 工具调用) | "plan" (Plan 模式)
 type AgentTrace struct {
-	Mode  string       `json:"mode"`
-	ReAct []ReActRound `json:"react,omitempty"`
-	Plan  *PlanTrace   `json:"plan,omitempty"`
+	Mode     string       `json:"mode"`
+	ReAct    []ReActRound `json:"react,omitempty"`
+	Plan     *PlanTrace   `json:"plan,omitempty"`
+	Verified bool         `json:"verified,omitempty"`
 }
 
 // ReActRound 单轮 ReAct 推理记录
 type ReActRound struct {
-	Round     int              `json:"round"`
-	Thinking  string           `json:"thinking,omitempty"`
-	ToolCalls []ToolCallRecord `json:"tool_calls,omitempty"`
+	Round      int              `json:"round"`
+	Thinking   string           `json:"thinking,omitempty"`
+	ToolCalls  []ToolCallRecord `json:"tool_calls,omitempty"`
+	Reflection string           `json:"reflection,omitempty"`
 }
 
 // TokenUsage 独立的 token 统计

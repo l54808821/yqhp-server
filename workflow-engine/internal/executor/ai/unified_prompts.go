@@ -18,6 +18,8 @@ func buildPlanningPrompt(skills []*SkillInfo) string {
 - 按逻辑顺序排列，后续步骤可以依赖前续步骤的结果
 - 每个步骤应最多对应一个专业能力（Skill）的调用，不要在一个步骤中混合多个不同功能的操作
 - 步骤描述应明确指出该步骤的输入来源（如"使用第 1 步的结果"）
+- 使用 depends_on 字段声明步骤之间的依赖关系：如果步骤 3 需要步骤 1 和 2 的结果，则设置 depends_on 为 [1, 2]
+- 没有依赖关系的步骤将被并行执行以提高效率，所以请尽量让独立步骤之间没有依赖
 `)
 
 	if len(skills) > 0 {
@@ -115,6 +117,42 @@ func buildSynthesisPrompt(originalTask string, steps []string, stepResults []str
 
 	sb.WriteString("请直接输出最终答案，要求完整、准确、清晰。")
 
+	return sb.String()
+}
+
+// buildReplanPrompt 构建重新规划提示词
+func buildReplanPrompt(originalTask string, currentTasks []string, completedIndex int, stepResults []string, remainingTasks []string) string {
+	var sb strings.Builder
+	sb.WriteString("你正在执行一个多步骤计划，但需要根据实际执行结果重新评估剩余步骤。\n\n")
+	sb.WriteString("原始任务：\n")
+	sb.WriteString(originalTask)
+	sb.WriteString("\n\n已完成的步骤及结果：\n")
+
+	for i := 0; i <= completedIndex; i++ {
+		result := "（无结果）"
+		if i < len(stepResults) {
+			result = truncateRunes(stepResults[i], 500)
+		}
+		status := "已完成"
+		if strings.HasPrefix(result, "步骤") && strings.Contains(result, "失败") {
+			status = "失败"
+		}
+		sb.WriteString(fmt.Sprintf("%d. [%s] %s\n   结果：%s\n\n", i+1, status, currentTasks[i], result))
+	}
+
+	sb.WriteString("原定剩余步骤：\n")
+	for i, task := range remainingTasks {
+		sb.WriteString(fmt.Sprintf("%d. %s\n", completedIndex+2+i, task))
+	}
+
+	sb.WriteString(`
+
+请根据以上已完成步骤的实际结果，重新评估剩余步骤：
+- 如果原定步骤仍然合理，请保持不变
+- 如果需要调整（增加、删除或修改步骤），请输出调整后的剩余步骤
+- 只输出调整后的"剩余步骤"，不要包含已完成的步骤
+
+请调用 create_plan 工具提交调整后的剩余步骤。`)
 	return sb.String()
 }
 

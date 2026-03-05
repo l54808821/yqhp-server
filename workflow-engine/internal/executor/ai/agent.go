@@ -174,24 +174,99 @@ func classifyLLMError(err error) llmErrorClass {
 	return llmErrorUnknown
 }
 
-// compressMessagesCopy 压缩消息历史，返回新 slice（修复原 compressMessages 的 bug）
+// compressMessagesCopy 智能压缩消息历史：对中间消息生成摘要而不是简单裁剪
 func compressMessagesCopy(messages []*schema.Message) []*schema.Message {
 	if len(messages) <= 4 {
 		return messages
 	}
-	// messages[0] = system prompt, 保留
-	// 保留最后 2 条消息（最近一轮对话）
-	conversation := messages[1 : len(messages)-2]
-	if len(conversation) == 0 {
+
+	keepLast := 4
+	if len(messages) < keepLast+2 {
+		keepLast = 2
+	}
+
+	middleMessages := messages[1 : len(messages)-keepLast]
+	if len(middleMessages) == 0 {
 		return messages
 	}
-	mid := len(conversation) / 2
-	kept := conversation[mid:]
 
-	result := make([]*schema.Message, 0, 1+len(kept)+2)
-	result = append(result, messages[0])
-	result = append(result, kept...)
-	result = append(result, messages[len(messages)-2:]...)
+	summary := summarizeMessages(middleMessages)
+
+	result := make([]*schema.Message, 0, 2+keepLast)
+	result = append(result, messages[0]) // system prompt
+	result = append(result, schema.UserMessage(fmt.Sprintf("[以下是之前对话的摘要，供你参考]\n%s", summary)))
+	result = append(result, messages[len(messages)-keepLast:]...)
+	return result
+}
+
+// summarizeMessages 对中间消息提取关键信息生成摘要（无需 LLM 调用，基于规则压缩）
+func summarizeMessages(messages []*schema.Message) string {
+	var sb strings.Builder
+	sb.WriteString("对话历史摘要：\n")
+
+	toolCallSummary := make(map[string]int)
+	var keyExchanges []string
+
+	for _, msg := range messages {
+		switch msg.Role {
+		case schema.User:
+			content := msg.Content
+			if len([]rune(content)) > 200 {
+				content = string([]rune(content)[:200]) + "..."
+			}
+			if content != "" {
+				keyExchanges = append(keyExchanges, fmt.Sprintf("用户: %s", content))
+			}
+		case schema.Assistant:
+			content := msg.Content
+			if len([]rune(content)) > 200 {
+				content = string([]rune(content)[:200]) + "..."
+			}
+			if content != "" {
+				keyExchanges = append(keyExchanges, fmt.Sprintf("助手: %s", content))
+			}
+			for _, tc := range msg.ToolCalls {
+				toolCallSummary[tc.Function.Name]++
+			}
+		case schema.Tool:
+			content := msg.Content
+			if len([]rune(content)) > 150 {
+				content = string([]rune(content)[:150]) + "..."
+			}
+			if content != "" {
+				keyExchanges = append(keyExchanges, fmt.Sprintf("工具结果: %s", content))
+			}
+		}
+	}
+
+	if len(toolCallSummary) > 0 {
+		sb.WriteString("已调用的工具: ")
+		toolParts := make([]string, 0, len(toolCallSummary))
+		for name, count := range toolCallSummary {
+			if count > 1 {
+				toolParts = append(toolParts, fmt.Sprintf("%s(×%d)", name, count))
+			} else {
+				toolParts = append(toolParts, name)
+			}
+		}
+		sb.WriteString(strings.Join(toolParts, ", "))
+		sb.WriteString("\n\n")
+	}
+
+	maxExchanges := 10
+	if len(keyExchanges) > maxExchanges {
+		keyExchanges = keyExchanges[len(keyExchanges)-maxExchanges:]
+	}
+	for _, exchange := range keyExchanges {
+		sb.WriteString(exchange)
+		sb.WriteString("\n")
+	}
+
+	result := sb.String()
+	maxRunes := 2000
+	if len([]rune(result)) > maxRunes {
+		result = string([]rune(result)[:maxRunes]) + "..."
+	}
 	return result
 }
 
@@ -279,7 +354,36 @@ type toolCallResult struct {
 	record ToolCallRecord
 }
 
-// executeToolsConcurrently 并发执行工具调用
+// toolFallbackMap 定义工具降级映射：当一个工具失败时，可以尝试使用备选工具
+var toolFallbackMap = map[string]string{
+	"google_search": "bing_search",
+	"bing_search":   "google_search",
+}
+
+const maxToolRetries = 1
+
+// isRetryableError 判断工具错误是否可以重试
+func isRetryableError(err error, toolResult *types.ToolResult) bool {
+	if err == nil && toolResult != nil && !toolResult.IsError {
+		return false
+	}
+	errMsg := ""
+	if err != nil {
+		errMsg = strings.ToLower(err.Error())
+	} else if toolResult != nil {
+		errMsg = strings.ToLower(toolResult.GetLLMContent())
+	}
+	retryableKeywords := []string{"timeout", "timed out", "connection refused", "connection reset",
+		"temporary failure", "service unavailable", "503", "502", "429", "rate limit"}
+	for _, kw := range retryableKeywords {
+		if strings.Contains(errMsg, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+// executeToolsConcurrently 并发执行工具调用，支持自动重试和降级
 func executeToolsConcurrently(
 	ctx context.Context,
 	toolCalls []schema.ToolCall,
@@ -322,21 +426,60 @@ func executeToolsConcurrently(
 			}
 
 			callStart := time.Now()
-			logger.Debug("[ToolExec] 开始执行工具 [%s], round=%d, 参数=%s", toolCall.Function.Name, round, toolCall.Function.Arguments)
+			toolName := toolCall.Function.Name
+			logger.Debug("[ToolExec] 开始执行工具 [%s], round=%d, 参数=%s", toolName, round, toolCall.Function.Arguments)
 
-			toolResult, err := toolRegistry.Execute(toolCtx, toolCall.Function.Name, toolCall.Function.Arguments, execCtx)
+			toolResult, err := toolRegistry.Execute(toolCtx, toolName, toolCall.Function.Arguments, execCtx)
 			if err != nil {
-				logger.Debug("[ToolExec] 工具 [%s] 执行出错: %v", toolCall.Function.Name, err)
+				logger.Debug("[ToolExec] 工具 [%s] 执行出错: %v", toolName, err)
 				toolResult = types.NewErrorResult(fmt.Sprintf("工具执行错误: %v", err))
+			}
+
+			if toolCtx.Err() == context.DeadlineExceeded && !toolResult.IsError {
+				toolResult = types.NewErrorResult(fmt.Sprintf("工具 %s 执行超时 (%v)", toolName, toolTimeout))
+			}
+
+			// 可重试错误的自动重试
+			if toolResult.IsError && isRetryableError(err, toolResult) {
+				for retry := 0; retry < maxToolRetries; retry++ {
+					logger.Debug("[ToolExec] 工具 [%s] 可重试错误，第 %d 次重试", toolName, retry+1)
+					time.Sleep(time.Duration(retry+1) * 2 * time.Second)
+
+					retryCtx, retryCancel := context.WithTimeout(ctx, toolTimeout)
+					toolResult, err = toolRegistry.Execute(retryCtx, toolName, toolCall.Function.Arguments, execCtx)
+					retryCancel()
+
+					if err != nil {
+						toolResult = types.NewErrorResult(fmt.Sprintf("工具执行错误: %v", err))
+					}
+					if !toolResult.IsError {
+						logger.Debug("[ToolExec] 工具 [%s] 重试成功", toolName)
+						break
+					}
+				}
+			}
+
+			// 降级到备选工具
+			if toolResult.IsError {
+				if fallbackTool, ok := toolFallbackMap[toolName]; ok {
+					if toolRegistry.Has(fallbackTool) {
+						logger.Debug("[ToolExec] 工具 [%s] 失败，降级到 [%s]", toolName, fallbackTool)
+						fallbackCtx, fallbackCancel := context.WithTimeout(ctx, toolTimeout)
+						fallbackResult, fallbackErr := toolRegistry.Execute(fallbackCtx, fallbackTool, toolCall.Function.Arguments, execCtx)
+						fallbackCancel()
+
+						if fallbackErr == nil && !fallbackResult.IsError {
+							toolResult = fallbackResult
+							toolResult.ForLLM = fmt.Sprintf("[原工具 %s 失败，已自动切换到 %s]\n%s", toolName, fallbackTool, fallbackResult.GetLLMContent())
+							logger.Debug("[ToolExec] 降级到 [%s] 成功", fallbackTool)
+						}
+					}
+				}
 			}
 
 			callDuration := time.Since(callStart)
 			logger.Debug("[ToolExec] 工具 [%s] 执行完成, 耗时=%v, isError=%v, 结果=%s",
-				toolCall.Function.Name, callDuration, toolResult.IsError, truncateForLog(toolResult.GetLLMContent(), 500))
-
-			if toolCtx.Err() == context.DeadlineExceeded && !toolResult.IsError {
-				toolResult = types.NewErrorResult(fmt.Sprintf("工具 %s 执行超时 (%v)", toolCall.Function.Name, toolTimeout))
-			}
+				toolName, callDuration, toolResult.IsError, truncateForLog(toolResult.GetLLMContent(), 500))
 
 			toolResult.ToolCallID = toolCall.ID
 
@@ -350,7 +493,7 @@ func executeToolsConcurrently(
 				result: toolResult,
 				record: ToolCallRecord{
 					Round:     round,
-					ToolName:  toolCall.Function.Name,
+					ToolName:  toolName,
 					Arguments: toolCall.Function.Arguments,
 					Result:    toolResult.GetLLMContent(),
 					IsError:   toolResult.IsError,
@@ -379,6 +522,54 @@ func truncateForLog(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "...(truncated)"
+}
+
+// --- 自我验证 ---
+
+const selfVerifyPrompt = `请验证你即将给出的回答，按以下维度检查：
+
+1. 完整性：回答是否覆盖了用户问题的所有方面？有没有遗漏的要点？
+2. 准确性：回答中的事实和数据是否正确？是否有未经验证的假设？
+3. 逻辑性：推理过程是否合理？结论是否从前提中自然得出？
+4. 实用性：回答是否可操作？用户能否直接使用？
+
+如果发现问题，请修正后输出改进版本。如果回答已经足够好，直接输出原回答即可（可做微调润色）。
+
+你之前的回答草稿：
+`
+
+// selfVerify 对生成的回答进行自我验证，如果启用则返回验证后的内容
+func selfVerify(ctx context.Context, chatModel model.ToolCallingChatModel, config *AIConfig, stepID string, originalContent string, output *AIOutput) string {
+	if config.EnableSelfVerify == nil || !*config.EnableSelfVerify {
+		return originalContent
+	}
+	if len([]rune(originalContent)) < 100 {
+		return originalContent
+	}
+
+	verifyMessages := []*schema.Message{
+		schema.SystemMessage("你是一个严谨的回答质量检查员。"),
+		schema.UserMessage(selfVerifyPrompt + originalContent),
+	}
+
+	resp, err := callLLM(ctx, chatModel, verifyMessages, nil, config, stepID, nil)
+	if err != nil {
+		logger.Warn("[SelfVerify] 自我验证调用失败: %v, 返回原始回答", err)
+		return originalContent
+	}
+
+	updateTokenUsage(output, resp)
+
+	if resp.Content == "" {
+		return originalContent
+	}
+
+	if output.AgentTrace != nil {
+		output.AgentTrace.Verified = true
+	}
+
+	logger.Debug("[SelfVerify] 自我验证完成, 原始长度=%d, 验证后长度=%d", len(originalContent), len(resp.Content))
+	return resp.Content
 }
 
 // --- Token 统计辅助 ---

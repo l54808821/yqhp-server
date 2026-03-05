@@ -308,6 +308,74 @@ func (c *SSECallback) OnAIThinking(ctx context.Context, stepID string, round int
 // 确保 SSECallback 实现了 AIThinkingCallback 接口
 var _ types.AIThinkingCallback = (*SSECallback)(nil)
 
+// ============ AI Plan 回调 (实现 AIPlanCallback 接口) ============
+
+// OnAIPlanStarted 计划生成完成
+func (c *SSECallback) OnAIPlanStarted(ctx context.Context, stepID string, reason string, steps []types.PlanStepInfo) {
+	sseSteps := make([]sse.AIPlanStepData, len(steps))
+	for i, s := range steps {
+		sseSteps[i] = sse.AIPlanStepData{
+			Index: s.Index,
+			Task:  s.Task,
+		}
+	}
+	c.writer.WriteEvent(&sse.Event{
+		Type: sse.EventAIPlanStarted,
+		Data: &sse.AIPlanStartedData{
+			StepID: stepID,
+			Reason: reason,
+			Steps:  sseSteps,
+		},
+	})
+}
+
+// OnAIPlanStepUpdate 计划步骤状态更新
+func (c *SSECallback) OnAIPlanStepUpdate(ctx context.Context, stepID string, stepIndex int, status string, result string) {
+	c.writer.WriteEvent(&sse.Event{
+		Type: sse.EventAIPlanStepUpdate,
+		Data: &sse.AIPlanStepUpdateData{
+			StepID:    stepID,
+			StepIndex: stepIndex,
+			Status:    status,
+			Result:    result,
+		},
+	})
+}
+
+// OnAIPlanCompleted 计划执行完成
+func (c *SSECallback) OnAIPlanCompleted(ctx context.Context, stepID string, synthesis string) {
+	c.writer.WriteEvent(&sse.Event{
+		Type: sse.EventAIPlanCompleted,
+		Data: &sse.AIPlanCompletedData{
+			StepID:    stepID,
+			Synthesis: synthesis,
+		},
+	})
+}
+
+// OnAIPlanModified 计划被动态修改
+func (c *SSECallback) OnAIPlanModified(ctx context.Context, stepID string, fromStepIndex int, reason string, newSteps []types.PlanStepInfo) {
+	sseSteps := make([]sse.AIPlanStepData, len(newSteps))
+	for i, s := range newSteps {
+		sseSteps[i] = sse.AIPlanStepData{
+			Index: s.Index,
+			Task:  s.Task,
+		}
+	}
+	c.writer.WriteEvent(&sse.Event{
+		Type: sse.EventAIPlanModified,
+		Data: &sse.AIPlanModifiedData{
+			StepID:        stepID,
+			FromStepIndex: fromStepIndex,
+			Reason:        reason,
+			NewSteps:      sseSteps,
+		},
+	})
+}
+
+// 确保 SSECallback 实现了 AIPlanCallback 接口
+var _ types.AIPlanCallback = (*SSECallback)(nil)
+
 // ============ AI 工具调用回调 (实现 AIToolCallback 接口) ============
 
 // OnAIToolCallStart 工具调用开始

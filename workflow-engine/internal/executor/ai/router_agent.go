@@ -44,13 +44,47 @@ func (a *RouterAgent) Run(ctx context.Context, req *AgentRequest) (*AIOutput, er
 
 	enablePlan := req.Config.EnablePlanMode != nil && *req.Config.EnablePlanMode
 
-	// 如果启用了 Plan 模式，在工具列表中加入 switch_to_plan
+	// 基于规则的快速任务复杂度预判：满足条件时直接进入 Plan 模式
+	if enablePlan && a.shouldDirectPlan(req) {
+		return a.plan.RunWithReason(ctx, req, "任务复杂度预判：检测到复杂多步任务")
+	}
+
 	schemaTools := req.SchemaTools
 	if enablePlan {
 		schemaTools = append(schemaTools, switchToPlanToolInfo())
 	}
 
 	return a.runReActWithPlanSwitch(ctx, req, schemaTools, enablePlan)
+}
+
+// shouldDirectPlan 基于规则的轻量级任务复杂度预判
+func (a *RouterAgent) shouldDirectPlan(req *AgentRequest) bool {
+	prompt := req.Config.Prompt
+	if len([]rune(prompt)) < 50 {
+		return false
+	}
+
+	planIndicators := []string{
+		"分析并", "先.*然后.*最后", "第一步", "第二步",
+		"步骤", "依次", "分别", "逐一", "逐步",
+		"对比.*和.*", "比较.*和.*",
+		"调研", "报告", "方案",
+	}
+
+	promptLower := strings.ToLower(prompt)
+	matchCount := 0
+	for _, indicator := range planIndicators {
+		if strings.Contains(promptLower, indicator) {
+			matchCount++
+		}
+	}
+
+	conjunctions := []string{"并且", "同时", "另外", "此外", "还需要", "以及"}
+	for _, conj := range conjunctions {
+		matchCount += strings.Count(promptLower, conj)
+	}
+
+	return matchCount >= 3
 }
 
 // runReActWithPlanSwitch 运行 ReAct 循环，支持在运行中切换到 Plan 模式
@@ -79,7 +113,7 @@ func (a *RouterAgent) runReActWithPlanSwitch(ctx context.Context, req *AgentRequ
 		roundThinking := resp.Content
 
 		if len(resp.ToolCalls) == 0 {
-			output.Content = resp.Content
+			output.Content = selfVerify(ctx, req.ChatModel, req.Config, req.StepID, resp.Content, output)
 			if round == 1 {
 				output.AgentTrace.Mode = string(AgentModeDirect)
 			}
@@ -147,7 +181,7 @@ func (a *RouterAgent) runReActWithPlanSwitch(ctx context.Context, req *AgentRequ
 	if err != nil {
 		return output, fmt.Errorf("最终回复生成失败: %w", err)
 	}
-	output.Content = resp.Content
+	output.Content = selfVerify(ctx, req.ChatModel, req.Config, req.StepID, resp.Content, output)
 	updateTokenUsage(output, resp)
 	return output, nil
 }

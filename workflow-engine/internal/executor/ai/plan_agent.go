@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
 
 	"github.com/cloudwego/eino/schema"
 
+	"yqhp/workflow-engine/pkg/logger"
 	"yqhp/workflow-engine/pkg/types"
 )
 
@@ -42,20 +44,20 @@ func (a *PlanAgent) RunWithReason(ctx context.Context, req *AgentRequest, reason
 	}
 
 	// 1. 规划阶段
-	steps, err := a.planPhase(ctx, req, output)
+	stepDefs, err := a.planPhase(ctx, req, output)
 	if err != nil {
 		return nil, fmt.Errorf("规划阶段失败: %w", err)
 	}
 
-	tasks := stepsToTasks(steps)
 	maxSteps := req.Config.MaxPlanSteps
 	if maxSteps <= 0 {
 		maxSteps = defaultMaxPlanSteps
 	}
-	if len(tasks) > maxSteps {
-		tasks = tasks[:maxSteps]
+	if len(stepDefs) > maxSteps {
+		stepDefs = stepDefs[:maxSteps]
 	}
 
+	tasks := stepsToTasks(stepDefs)
 	output.AgentTrace.Plan.PlanText = formatPlanText(tasks)
 	for i, t := range tasks {
 		output.AgentTrace.Plan.Steps = append(output.AgentTrace.Plan.Steps, PlanStep{
@@ -67,8 +69,8 @@ func (a *PlanAgent) RunWithReason(ctx context.Context, req *AgentRequest, reason
 
 	a.notifyPlanStarted(ctx, req, reason, tasks)
 
-	// 2. 逐步执行
-	stepResults := a.executeSteps(ctx, req, output, tasks)
+	// 2. 按依赖关系执行（支持并行）
+	stepResults := a.executeStepsWithDeps(ctx, req, output, tasks, stepDefs)
 
 	// 3. 汇总阶段
 	if err := a.synthesisPhase(ctx, req, output, tasks, stepResults); err != nil {
@@ -117,16 +119,174 @@ func (a *PlanAgent) planPhase(ctx context.Context, req *AgentRequest, output *AI
 	return parsePlanFromText(resp.Content), nil
 }
 
-// executeSteps 逐步执行计划中的每个步骤
-func (a *PlanAgent) executeSteps(ctx context.Context, req *AgentRequest, output *AIOutput, tasks []string) []string {
-	historySummary := buildHistorySummary(req.Messages)
+// executeStepsWithDeps 根据依赖关系调度步骤执行，无依赖的步骤并行执行
+func (a *PlanAgent) executeStepsWithDeps(ctx context.Context, req *AgentRequest, output *AIOutput, tasks []string, stepDefs []PlanStepDef) []string {
+	hasDeps := false
+	for _, sd := range stepDefs {
+		if len(sd.DependsOn) > 0 {
+			hasDeps = true
+			break
+		}
+	}
 
-	var stepResults []string
-	for i, task := range tasks {
+	// 如果没有任何依赖声明，回退到原有的顺序执行
+	if !hasDeps {
+		return a.executeSteps(ctx, req, output, tasks)
+	}
+
+	stepResults := make([]string, len(tasks))
+	completed := make([]bool, len(tasks))
+	var mu sync.Mutex
+
+	// 构建依赖图：stepIndex -> 依赖的 stepIndex 列表
+	depMap := make(map[int][]int)
+	for i, sd := range stepDefs {
+		for _, dep := range sd.DependsOn {
+			depIdx := dep - 1 // 步骤编号从 1 开始
+			if depIdx >= 0 && depIdx < len(tasks) {
+				depMap[i] = append(depMap[i], depIdx)
+			}
+		}
+	}
+
+	// 按批次执行：每批找出所有依赖已满足的步骤，并行执行
+	for {
 		if ctx.Err() != nil {
 			break
 		}
 
+		// 找出当前可执行的步骤
+		var readyIndices []int
+		for i := range tasks {
+			if completed[i] {
+				continue
+			}
+			depsOK := true
+			for _, depIdx := range depMap[i] {
+				if !completed[depIdx] {
+					depsOK = false
+					break
+				}
+			}
+			if depsOK {
+				readyIndices = append(readyIndices, i)
+			}
+		}
+
+		if len(readyIndices) == 0 {
+			break
+		}
+
+		if len(readyIndices) == 1 {
+			// 单个步骤直接执行
+			idx := readyIndices[0]
+			result := a.executeSingleStep(ctx, req, output, tasks, idx, stepResults)
+			stepResults[idx] = result
+			completed[idx] = true
+		} else {
+			// 多个步骤并行执行
+			logger.Debug("[Plan] 并行执行 %d 个步骤: %v", len(readyIndices), readyIndices)
+			if req.Callbacks.Thinking != nil {
+				stepNums := make([]string, len(readyIndices))
+				for i, idx := range readyIndices {
+					stepNums[i] = fmt.Sprintf("%d", idx+1)
+				}
+				req.Callbacks.Thinking.OnAIThinking(ctx, req.StepID, 0,
+					fmt.Sprintf("并行执行步骤 %s ...", strings.Join(stepNums, ", ")))
+			}
+
+			var wg sync.WaitGroup
+			for _, idx := range readyIndices {
+				wg.Add(1)
+				go func(stepIdx int) {
+					defer wg.Done()
+					result := a.executeSingleStep(ctx, req, output, tasks, stepIdx, stepResults)
+					mu.Lock()
+					stepResults[stepIdx] = result
+					completed[stepIdx] = true
+					mu.Unlock()
+				}(idx)
+			}
+			wg.Wait()
+		}
+	}
+
+	return stepResults
+}
+
+// executeSingleStep 执行单个计划步骤
+func (a *PlanAgent) executeSingleStep(ctx context.Context, req *AgentRequest, output *AIOutput, tasks []string, idx int, stepResults []string) string {
+	output.AgentTrace.Plan.Steps[idx].Status = "running"
+	a.notifyStepUpdate(ctx, req, idx+1, "running", "")
+
+	historySummary := buildHistorySummary(req.Messages)
+	stepPrompt := buildPlanStepPrompt(req.Config.Prompt, tasks, idx, stepResults)
+	userContent := stepPrompt
+	if historySummary != "" {
+		userContent = historySummary + "\n" + stepPrompt
+	}
+	stepMessages := []*schema.Message{
+		schema.SystemMessage(req.Config.SystemPrompt),
+		schema.UserMessage(userContent),
+	}
+
+	task := tasks[idx]
+	stepToolDefs := filterToolDefsForStep(req.AllToolDefs, task, req.Config.Skills)
+	stepSchemaTools := toSchemaTools(stepToolDefs)
+
+	stepReq := &AgentRequest{
+		Config:       req.Config,
+		ChatModel:    req.ChatModel,
+		Messages:     stepMessages,
+		ToolRegistry: req.ToolRegistry,
+		SchemaTools:  stepSchemaTools,
+		AllToolDefs:  stepToolDefs,
+		StepID:       req.StepID,
+		ExecCtx:      req.ExecCtx,
+		Callbacks:    req.Callbacks,
+		MaxRounds:    5,
+	}
+
+	stepOutput, stepErr := a.executeMiniReAct(ctx, stepReq, idx+1)
+	if stepErr != nil {
+		output.AgentTrace.Plan.Steps[idx].Status = "failed"
+		output.AgentTrace.Plan.Steps[idx].Result = stepErr.Error()
+		a.notifyStepUpdate(ctx, req, idx+1, "failed", stepErr.Error())
+		return fmt.Sprintf("步骤 %d 失败: %s", idx+1, stepErr.Error())
+	}
+
+	mergeTokenUsage(output, stepOutput)
+	output.AgentTrace.Plan.Steps[idx].Status = "completed"
+	output.AgentTrace.Plan.Steps[idx].Result = stepOutput.Content
+	output.AgentTrace.Plan.Steps[idx].ToolCalls = stepOutput.ToolCalls
+	output.AgentTrace.Plan.Steps[idx].PromptTokens = stepOutput.PromptTokens
+	output.AgentTrace.Plan.Steps[idx].CompletionTokens = stepOutput.CompletionTokens
+	output.AgentTrace.Plan.Steps[idx].TotalTokens = stepOutput.TotalTokens
+
+	resultContent := stepOutput.Content
+	for _, tc := range stepOutput.ToolCalls {
+		if tc.Result != "" && !tc.IsError {
+			resultContent += fmt.Sprintf("\n\n[工具 %s 的原始输出]:\n%s", tc.ToolName, tc.Result)
+		}
+	}
+
+	a.notifyStepUpdate(ctx, req, idx+1, "completed", stepOutput.Content)
+	return resultContent
+}
+
+// executeSteps 逐步执行计划中的每个步骤，支持动态重新规划（无依赖时的顺序执行模式）
+func (a *PlanAgent) executeSteps(ctx context.Context, req *AgentRequest, output *AIOutput, tasks []string) []string {
+	historySummary := buildHistorySummary(req.Messages)
+
+	var stepResults []string
+	consecutiveFailures := 0
+
+	for i := 0; i < len(tasks); i++ {
+		if ctx.Err() != nil {
+			break
+		}
+
+		task := tasks[i]
 		output.AgentTrace.Plan.Steps[i].Status = "running"
 		a.notifyStepUpdate(ctx, req, i+1, "running", "")
 
@@ -153,7 +313,7 @@ func (a *PlanAgent) executeSteps(ctx context.Context, req *AgentRequest, output 
 			StepID:       req.StepID,
 			ExecCtx:      req.ExecCtx,
 			Callbacks:    req.Callbacks,
-			MaxRounds:    5, // Plan 步骤内的 ReAct 轮次限制
+			MaxRounds:    5,
 		}
 
 		stepOutput, stepErr := a.executeMiniReAct(ctx, stepReq, i+1)
@@ -162,9 +322,21 @@ func (a *PlanAgent) executeSteps(ctx context.Context, req *AgentRequest, output 
 			output.AgentTrace.Plan.Steps[i].Result = stepErr.Error()
 			stepResults = append(stepResults, fmt.Sprintf("步骤 %d 失败: %s", i+1, stepErr.Error()))
 			a.notifyStepUpdate(ctx, req, i+1, "failed", stepErr.Error())
+			consecutiveFailures++
+
+			// 连续失败时尝试重新规划剩余步骤
+			if consecutiveFailures >= 2 && i < len(tasks)-1 {
+				newTasks := a.tryReplan(ctx, req, output, tasks, i, stepResults)
+				if newTasks != nil {
+					tasks = newTasks
+					a.rebuildPlanSteps(output, tasks, i+1)
+				}
+				consecutiveFailures = 0
+			}
 			continue
 		}
 
+		consecutiveFailures = 0
 		mergeTokenUsage(output, stepOutput)
 		output.AgentTrace.Plan.Steps[i].Status = "completed"
 		output.AgentTrace.Plan.Steps[i].Result = stepOutput.Content
@@ -182,9 +354,97 @@ func (a *PlanAgent) executeSteps(ctx context.Context, req *AgentRequest, output 
 		stepResults = append(stepResults, resultContent)
 
 		a.notifyStepUpdate(ctx, req, i+1, "completed", stepOutput.Content)
+
+		// 执行过半后，检查是否需要根据中间结果调整后续计划
+		if a.shouldCheckReplan(i, len(tasks), stepOutput.Content) {
+			newTasks := a.tryReplan(ctx, req, output, tasks, i, stepResults)
+			if newTasks != nil {
+				tasks = newTasks
+				a.rebuildPlanSteps(output, tasks, i+1)
+			}
+		}
 	}
 
 	return stepResults
+}
+
+// shouldCheckReplan 判断是否需要触发重新规划检查
+func (a *PlanAgent) shouldCheckReplan(currentIndex int, totalSteps int, stepResult string) bool {
+	if totalSteps <= 3 {
+		return false
+	}
+	halfwayPoint := totalSteps / 2
+	return currentIndex == halfwayPoint-1
+}
+
+// tryReplan 尝试重新规划剩余步骤
+func (a *PlanAgent) tryReplan(ctx context.Context, req *AgentRequest, output *AIOutput, currentTasks []string, completedIndex int, stepResults []string) []string {
+	if ctx.Err() != nil {
+		return nil
+	}
+
+	remainingTasks := currentTasks[completedIndex+1:]
+	if len(remainingTasks) == 0 {
+		return nil
+	}
+
+	replanPrompt := buildReplanPrompt(req.Config.Prompt, currentTasks, completedIndex, stepResults, remainingTasks)
+	replanMessages := []*schema.Message{
+		schema.SystemMessage(req.Config.SystemPrompt),
+		schema.UserMessage(replanPrompt),
+	}
+
+	planTool := createPlanToolInfo()
+	resp, err := callLLM(ctx, req.ChatModel, replanMessages, []*schema.ToolInfo{planTool}, req.Config, req.StepID, nil)
+	if err != nil {
+		logger.Warn("[Plan] 重新规划调用失败: %v", err)
+		return nil
+	}
+	updateTokenUsage(output, resp)
+
+	// 尝试从 tool_call 解析新计划
+	if steps, ok := parsePlanFromToolCall(resp.ToolCalls); ok && len(steps) > 0 {
+		newRemainingTasks := stepsToTasks(steps)
+		// 保留已完成步骤 + 新的剩余步骤
+		result := make([]string, completedIndex+1, completedIndex+1+len(newRemainingTasks))
+		copy(result, currentTasks[:completedIndex+1])
+		result = append(result, newRemainingTasks...)
+
+		logger.Debug("[Plan] 重新规划成功: 剩余步骤从 %d 调整为 %d", len(remainingTasks), len(newRemainingTasks))
+		if req.Callbacks.Thinking != nil {
+			req.Callbacks.Thinking.OnAIThinking(ctx, req.StepID, 0,
+				fmt.Sprintf("根据执行结果调整计划，剩余步骤从 %d 调整为 %d", len(remainingTasks), len(newRemainingTasks)))
+		}
+		return result
+	}
+
+	// 回退到文本解析
+	if steps := parsePlanFromText(resp.Content); len(steps) > 1 {
+		newRemainingTasks := stepsToTasks(steps)
+		result := make([]string, completedIndex+1, completedIndex+1+len(newRemainingTasks))
+		copy(result, currentTasks[:completedIndex+1])
+		result = append(result, newRemainingTasks...)
+		return result
+	}
+
+	return nil
+}
+
+// rebuildPlanSteps 重建 PlanTrace 中的步骤信息（用于重新规划后更新）
+func (a *PlanAgent) rebuildPlanSteps(output *AIOutput, tasks []string, fromIndex int) {
+	// 截断到已有步骤
+	if fromIndex < len(output.AgentTrace.Plan.Steps) {
+		output.AgentTrace.Plan.Steps = output.AgentTrace.Plan.Steps[:fromIndex]
+	}
+	// 追加新步骤
+	for i := fromIndex; i < len(tasks); i++ {
+		output.AgentTrace.Plan.Steps = append(output.AgentTrace.Plan.Steps, PlanStep{
+			Index:  i + 1,
+			Task:   tasks[i],
+			Status: "pending",
+		})
+	}
+	output.AgentTrace.Plan.PlanText = formatPlanText(tasks)
 }
 
 // executeMiniReAct 为 Plan 步骤执行简化的 ReAct 循环
@@ -299,9 +559,6 @@ func (a *PlanAgent) notifyPlanStarted(ctx context.Context, req *AgentRequest, re
 
 func (a *PlanAgent) notifyStepUpdate(ctx context.Context, req *AgentRequest, stepIndex int, status string, result string) {
 	if req.Callbacks.Thinking != nil && status == "running" {
-		if stepIndex <= len(req.Config.Skills) {
-			// 仅在 running 时通知
-		}
 		req.Callbacks.Thinking.OnAIThinking(ctx, req.StepID, 0,
 			fmt.Sprintf("执行步骤 %d...", stepIndex))
 	}
@@ -316,7 +573,7 @@ func (a *PlanAgent) notifyStepUpdate(ctx context.Context, req *AgentRequest, ste
 func createPlanToolInfo() *schema.ToolInfo {
 	return &schema.ToolInfo{
 		Name: createPlanToolName,
-		Desc: "创建执行计划，将复杂任务分解为有序的执行步骤。每个步骤应独立且具体。",
+		Desc: "创建执行计划，将复杂任务分解为有序的执行步骤。每个步骤应独立且具体。支持通过 depends_on 声明步骤间依赖关系，无依赖的步骤将并行执行。",
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 			"steps": {
 				Type:     schema.Array,
@@ -334,6 +591,13 @@ func createPlanToolInfo() *schema.ToolInfo {
 							Type:     schema.String,
 							Desc:     "步骤任务描述",
 							Required: true,
+						},
+						"depends_on": {
+							Type: schema.Array,
+							Desc: "依赖的步骤编号列表。如果为空或不设置，表示该步骤没有依赖，可以与其他无依赖步骤并行执行",
+							ElemInfo: &schema.ParameterInfo{
+								Type: schema.Integer,
+							},
 						},
 					},
 				},

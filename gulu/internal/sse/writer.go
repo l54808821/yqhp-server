@@ -28,6 +28,10 @@ const (
 	EventAIThinking         EventType = "ai_thinking"
 	EventAIToolCallStart    EventType = "ai_tool_call_start"
 	EventAIToolCallComplete EventType = "ai_tool_call_complete"
+	EventAIPlanStarted      EventType = "ai_plan_started"
+	EventAIPlanStepUpdate   EventType = "ai_plan_step_update"
+	EventAIPlanCompleted    EventType = "ai_plan_completed"
+	EventAIPlanModified     EventType = "ai_plan_modified"
 	EventHeartbeat          EventType = "heartbeat"
 	EventError              EventType = "error"
 )
@@ -324,4 +328,41 @@ type ErrorData struct {
 	Message     string `json:"message"`
 	Details     string `json:"details,omitempty"`
 	Recoverable bool   `json:"recoverable"`
+}
+
+// ============ AI Plan 模式事件数据 ============
+
+// AIPlanStepData Plan 步骤信息
+type AIPlanStepData struct {
+	Index int    `json:"index"`
+	Task  string `json:"task"`
+}
+
+// AIPlanStartedData Plan 开始数据
+type AIPlanStartedData struct {
+	StepID string           `json:"stepId"`
+	Reason string           `json:"reason"`
+	Steps  []AIPlanStepData `json:"steps"`
+}
+
+// AIPlanStepUpdateData Plan 步骤状态更新数据
+type AIPlanStepUpdateData struct {
+	StepID    string `json:"stepId"`
+	StepIndex int    `json:"stepIndex"`
+	Status    string `json:"status"`
+	Result    string `json:"result,omitempty"`
+}
+
+// AIPlanCompletedData Plan 完成数据
+type AIPlanCompletedData struct {
+	StepID    string `json:"stepId"`
+	Synthesis string `json:"synthesis"`
+}
+
+// AIPlanModifiedData Plan 被动态修改数据
+type AIPlanModifiedData struct {
+	StepID        string           `json:"stepId"`
+	FromStepIndex int              `json:"fromStepIndex"`
+	Reason        string           `json:"reason"`
+	NewSteps      []AIPlanStepData `json:"newSteps"`
 }

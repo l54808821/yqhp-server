@@ -15,6 +15,7 @@ type ToolCall struct {
 	Name          string `json:"name"`
 	Arguments     string `json:"arguments"`
 	PlanStepIndex int    `json:"planStepIndex,omitempty"`
+	DurationMs    int64  `json:"durationMs,omitempty"`
 }
 
 // ToolResult 工具执行结果（增强版）

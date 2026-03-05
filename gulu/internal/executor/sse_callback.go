@@ -211,6 +211,9 @@ func (c *SSECallback) OnAIComplete(ctx context.Context, stepID string, result *t
 			PromptTokens:     result.PromptTokens,
 			CompletionTokens: result.CompletionTokens,
 			TotalTokens:      result.TotalTokens,
+			Model:            result.Model,
+			FinishReason:     result.FinishReason,
+			Verified:         result.Verified,
 		},
 	})
 }
@@ -383,9 +386,10 @@ func (c *SSECallback) OnAIToolCallStart(ctx context.Context, stepID string, tool
 	c.writer.WriteEvent(&sse.Event{
 		Type: sse.EventAIToolCallStart,
 		Data: &sse.AIToolCallStartData{
-			StepID:    stepID,
-			ToolName:  toolCall.Name,
-			Arguments: toolCall.Arguments,
+			StepID:        stepID,
+			ToolName:      toolCall.Name,
+			Arguments:     toolCall.Arguments,
+			PlanStepIndex: toolCall.PlanStepIndex,
 		},
 	})
 }
@@ -395,11 +399,13 @@ func (c *SSECallback) OnAIToolCallComplete(ctx context.Context, stepID string, t
 	c.writer.WriteEvent(&sse.Event{
 		Type: sse.EventAIToolCallComplete,
 		Data: &sse.AIToolCallCompleteData{
-			StepID:    stepID,
-			ToolName:  toolCall.Name,
-			Arguments: toolCall.Arguments,
-			Result:    result.Content,
-			IsError:   result.IsError,
+			StepID:        stepID,
+			ToolName:      toolCall.Name,
+			Arguments:     toolCall.Arguments,
+			Result:        result.GetLLMContent(),
+			IsError:       result.IsError,
+			DurationMs:    toolCall.DurationMs,
+			PlanStepIndex: toolCall.PlanStepIndex,
 		},
 	})
 }

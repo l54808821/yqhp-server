@@ -680,10 +680,16 @@ func formatPlanText(tasks []string) string {
 }
 
 func toAIResult(output *AIOutput) *types.AIResult {
-	return &types.AIResult{
+	r := &types.AIResult{
 		Content:          output.Content,
 		PromptTokens:     output.PromptTokens,
 		CompletionTokens: output.CompletionTokens,
 		TotalTokens:      output.TotalTokens,
+		Model:            output.Model,
+		FinishReason:     output.FinishReason,
 	}
+	if output.AgentTrace != nil {
+		r.Verified = output.AgentTrace.Verified
+	}
+	return r
 }

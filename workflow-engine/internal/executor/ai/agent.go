@@ -482,6 +482,7 @@ func executeToolsConcurrently(
 				toolName, callDuration, toolResult.IsError, truncateForLog(toolResult.GetLLMContent(), 500))
 
 			toolResult.ToolCallID = toolCall.ID
+			typesToolCall.DurationMs = callDuration.Milliseconds()
 
 			if callbacks.Tool != nil {
 				callbacks.Tool.OnAIToolCallComplete(ctx, stepID, typesToolCall, toolResult)
@@ -538,8 +539,10 @@ const selfVerifyPrompt = `请验证你即将给出的回答，按以下维度检
 你之前的回答草稿：
 `
 
-// selfVerify 对生成的回答进行自我验证，如果启用则返回验证后的内容
-func selfVerify(ctx context.Context, chatModel model.ToolCallingChatModel, config *AIConfig, stepID string, originalContent string, output *AIOutput) string {
+// selfVerifyWithCallbacks 对生成的回答进行自我验证
+// 验证阶段使用非流式调用：因为草稿已经流式推送给前端了，验证后的内容通过 ai_complete
+// 事件的 content 字段覆盖最终文本，避免"草稿 + 验证版本"拼接问题。
+func selfVerifyWithCallbacks(ctx context.Context, chatModel model.ToolCallingChatModel, config *AIConfig, stepID string, originalContent string, output *AIOutput, callbacks *AgentCallbacks) string {
 	if config.EnableSelfVerify == nil || !*config.EnableSelfVerify {
 		return originalContent
 	}
@@ -547,12 +550,22 @@ func selfVerify(ctx context.Context, chatModel model.ToolCallingChatModel, confi
 		return originalContent
 	}
 
+	logger.Debug("[SelfVerify] 开始自我验证, stepID=%s, 原始回答长度=%d", stepID, len([]rune(originalContent)))
+
+	if callbacks != nil && callbacks.Thinking != nil {
+		callbacks.Thinking.OnAIThinking(ctx, stepID, 0, "正在验证回答质量...")
+	}
+
 	verifyMessages := []*schema.Message{
 		schema.SystemMessage("你是一个严谨的回答质量检查员。"),
 		schema.UserMessage(selfVerifyPrompt + originalContent),
 	}
 
-	resp, err := callLLM(ctx, chatModel, verifyMessages, nil, config, stepID, nil)
+	// 非流式调用：验证结果不直接推流，而是在 ai_complete 事件中以最终 content 覆盖草稿
+	verifyConfig := *config
+	verifyConfig.Streaming = false
+
+	resp, err := callLLM(ctx, chatModel, verifyMessages, nil, &verifyConfig, stepID, nil)
 	if err != nil {
 		logger.Warn("[SelfVerify] 自我验证调用失败: %v, 返回原始回答", err)
 		return originalContent
@@ -568,7 +581,7 @@ func selfVerify(ctx context.Context, chatModel model.ToolCallingChatModel, confi
 		output.AgentTrace.Verified = true
 	}
 
-	logger.Debug("[SelfVerify] 自我验证完成, 原始长度=%d, 验证后长度=%d", len(originalContent), len(resp.Content))
+	logger.Debug("[SelfVerify] 自我验证完成, 原始长度=%d, 验证后长度=%d", len([]rune(originalContent)), len([]rune(resp.Content)))
 	return resp.Content
 }
 

@@ -70,6 +70,9 @@ type AIResult struct {
 	PromptTokens     int    `json:"prompt_tokens"`
 	CompletionTokens int    `json:"completion_tokens"`
 	TotalTokens      int    `json:"total_tokens"`
+	Model            string `json:"model,omitempty"`
+	FinishReason     string `json:"finish_reason,omitempty"`
+	Verified         bool   `json:"verified,omitempty"`
 }
 
 // InteractionType 交互类型

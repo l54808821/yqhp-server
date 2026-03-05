@@ -60,7 +60,7 @@ func (a *ReActAgent) Run(ctx context.Context, req *AgentRequest) (*AIOutput, err
 
 		if len(resp.ToolCalls) == 0 {
 			logger.Debug("[ReAct] 第 %d 轮 LLM 未返回工具调用，直接输出文本 (长度=%d)", round, len(resp.Content))
-			output.Content = selfVerify(ctx, req.ChatModel, req.Config, req.StepID, resp.Content, output)
+			output.Content = selfVerifyWithCallbacks(ctx, req.ChatModel, req.Config, req.StepID, resp.Content, output, req.Callbacks)
 			if round == 1 {
 				output.AgentTrace.Mode = string(AgentModeDirect)
 			}
@@ -125,7 +125,7 @@ func (a *ReActAgent) Run(ctx context.Context, req *AgentRequest) (*AIOutput, err
 	if err != nil {
 		return output, fmt.Errorf("最终回复生成失败: %w", err)
 	}
-	output.Content = selfVerify(ctx, req.ChatModel, req.Config, req.StepID, resp.Content, output)
+	output.Content = selfVerifyWithCallbacks(ctx, req.ChatModel, req.Config, req.StepID, resp.Content, output, req.Callbacks)
 	updateTokenUsage(output, resp)
 	return output, nil
 }

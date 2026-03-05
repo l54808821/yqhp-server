@@ -264,6 +264,9 @@ type AICompleteData struct {
 	PromptTokens     int    `json:"promptTokens"`
 	CompletionTokens int    `json:"completionTokens"`
 	TotalTokens      int    `json:"totalTokens"`
+	Model            string `json:"model,omitempty"`
+	FinishReason     string `json:"finishReason,omitempty"`
+	Verified         bool   `json:"verified,omitempty"`
 }
 
 // AIErrorData AI 错误数据
@@ -282,19 +285,21 @@ type AIThinkingData struct {
 
 // AIToolCallStartData AI 工具调用开始数据
 type AIToolCallStartData struct {
-	StepID    string `json:"stepId"`
-	ToolName  string `json:"toolName"`
-	Arguments string `json:"arguments"`
+	StepID        string `json:"stepId"`
+	ToolName      string `json:"toolName"`
+	Arguments     string `json:"arguments"`
+	PlanStepIndex int    `json:"planStepIndex,omitempty"`
 }
 
 // AIToolCallCompleteData AI 工具调用完成数据
 type AIToolCallCompleteData struct {
-	StepID     string `json:"stepId"`
-	ToolName   string `json:"toolName"`
-	Arguments  string `json:"arguments"`
-	Result     string `json:"result"`
-	IsError    bool   `json:"isError"`
-	DurationMs int64  `json:"durationMs"`
+	StepID        string `json:"stepId"`
+	ToolName      string `json:"toolName"`
+	Arguments     string `json:"arguments"`
+	Result        string `json:"result"`
+	IsError       bool   `json:"isError"`
+	DurationMs    int64  `json:"durationMs"`
+	PlanStepIndex int    `json:"planStepIndex,omitempty"`
 }
 
 // InteractionType 交互类型

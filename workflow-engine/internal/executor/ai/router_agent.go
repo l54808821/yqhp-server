@@ -113,7 +113,7 @@ func (a *RouterAgent) runReActWithPlanSwitch(ctx context.Context, req *AgentRequ
 		roundThinking := resp.Content
 
 		if len(resp.ToolCalls) == 0 {
-			output.Content = selfVerifyWithCallbacks(ctx, req.ChatModel, req.Config, req.StepID, resp.Content, output, req.Callbacks)
+			output.Content = resp.Content
 			if round == 1 {
 				output.AgentTrace.Mode = string(AgentModeDirect)
 			}
@@ -177,7 +177,7 @@ func (a *RouterAgent) runReActWithPlanSwitch(ctx context.Context, req *AgentRequ
 	if err != nil {
 		return output, fmt.Errorf("最终回复生成失败: %w", err)
 	}
-	output.Content = selfVerifyWithCallbacks(ctx, req.ChatModel, req.Config, req.StepID, resp.Content, output, req.Callbacks)
+	output.Content = resp.Content
 	updateTokenUsage(output, resp)
 	return output, nil
 }
@@ -222,4 +222,3 @@ func filterOutSwitchToPlan(tools []*schema.ToolInfo) []*schema.ToolInfo {
 	}
 	return filtered
 }
-

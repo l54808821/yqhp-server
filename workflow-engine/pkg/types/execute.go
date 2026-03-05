@@ -110,7 +110,6 @@ const (
 	EventTypeAIToolCallStart    ExecutionEventType = "ai_tool_call_start"
 	EventTypeAIToolCallComplete ExecutionEventType = "ai_tool_call_complete"
 	EventTypeAIPlanUpdate       ExecutionEventType = "ai_plan_update" // 合并原 started/step_update/completed/modified
-	EventTypeAIVerify           ExecutionEventType = "ai_verify"
 	EventTypeInteractionRequired ExecutionEventType = "ai_interaction_required"
 	EventTypeMessageComplete    ExecutionEventType = "message_complete"
 )

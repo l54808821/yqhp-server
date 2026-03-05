@@ -38,9 +38,6 @@ type AIStreamCallback interface {
 	// OnAIPlanUpdate 计划状态更新（合并原 started/step_update/completed/modified）
 	OnAIPlanUpdate(ctx context.Context, stepID, blockID string, update *PlanUpdate)
 
-	// OnAIVerify 自我验证状态通知
-	OnAIVerify(ctx context.Context, stepID, blockID, status string, verified bool)
-
 	// OnMessageComplete AI 消息完成
 	OnMessageComplete(ctx context.Context, stepID string, result *AIResult)
 
@@ -59,7 +56,6 @@ type AIResult struct {
 	TotalTokens      int    `json:"totalTokens"`
 	Model            string `json:"model,omitempty"`
 	FinishReason     string `json:"finishReason,omitempty"`
-	Verified         bool   `json:"verified,omitempty"`
 }
 
 // PlanUpdateAction 计划更新动作

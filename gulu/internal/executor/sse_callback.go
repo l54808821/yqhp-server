@@ -206,18 +206,6 @@ func (c *SSECallback) OnAIPlanUpdate(ctx context.Context, stepID, blockID string
 	})
 }
 
-func (c *SSECallback) OnAIVerify(ctx context.Context, stepID, blockID, status string, verified bool) {
-	c.writer.WriteEvent(&sse.Event{
-		Type: sse.EventAIVerify,
-		Data: map[string]interface{}{
-			"blockId":  blockID,
-			"stepId":   stepID,
-			"status":   status,
-			"verified": verified,
-		},
-	})
-}
-
 func (c *SSECallback) OnMessageComplete(ctx context.Context, stepID string, result *types.AIResult) {
 	c.writer.WriteEvent(&sse.Event{
 		Type: sse.EventMessageComplete,
@@ -229,8 +217,7 @@ func (c *SSECallback) OnMessageComplete(ctx context.Context, stepID string, resu
 				"completionTokens": result.CompletionTokens,
 				"totalTokens":      result.TotalTokens,
 			},
-			"model":    result.Model,
-			"verified": result.Verified,
+			"model": result.Model,
 		},
 	})
 }

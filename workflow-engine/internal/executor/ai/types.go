@@ -50,7 +50,7 @@ type AgentTrace struct {
 	Mode     string       `json:"mode"`
 	ReAct    []ReActRound `json:"react,omitempty"`
 	Plan     *PlanTrace   `json:"plan,omitempty"`
-	Verified bool         `json:"verified,omitempty"`
+
 }
 
 // ReActRound 单轮 ReAct 推理记录

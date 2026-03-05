@@ -427,16 +427,16 @@ func executeToolsConcurrently(
 			toolCtx, toolCancel := context.WithTimeout(ctx, toolTimeout)
 			defer toolCancel()
 
-		typesToolCall := &types.ToolCall{
-			ID:            toolCall.ID,
-			Name:          toolCall.Function.Name,
-			Arguments:     toolCall.Function.Arguments,
-			PlanStepIndex: planStepIndex,
-		}
-		toolBlockID := callbacks.BlockID.Next()
-		if callbacks.Stream != nil {
-			callbacks.Stream.OnAIToolCallStart(toolCtx, stepID, toolBlockID, typesToolCall)
-		}
+			typesToolCall := &types.ToolCall{
+				ID:            toolCall.ID,
+				Name:          toolCall.Function.Name,
+				Arguments:     toolCall.Function.Arguments,
+				PlanStepIndex: planStepIndex,
+			}
+			toolBlockID := callbacks.BlockID.Next()
+			if callbacks.Stream != nil {
+				callbacks.Stream.OnAIToolCallStart(toolCtx, stepID, toolBlockID, typesToolCall)
+			}
 
 			callStart := time.Now()
 			toolName := toolCall.Function.Name
@@ -536,77 +536,6 @@ func truncateForLog(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "...(truncated)"
-}
-
-// --- 自我验证 ---
-
-const selfVerifyPrompt = `请验证你即将给出的回答，按以下维度检查：
-
-1. 完整性：回答是否覆盖了用户问题的所有方面？有没有遗漏的要点？
-2. 准确性：回答中的事实和数据是否正确？是否有未经验证的假设？
-3. 逻辑性：推理过程是否合理？结论是否从前提中自然得出？
-4. 实用性：回答是否可操作？用户能否直接使用？
-
-如果发现问题，请修正后输出改进版本。如果回答已经足够好，直接输出原回答即可（可做微调润色）。
-
-你之前的回答草稿：
-`
-
-// selfVerifyWithCallbacks 对生成的回答进行自我验证
-// 验证阶段使用非流式调用：草稿已流式推送，验证后内容通过 message_complete 覆盖
-func selfVerifyWithCallbacks(ctx context.Context, chatModel model.ToolCallingChatModel, config *AIConfig, stepID string, originalContent string, output *AIOutput, callbacks *AgentCallbacks) string {
-	if config.EnableSelfVerify == nil || !*config.EnableSelfVerify {
-		return originalContent
-	}
-	if len([]rune(originalContent)) < 100 {
-		return originalContent
-	}
-
-	logger.Debug("[SelfVerify] 开始自我验证, stepID=%s, 原始回答长度=%d", stepID, len([]rune(originalContent)))
-
-	var verifyBlockID string
-	if callbacks != nil && callbacks.Stream != nil {
-		verifyBlockID = callbacks.BlockID.Next()
-		callbacks.Stream.OnAIVerify(ctx, stepID, verifyBlockID, "verifying", false)
-	}
-
-	verifyMessages := []*schema.Message{
-		schema.SystemMessage("你是一个严谨的回答质量检查员。"),
-		schema.UserMessage(selfVerifyPrompt + originalContent),
-	}
-
-	verifyConfig := *config
-	verifyConfig.Streaming = false
-
-	resp, err := callLLM(ctx, chatModel, verifyMessages, nil, &verifyConfig, stepID, nil)
-	if err != nil {
-		logger.Warn("[SelfVerify] 自我验证调用失败: %v, 返回原始回答", err)
-		if callbacks != nil && callbacks.Stream != nil {
-			callbacks.Stream.OnAIVerify(ctx, stepID, verifyBlockID, "completed", false)
-		}
-		return originalContent
-	}
-
-	updateTokenUsage(output, resp)
-
-	if resp.Content == "" {
-		if callbacks != nil && callbacks.Stream != nil {
-			callbacks.Stream.OnAIVerify(ctx, stepID, verifyBlockID, "completed", false)
-		}
-		return originalContent
-	}
-
-	verified := true
-	if output.AgentTrace != nil {
-		output.AgentTrace.Verified = true
-	}
-
-	if callbacks != nil && callbacks.Stream != nil {
-		callbacks.Stream.OnAIVerify(ctx, stepID, verifyBlockID, "completed", verified)
-	}
-
-	logger.Debug("[SelfVerify] 自我验证完成, 原始长度=%d, 验证后长度=%d", len([]rune(originalContent)), len([]rune(resp.Content)))
-	return resp.Content
 }
 
 // --- Token 统计辅助 ---

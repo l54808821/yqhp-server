@@ -35,9 +35,6 @@ type AIConfig struct {
 	EnablePlanMode *bool `json:"enable_plan_mode,omitempty"`
 	MaxPlanSteps   int   `json:"max_plan_steps,omitempty"`
 
-	// ===== 自我验证配置 =====
-	EnableSelfVerify *bool `json:"enable_self_verify,omitempty"`
-
 	// ===== Fallback 配置 =====
 	FallbackModels []FallbackModelConfig `json:"fallback_models,omitempty"`
 

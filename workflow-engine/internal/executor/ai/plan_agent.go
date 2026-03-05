@@ -694,8 +694,5 @@ func toAIResult(output *AIOutput) *types.AIResult {
 		Model:            output.Model,
 		FinishReason:     output.FinishReason,
 	}
-	if output.AgentTrace != nil {
-		r.Verified = output.AgentTrace.Verified
-	}
 	return r
 }

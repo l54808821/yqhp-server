@@ -863,15 +863,6 @@ func (c *streamCallback) OnAIPlanUpdate(ctx context.Context, stepID, blockID str
 	c.writer.WriteEvent(string(types.EventTypeAIPlanUpdate), data)
 }
 
-func (c *streamCallback) OnAIVerify(ctx context.Context, stepID, blockID, status string, verified bool) {
-	c.writer.WriteEvent(string(types.EventTypeAIVerify), map[string]interface{}{
-		"blockId":  blockID,
-		"stepId":   stepID,
-		"status":   status,
-		"verified": verified,
-	})
-}
-
 func (c *streamCallback) OnMessageComplete(ctx context.Context, stepID string, result *types.AIResult) {
 	c.writer.WriteEvent(string(types.EventTypeMessageComplete), map[string]interface{}{
 		"stepId":  stepID,

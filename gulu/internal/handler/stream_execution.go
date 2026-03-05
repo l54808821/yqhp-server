@@ -118,13 +118,13 @@ func (h *StreamExecutionHandler) Execute(c *fiber.Ctx) error {
 				return response.Error(c, "解析 AI 模型失败: "+err.Error())
 			}
 			if err := h.resolveSkillConfigs(c, req.Step.Config); err != nil {
-				logger.Warn("解析 Skill 配置失败", "error", err)
+				logger.Warn("解析 Skill 配置失败: %v", err)
 			}
 			if err := h.resolveKnowledgeBaseConfigs(c, req.Step.Config); err != nil {
-				logger.Warn("解析知识库配置失败", "error", err)
+				logger.Warn("解析知识库配置失败: %v", err)
 			}
 			if err := h.resolveMCPServerConfigs(c, req.Step.Config); err != nil {
-				logger.Warn("解析 MCP 服务器配置失败", "error", err)
+				logger.Warn("解析 MCP 服务器配置失败: %v", err)
 			}
 		}
 
@@ -204,7 +204,7 @@ func (h *StreamExecutionHandler) Execute(c *fiber.Ctx) error {
 
 	// 过滤选中的步骤
 	if len(req.SelectedSteps) > 0 {
-		logger.Debug("过滤选中的步骤", "count", len(req.SelectedSteps))
+		logger.Debug("过滤选中的步骤, count=%d", len(req.SelectedSteps))
 		execCtx.EngineWf.Steps = filterSteps(execCtx.EngineWf.Steps, req.SelectedSteps)
 	}
 
@@ -257,7 +257,7 @@ func (h *StreamExecutionHandler) prepareExecutionFromDefinition(c *fiber.Ctx, de
 		merger := workflow.NewConfigMerger(c.UserContext(), envID)
 		mc, err := merger.Merge()
 		if err != nil {
-			logger.Warn("加载环境配置失败", "envId", envID, "error", err)
+			logger.Warn("加载环境配置失败: envId=%d, error=%v", envID, err)
 			// 不阻断执行，只记录警告
 		} else {
 			mergedConfig = mc
@@ -292,7 +292,7 @@ func (h *StreamExecutionHandler) prepareExecutionFromDefinition(c *fiber.Ctx, de
 		return nil, &executionError{code: "CONVERT_ERROR", message: "工作流转换失败: " + err.Error()}
 	}
 
-	logger.Debug("工作流转换完成", "id", engineWf.ID, "name", engineWf.Name, "steps", len(engineWf.Steps))
+	logger.Debug("工作流转换完成: id=%s, name=%s, steps=%d", engineWf.ID, engineWf.Name, len(engineWf.Steps))
 
 	// 解析步骤中的环境配置引用（域名、数据库、MQ）
 	// 将 domainCode/database_config/mq_config 等引用解析为执行器能直接消费的实际配置
@@ -367,7 +367,7 @@ func (h *StreamExecutionHandler) executeSSE(c *fiber.Ctx, execCtx *ExecutionCont
 	c.Context().SetBodyStreamWriter(func(w *bufio.Writer) {
 		defer func() {
 			if r := recover(); r != nil {
-				logger.Error("SSE StreamWriter panic", "error", r)
+				logger.Error("SSE StreamWriter panic: %v", r)
 			}
 		}()
 
@@ -523,7 +523,7 @@ func resolveTargetSlaves(definition interface{}, ctx context.Context) (*types.Sl
 		if strategy == "manual" {
 			return nil, fmt.Errorf("指定的执行机不可用: %s", err.Error())
 		}
-		logger.Warn("执行策略选择失败，回退到本地执行", "error", err)
+		logger.Warn("执行策略选择失败，回退到本地执行: %v", err)
 		return nil, nil
 	}
 
@@ -731,16 +731,16 @@ func (h *StreamExecutionHandler) resolveAIModelConfigsInWorkflow(c *fiber.Ctx, w
 			if configRaw, ok := stepMap["config"]; ok {
 				if config, ok := configRaw.(map[string]interface{}); ok {
 					if err := h.resolveAIModelConfig(c, config); err != nil {
-						logger.Warn("解析 AI 模型配置失败", "error", err)
+						logger.Warn("解析 AI 模型配置失败: %v", err)
 					}
 					if err := h.resolveSkillConfigs(c, config); err != nil {
-						logger.Warn("解析 Skill 配置失败", "error", err)
+						logger.Warn("解析 Skill 配置失败: %v", err)
 					}
 					if err := h.resolveKnowledgeBaseConfigs(c, config); err != nil {
-						logger.Warn("解析知识库配置失败", "error", err)
+						logger.Warn("解析知识库配置失败: %v", err)
 					}
 					if err := h.resolveMCPServerConfigs(c, config); err != nil {
-						logger.Warn("解析 MCP 服务器配置失败", "error", err)
+						logger.Warn("解析 MCP 服务器配置失败: %v", err)
 					}
 				}
 			}
@@ -807,11 +807,11 @@ func (h *StreamExecutionHandler) resolveSkillConfigs(c *fiber.Ctx, config map[st
 	for _, id := range skillIDs {
 		skillInfo, err := skillLogic.GetByID(id)
 		if err != nil {
-			logger.Warn("获取 Skill 失败", "id", id, "error", err)
+			logger.Warn("获取 Skill 失败: id=%d, error=%v", id, err)
 			continue
 		}
 		if skillInfo.Status != 1 {
-			logger.Warn("Skill 已禁用，跳过", "id", id, "name", skillInfo.Name)
+			logger.Warn("Skill 已禁用，跳过: id=%d, name=%s", id, skillInfo.Name)
 			continue
 		}
 		body, _ := skillLogic.GetSKILLMDContent(skillInfo.ID)
@@ -866,11 +866,11 @@ func (h *StreamExecutionHandler) resolveKnowledgeBaseConfigs(c *fiber.Ctx, confi
 	for _, id := range kbIDs {
 		kbInfo, err := kbLogic.GetByID(id)
 		if err != nil {
-			logger.Warn("获取知识库失败", "id", id, "error", err)
+			logger.Warn("获取知识库失败: id=%d, error=%v", id, err)
 			continue
 		}
 		if kbInfo.Status != 1 {
-			logger.Warn("知识库已禁用，跳过", "id", id, "name", kbInfo.Name)
+			logger.Warn("知识库已禁用，跳过: id=%d, name=%s", id, kbInfo.Name)
 			continue
 		}
 
@@ -963,11 +963,11 @@ func (h *StreamExecutionHandler) resolveMCPServerConfigs(c *fiber.Ctx, config ma
 	for _, id := range ids {
 		info, err := mcpLogic.GetByID(id)
 		if err != nil {
-			logger.Warn("获取 MCP 服务器失败", "id", id, "error", err)
+			logger.Warn("获取 MCP 服务器失败: id=%d, error=%v", id, err)
 			continue
 		}
 		if info.Status != 1 {
-			logger.Warn("MCP 服务器已禁用，跳过", "id", id, "name", info.Name)
+			logger.Warn("MCP 服务器已禁用，跳过: id=%d, name=%s", id, info.Name)
 			continue
 		}
 

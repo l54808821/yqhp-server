@@ -197,7 +197,7 @@ func (e *StreamExecutor) executeViaRunner(ctx context.Context, wf *types.Workflo
 	})
 
 	if result != nil {
-		logger.Debug("执行完成", "exec_id", result.ExecutionID, "status", result.Status)
+		logger.Debug("执行完成: exec_id=%s, status=%s", result.ExecutionID, result.Status)
 	}
 
 	return err

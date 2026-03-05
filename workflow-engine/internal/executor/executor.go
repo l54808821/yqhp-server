@@ -579,8 +579,9 @@ func (n *NestedExecutorBase) ExecuteNestedSteps(ctx context.Context, steps []typ
 		// 获取步骤类型的执行器
 		executor, err := n.GetExecutor(step.Type)
 		if err != nil {
+			failResult := &types.StepResult{Status: types.ResultStatusFailed, Error: err}
 			if callback != nil {
-				callback.OnStepFailed(ctx, step, err, 0, parentID, iteration)
+				callback.OnStepComplete(ctx, step, failResult, parentID, iteration)
 			}
 			return results, err
 		}
@@ -588,8 +589,9 @@ func (n *NestedExecutorBase) ExecuteNestedSteps(ctx context.Context, steps []typ
 		// 执行步骤
 		result, err := executor.Execute(ctx, step, execCtx)
 		if err != nil {
+			failResult := &types.StepResult{Status: types.ResultStatusFailed, Error: err}
 			if callback != nil {
-				callback.OnStepFailed(ctx, step, err, 0, parentID, iteration)
+				callback.OnStepComplete(ctx, step, failResult, parentID, iteration)
 			}
 			return results, err
 		}
@@ -598,13 +600,9 @@ func (n *NestedExecutorBase) ExecuteNestedSteps(ctx context.Context, steps []typ
 		execCtx.SetResult(step.ID, result)
 		results = append(results, result)
 
-		// 发送步骤完成事件（不管成功还是失败，都先通过 OnStepComplete 传递完整的 StepResult）
+		// 统一通过 OnStepComplete 发送步骤完成事件（成功/失败/跳过）
 		if callback != nil {
 			callback.OnStepComplete(ctx, step, result, parentID, iteration)
-			// 如果失败，额外通知 OnStepFailed
-			if result.Status != types.ResultStatusSuccess {
-				callback.OnStepFailed(ctx, step, result.Error, result.Duration, parentID, iteration)
-			}
 		}
 
 		// 处理错误策略

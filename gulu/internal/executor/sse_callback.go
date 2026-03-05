@@ -2,14 +2,13 @@ package executor
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
 	"yqhp/gulu/internal/sse"
 	"yqhp/workflow-engine/pkg/types"
 )
 
-// SSECallback SSE 回调实现
+// SSECallback SSE 回调实现（实现 ExecutionCallback + AIStreamCallback）
 type SSECallback struct {
 	writer  *sse.Writer
 	session *Session
@@ -23,7 +22,8 @@ func NewSSECallback(writer *sse.Writer, session *Session) *SSECallback {
 	}
 }
 
-// OnStepStart 步骤开始
+// ============ ExecutionCallback ============
+
 func (c *SSECallback) OnStepStart(ctx context.Context, step *types.Step, parentID string, iteration int) {
 	c.writer.WriteEvent(&sse.Event{
 		Type: sse.EventStepStarted,
@@ -37,33 +37,15 @@ func (c *SSECallback) OnStepStart(ctx context.Context, step *types.Step, parentI
 	})
 }
 
-// OnStepComplete 步骤完成（成功和失败都会调用此方法）
-// task_engine 中所有完成的步骤都统一通过 OnStepComplete 传递完整的 StepResult，
-// 失败只是执行结果的一种状态，通过 result.Status 区分。
 func (c *SSECallback) OnStepComplete(ctx context.Context, step *types.Step, result *types.StepResult, parentID string, iteration int) {
 	isSuccess := result.Status == types.ResultStatusSuccess
 
-	// 更新统计计数
 	if isSuccess {
 		c.session.IncrementSuccess()
-	} else {
+	} else if result.Status != types.ResultStatusSkipped {
 		c.session.IncrementFailed()
 	}
 
-	// 转换 output 为 map（用于 SSE 事件）
-	var outputMap map[string]interface{}
-	if result.Output != nil {
-		if m, ok := result.Output.(map[string]interface{}); ok {
-			outputMap = m
-		} else {
-			// 通过 JSON 序列化转换
-			if jsonBytes, err := json.Marshal(result.Output); err == nil {
-				json.Unmarshal(jsonBytes, &outputMap)
-			}
-		}
-	}
-
-	// 收集步骤执行结果（用于阻塞模式返回）
 	stepResult := StepExecutionResult{
 		StepID:     step.ID,
 		StepName:   step.Name,
@@ -77,86 +59,34 @@ func (c *SSECallback) OnStepComplete(ctx context.Context, step *types.Step, resu
 	}
 	c.session.AddStepResult(stepResult)
 
-	// 发送 SSE 事件
-	if isSuccess {
-		c.writer.WriteEvent(&sse.Event{
-			Type: sse.EventStepCompleted,
-			Data: &sse.StepCompletedData{
-				StepID:    step.ID,
-				StepName:  step.Name,
-				StepType:  step.Type,
-				ParentID:  parentID,
-				Iteration: iteration,
-				Status:    "success",
-				Success:   true,
-				Duration:  result.Duration.Milliseconds(),
-				Output:    outputMap,
-				Result:    result.Output,
-			},
-		})
-	} else {
-		errMsg := ""
-		if result.Error != nil {
-			errMsg = result.Error.Error()
-		}
-		c.writer.WriteEvent(&sse.Event{
-			Type: sse.EventStepFailed,
-			Data: &sse.StepFailedData{
-				StepID:    step.ID,
-				StepName:  step.Name,
-				StepType:  step.Type,
-				ParentID:  parentID,
-				Iteration: iteration,
-				Status:    "failed",
-				Error:     errMsg,
-				Duration:  result.Duration.Milliseconds(),
-				Result:    result.Output,
-			},
-		})
+	status := "success"
+	switch result.Status {
+	case types.ResultStatusFailed, types.ResultStatusTimeout:
+		status = "failed"
+	case types.ResultStatusSkipped:
+		status = "skipped"
 	}
-}
 
-// OnStepFailed 步骤失败通知
-// 结果已在 OnStepComplete 中完整处理（含 Output、Error、统计计数），
-// 此方法仅作为额外的失败通知钩子，当前无需额外操作。
-func (c *SSECallback) OnStepFailed(ctx context.Context, step *types.Step, err error, duration time.Duration, parentID string, iteration int) {
-	// 结果已在 OnStepComplete 中处理，不需要重复
-}
-
-// OnStepSkipped 步骤被跳过
-func (c *SSECallback) OnStepSkipped(ctx context.Context, step *types.Step, reason string, parentID string, iteration int) {
-	c.writer.WriteEvent(&sse.Event{
-		Type: sse.EventStepSkipped,
-		Data: &sse.StepSkippedData{
-			StepID:    step.ID,
-			StepName:  step.Name,
-			StepType:  step.Type,
-			ParentID:  parentID,
-			Iteration: iteration,
-			Reason:    reason,
-		},
-	})
-}
-
-// OnProgress 进度更新
-func (c *SSECallback) OnProgress(ctx context.Context, current, total int, stepName string) {
-	percentage := 0
-	if total > 0 {
-		percentage = current * 100 / total
+	data := &sse.StepCompletedData{
+		StepID:     step.ID,
+		StepName:   step.Name,
+		StepType:   step.Type,
+		ParentID:   parentID,
+		Iteration:  iteration,
+		Status:     status,
+		DurationMs: result.Duration.Milliseconds(),
+		Result:     result.Output,
+	}
+	if result.Error != nil {
+		data.Error = result.Error.Error()
 	}
 
 	c.writer.WriteEvent(&sse.Event{
-		Type: sse.EventProgress,
-		Data: &sse.ProgressData{
-			CurrentStep: current,
-			TotalSteps:  total,
-			Percentage:  percentage,
-			StepName:    stepName,
-		},
+		Type: sse.EventStepCompleted,
+		Data: data,
 	})
 }
 
-// OnExecutionComplete 执行完成
 func (c *SSECallback) OnExecutionComplete(ctx context.Context, summary *types.ExecutionSummary) {
 	total, success, failed := c.session.GetStats()
 
@@ -168,7 +98,6 @@ func (c *SSECallback) OnExecutionComplete(ctx context.Context, summary *types.Ex
 		status = "stopped"
 	}
 
-	// 获取最终变量
 	finalVars := c.session.GetVariables()
 	envVars := c.session.GetEnvVariables()
 
@@ -187,44 +116,130 @@ func (c *SSECallback) OnExecutionComplete(ctx context.Context, summary *types.Ex
 	})
 }
 
-// ============ AI 相关回调 (实现 AICallback 接口) ============
+// ============ AIStreamCallback ============
 
-// OnAIChunk AI 流式输出块
-func (c *SSECallback) OnAIChunk(ctx context.Context, stepID string, chunk string, index int) {
+func (c *SSECallback) OnAIChunk(ctx context.Context, stepID, blockID, chunk string) {
 	c.writer.WriteEvent(&sse.Event{
 		Type: sse.EventAIChunk,
-		Data: &sse.AIChunkData{
-			StepID: stepID,
-			Chunk:  chunk,
-			Index:  index,
+		Data: map[string]interface{}{
+			"blockId": blockID,
+			"stepId":  stepID,
+			"chunk":   chunk,
 		},
 	})
 }
 
-// OnAIComplete AI 完成
-func (c *SSECallback) OnAIComplete(ctx context.Context, stepID string, result *types.AIResult) {
+func (c *SSECallback) OnAIThinking(ctx context.Context, stepID, blockID, chunk string) {
 	c.writer.WriteEvent(&sse.Event{
-		Type: sse.EventAIComplete,
-		Data: &sse.AICompleteData{
-			StepID:           stepID,
-			Content:          result.Content,
-			PromptTokens:     result.PromptTokens,
-			CompletionTokens: result.CompletionTokens,
-			TotalTokens:      result.TotalTokens,
-			Model:            result.Model,
-			FinishReason:     result.FinishReason,
-			Verified:         result.Verified,
+		Type: sse.EventAIThinking,
+		Data: map[string]interface{}{
+			"blockId": blockID,
+			"stepId":  stepID,
+			"chunk":   chunk,
 		},
 	})
 }
 
-// OnAIError AI 错误
+func (c *SSECallback) OnAIToolCallStart(ctx context.Context, stepID, blockID string, toolCall *types.ToolCall) {
+	c.writer.WriteEvent(&sse.Event{
+		Type: sse.EventAIToolCallStart,
+		Data: map[string]interface{}{
+			"blockId":       blockID,
+			"stepId":        stepID,
+			"toolName":      toolCall.Name,
+			"arguments":     toolCall.Arguments,
+			"planStepIndex": toolCall.PlanStepIndex,
+		},
+	})
+}
+
+func (c *SSECallback) OnAIToolCallComplete(ctx context.Context, stepID, blockID string, toolCall *types.ToolCall, result *types.ToolResult) {
+	c.writer.WriteEvent(&sse.Event{
+		Type: sse.EventAIToolCallComplete,
+		Data: map[string]interface{}{
+			"blockId":    blockID,
+			"stepId":     stepID,
+			"toolName":   toolCall.Name,
+			"result":     result.GetLLMContent(),
+			"isError":    result.IsError,
+			"durationMs": toolCall.DurationMs,
+		},
+	})
+}
+
+func (c *SSECallback) OnAIPlanUpdate(ctx context.Context, stepID, blockID string, update *types.PlanUpdate) {
+	data := map[string]interface{}{
+		"blockId": blockID,
+		"stepId":  stepID,
+		"action":  update.Action,
+	}
+	if update.Reason != "" {
+		data["reason"] = update.Reason
+	}
+	if update.Steps != nil {
+		data["steps"] = update.Steps
+	}
+	if update.StepIndex != 0 {
+		data["stepIndex"] = update.StepIndex
+	}
+	if update.Status != "" {
+		data["status"] = update.Status
+	}
+	if update.Result != "" {
+		data["result"] = update.Result
+	}
+	if update.Error != "" {
+		data["error"] = update.Error
+	}
+	if update.FromStepIndex != 0 {
+		data["fromStepIndex"] = update.FromStepIndex
+	}
+	if update.NewSteps != nil {
+		data["newSteps"] = update.NewSteps
+	}
+	if update.Synthesis != "" {
+		data["synthesis"] = update.Synthesis
+	}
+	c.writer.WriteEvent(&sse.Event{
+		Type: sse.EventAIPlanUpdate,
+		Data: data,
+	})
+}
+
+func (c *SSECallback) OnAIVerify(ctx context.Context, stepID, blockID, status string, verified bool) {
+	c.writer.WriteEvent(&sse.Event{
+		Type: sse.EventAIVerify,
+		Data: map[string]interface{}{
+			"blockId":  blockID,
+			"stepId":   stepID,
+			"status":   status,
+			"verified": verified,
+		},
+	})
+}
+
+func (c *SSECallback) OnMessageComplete(ctx context.Context, stepID string, result *types.AIResult) {
+	c.writer.WriteEvent(&sse.Event{
+		Type: sse.EventMessageComplete,
+		Data: map[string]interface{}{
+			"stepId":  stepID,
+			"content": result.Content,
+			"usage": map[string]int{
+				"promptTokens":     result.PromptTokens,
+				"completionTokens": result.CompletionTokens,
+				"totalTokens":      result.TotalTokens,
+			},
+			"model":    result.Model,
+			"verified": result.Verified,
+		},
+	})
+}
+
 func (c *SSECallback) OnAIError(ctx context.Context, stepID string, err error) {
 	errMsg := ""
 	if err != nil {
 		errMsg = err.Error()
 	}
-
 	c.writer.WriteEvent(&sse.Event{
 		Type: sse.EventAIError,
 		Data: &sse.AIErrorData{
@@ -234,9 +249,7 @@ func (c *SSECallback) OnAIError(ctx context.Context, stepID string, err error) {
 	})
 }
 
-// OnAIInteractionRequired AI 需要交互
 func (c *SSECallback) OnAIInteractionRequired(ctx context.Context, stepID string, request *types.InteractionRequest) (*types.InteractionResponse, error) {
-	// 转换选项
 	var options []sse.InteractionOption
 	for _, opt := range request.Options {
 		options = append(options, sse.InteractionOption{
@@ -245,7 +258,6 @@ func (c *SSECallback) OnAIInteractionRequired(ctx context.Context, stepID string
 		})
 	}
 
-	// 发送交互请求事件
 	c.writer.WriteEvent(&sse.Event{
 		Type: sse.EventAIInteraction,
 		Data: &sse.AIInteractionData{
@@ -258,7 +270,6 @@ func (c *SSECallback) OnAIInteractionRequired(ctx context.Context, stepID string
 		},
 	})
 
-	// 等待用户响应
 	resp, err := c.session.WaitForInteraction(ctx, time.Duration(request.Timeout)*time.Second)
 	if err != nil {
 		return nil, err
@@ -270,142 +281,19 @@ func (c *SSECallback) OnAIInteractionRequired(ctx context.Context, stepID string
 	}, nil
 }
 
-// WriteHeartbeat 写入心跳
+// ============ 辅助方法 ============
+
 func (c *SSECallback) WriteHeartbeat() error {
 	return c.writer.WriteHeartbeat()
 }
 
-// WriteError 写入错误
 func (c *SSECallback) WriteError(code, message, details string, recoverable bool) error {
 	return c.writer.WriteError(code, message, details, recoverable)
 }
 
-// WriteErrorCode 使用错误码写入错误
 func (c *SSECallback) WriteErrorCode(code sse.ErrorCode, message string, details string) error {
 	return c.writer.WriteErrorCode(code, message, details)
 }
 
-// 确保 SSECallback 实现了 ExecutionCallback 接口
 var _ types.ExecutionCallback = (*SSECallback)(nil)
-
-// 确保 SSECallback 实现了 AICallback 接口
-var _ types.AICallback = (*SSECallback)(nil)
-
-// 确保 SSECallback 实现了 AIToolCallback 接口
-var _ types.AIToolCallback = (*SSECallback)(nil)
-
-// ============ AI 推理过程回调 (实现 AIThinkingCallback 接口) ============
-
-// OnAIThinking AI 推理思考（ReAct 模式每轮的推理内容）
-func (c *SSECallback) OnAIThinking(ctx context.Context, stepID string, round int, thinking string) {
-	c.writer.WriteEvent(&sse.Event{
-		Type: sse.EventAIThinking,
-		Data: &sse.AIThinkingData{
-			StepID:   stepID,
-			Round:    round,
-			Thinking: thinking,
-		},
-	})
-}
-
-// 确保 SSECallback 实现了 AIThinkingCallback 接口
-var _ types.AIThinkingCallback = (*SSECallback)(nil)
-
-// ============ AI Plan 回调 (实现 AIPlanCallback 接口) ============
-
-// OnAIPlanStarted 计划生成完成
-func (c *SSECallback) OnAIPlanStarted(ctx context.Context, stepID string, reason string, steps []types.PlanStepInfo) {
-	sseSteps := make([]sse.AIPlanStepData, len(steps))
-	for i, s := range steps {
-		sseSteps[i] = sse.AIPlanStepData{
-			Index: s.Index,
-			Task:  s.Task,
-		}
-	}
-	c.writer.WriteEvent(&sse.Event{
-		Type: sse.EventAIPlanStarted,
-		Data: &sse.AIPlanStartedData{
-			StepID: stepID,
-			Reason: reason,
-			Steps:  sseSteps,
-		},
-	})
-}
-
-// OnAIPlanStepUpdate 计划步骤状态更新
-func (c *SSECallback) OnAIPlanStepUpdate(ctx context.Context, stepID string, stepIndex int, status string, result string) {
-	c.writer.WriteEvent(&sse.Event{
-		Type: sse.EventAIPlanStepUpdate,
-		Data: &sse.AIPlanStepUpdateData{
-			StepID:    stepID,
-			StepIndex: stepIndex,
-			Status:    status,
-			Result:    result,
-		},
-	})
-}
-
-// OnAIPlanCompleted 计划执行完成
-func (c *SSECallback) OnAIPlanCompleted(ctx context.Context, stepID string, synthesis string) {
-	c.writer.WriteEvent(&sse.Event{
-		Type: sse.EventAIPlanCompleted,
-		Data: &sse.AIPlanCompletedData{
-			StepID:    stepID,
-			Synthesis: synthesis,
-		},
-	})
-}
-
-// OnAIPlanModified 计划被动态修改
-func (c *SSECallback) OnAIPlanModified(ctx context.Context, stepID string, fromStepIndex int, reason string, newSteps []types.PlanStepInfo) {
-	sseSteps := make([]sse.AIPlanStepData, len(newSteps))
-	for i, s := range newSteps {
-		sseSteps[i] = sse.AIPlanStepData{
-			Index: s.Index,
-			Task:  s.Task,
-		}
-	}
-	c.writer.WriteEvent(&sse.Event{
-		Type: sse.EventAIPlanModified,
-		Data: &sse.AIPlanModifiedData{
-			StepID:        stepID,
-			FromStepIndex: fromStepIndex,
-			Reason:        reason,
-			NewSteps:      sseSteps,
-		},
-	})
-}
-
-// 确保 SSECallback 实现了 AIPlanCallback 接口
-var _ types.AIPlanCallback = (*SSECallback)(nil)
-
-// ============ AI 工具调用回调 (实现 AIToolCallback 接口) ============
-
-// OnAIToolCallStart 工具调用开始
-func (c *SSECallback) OnAIToolCallStart(ctx context.Context, stepID string, toolCall *types.ToolCall) {
-	c.writer.WriteEvent(&sse.Event{
-		Type: sse.EventAIToolCallStart,
-		Data: &sse.AIToolCallStartData{
-			StepID:        stepID,
-			ToolName:      toolCall.Name,
-			Arguments:     toolCall.Arguments,
-			PlanStepIndex: toolCall.PlanStepIndex,
-		},
-	})
-}
-
-// OnAIToolCallComplete 工具调用完成
-func (c *SSECallback) OnAIToolCallComplete(ctx context.Context, stepID string, toolCall *types.ToolCall, result *types.ToolResult) {
-	c.writer.WriteEvent(&sse.Event{
-		Type: sse.EventAIToolCallComplete,
-		Data: &sse.AIToolCallCompleteData{
-			StepID:        stepID,
-			ToolName:      toolCall.Name,
-			Arguments:     toolCall.Arguments,
-			Result:        result.GetLLMContent(),
-			IsError:       result.IsError,
-			DurationMs:    toolCall.DurationMs,
-			PlanStepIndex: toolCall.PlanStepIndex,
-		},
-	})
-}
+var _ types.AIStreamCallback = (*SSECallback)(nil)

@@ -22,7 +22,7 @@ func (a *DirectAgent) Run(ctx context.Context, req *AgentRequest) (*AIOutput, er
 		AgentTrace: &AgentTrace{Mode: string(AgentModeDirect)},
 	}
 
-	resp, err := callLLM(ctx, req.ChatModel, req.Messages, nil, req.Config, req.StepID, req.Callbacks.AI)
+	resp, err := callLLM(ctx, req.ChatModel, req.Messages, nil, req.Config, req.StepID, req.Callbacks)
 	if err != nil {
 		return nil, err
 	}
@@ -30,8 +30,8 @@ func (a *DirectAgent) Run(ctx context.Context, req *AgentRequest) (*AIOutput, er
 	output.Content = resp.Content
 	updateTokenUsage(output, resp)
 
-	if req.Callbacks.AI != nil {
-		req.Callbacks.AI.OnAIComplete(ctx, req.StepID, toAIResult(output))
+	if req.Callbacks.Stream != nil {
+		req.Callbacks.Stream.OnMessageComplete(ctx, req.StepID, toAIResult(output))
 	}
 
 	return output, nil

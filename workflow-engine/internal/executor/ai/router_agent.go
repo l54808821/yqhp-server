@@ -104,7 +104,7 @@ func (a *RouterAgent) runReActWithPlanSwitch(ctx context.Context, req *AgentRequ
 	toolTimeout := getToolTimeout(req.Config)
 
 	for round := 1; round <= maxRounds; round++ {
-		resp, err := callLLM(ctx, req.ChatModel, messages, schemaTools, req.Config, req.StepID, req.Callbacks.AI)
+		resp, err := callLLM(ctx, req.ChatModel, messages, schemaTools, req.Config, req.StepID, req.Callbacks)
 		if err != nil {
 			return nil, err
 		}
@@ -120,15 +120,8 @@ func (a *RouterAgent) runReActWithPlanSwitch(ctx context.Context, req *AgentRequ
 			return output, nil
 		}
 
-		// 检查是否要切换到 Plan 模式
 		if enablePlan {
 			if planReason := findSwitchToPlan(resp.ToolCalls); planReason != "" {
-				if req.Callbacks.Thinking != nil {
-					req.Callbacks.Thinking.OnAIThinking(ctx, req.StepID, round,
-						fmt.Sprintf("切换到 Plan 模式：%s", planReason))
-				}
-
-				// 构建 Plan 请求，移除 switch_to_plan 工具
 				planReq := &AgentRequest{
 					Config:       req.Config,
 					ChatModel:    req.ChatModel,
@@ -153,8 +146,11 @@ func (a *RouterAgent) runReActWithPlanSwitch(ctx context.Context, req *AgentRequ
 			}
 		}
 
-		// 正常 ReAct 循环
-		notifyThinking(ctx, req, round, roundThinking, resp.ToolCalls)
+		// 只推送 LLM 返回的真实思考文本
+		if roundThinking != "" && req.Callbacks.Stream != nil {
+			thinkBlockID := req.Callbacks.BlockID.Next()
+			req.Callbacks.Stream.OnAIThinking(ctx, req.StepID, thinkBlockID, roundThinking)
+		}
 
 		messages = append(messages, resp)
 		toolResults := executeToolsConcurrently(
@@ -227,18 +223,3 @@ func filterOutSwitchToPlan(tools []*schema.ToolInfo) []*schema.ToolInfo {
 	return filtered
 }
 
-func notifyThinking(ctx context.Context, req *AgentRequest, round int, thinking string, toolCalls []schema.ToolCall) {
-	if req.Callbacks.Thinking == nil {
-		return
-	}
-	if thinking != "" {
-		req.Callbacks.Thinking.OnAIThinking(ctx, req.StepID, round, thinking)
-	} else {
-		toolNames := make([]string, 0, len(toolCalls))
-		for _, tc := range toolCalls {
-			toolNames = append(toolNames, tc.Function.Name)
-		}
-		req.Callbacks.Thinking.OnAIThinking(ctx, req.StepID, round,
-			fmt.Sprintf("调用工具: %s", strings.Join(toolNames, ", ")))
-	}
-}

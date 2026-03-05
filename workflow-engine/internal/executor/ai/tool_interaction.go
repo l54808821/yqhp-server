@@ -13,14 +13,14 @@ import (
 type HumanInteractionTool struct {
 	config   *AIConfig
 	stepID   string
-	callback types.AICallback
+	callback types.AIStreamCallback
 }
 
 func NewHumanInteractionTool(config *AIConfig) *HumanInteractionTool {
 	return &HumanInteractionTool{config: config}
 }
 
-func (t *HumanInteractionTool) SetContext(stepID string, callback types.AICallback) {
+func (t *HumanInteractionTool) SetContext(stepID string, callback types.AIStreamCallback) {
 	t.stepID = stepID
 	t.callback = callback
 }

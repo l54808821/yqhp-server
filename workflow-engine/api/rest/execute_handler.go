@@ -727,18 +727,15 @@ func (w *sseWriter) WriteEvent(eventType string, data interface{}) error {
 	return w.w.Flush()
 }
 
-// streamCallback 流式回调（实现 types.ExecutionCallback + AICallback + AIToolCallback + AIThinkingCallback 接口）
+// streamCallback 流式回调（实现 types.ExecutionCallback + types.AIStreamCallback 接口）
 type streamCallback struct {
 	writer  *sseWriter
 	session *ExecuteSession
 }
 
-// 确保 streamCallback 实现了 AI 相关接口
 var (
-	_ types.AICallback         = (*streamCallback)(nil)
-	_ types.AIToolCallback     = (*streamCallback)(nil)
-	_ types.AIThinkingCallback = (*streamCallback)(nil)
-	_ types.AIPlanCallback     = (*streamCallback)(nil)
+	_ types.ExecutionCallback = (*streamCallback)(nil)
+	_ types.AIStreamCallback  = (*streamCallback)(nil)
 )
 
 func (c *streamCallback) OnStepStart(ctx context.Context, step *types.Step, parentID string, iteration int) {
@@ -754,48 +751,128 @@ func (c *streamCallback) OnStepStart(ctx context.Context, step *types.Step, pare
 }
 
 func (c *streamCallback) OnStepComplete(ctx context.Context, step *types.Step, result *types.StepResult, parentID string, iteration int) {
-	isSuccess := result.Status == types.ResultStatusSuccess
-
 	c.session.mu.Lock()
-	if isSuccess {
+	switch result.Status {
+	case types.ResultStatusSuccess:
 		c.session.SuccessSteps++
-	} else {
+	case types.ResultStatusSkipped:
+		// skipped steps don't affect success/failed counts
+	default:
 		c.session.FailedSteps++
 	}
 	c.session.mu.Unlock()
 
-	c.writer.WriteEvent(string(types.EventTypeStepCompleted), &types.StepCompletedEvent{
-		StepID:     step.ID,
-		StepName:   step.Name,
-		Success:    isSuccess,
-		DurationMs: result.Duration.Milliseconds(),
-		Result:     result.Output, // 失败时也有 Output（如 HTTPResponseData 含错误信息）
-	})
-}
+	status := "success"
+	switch result.Status {
+	case types.ResultStatusFailed:
+		status = "failed"
+	case types.ResultStatusSkipped:
+		status = "skipped"
+	}
 
-func (c *streamCallback) OnStepFailed(ctx context.Context, step *types.Step, err error, duration time.Duration, parentID string, iteration int) {
-	// 结果已在 OnStepComplete 中处理，这里不需要重复
-}
+	eventData := map[string]interface{}{
+		"stepId":     step.ID,
+		"stepName":   step.Name,
+		"status":     status,
+		"success":    result.Status == types.ResultStatusSuccess,
+		"durationMs": result.Duration.Milliseconds(),
+	}
+	if result.Output != nil {
+		eventData["result"] = result.Output
+	}
+	if result.Error != nil {
+		eventData["error"] = result.Error.Error()
+	}
 
-func (c *streamCallback) OnStepSkipped(ctx context.Context, step *types.Step, reason string, parentID string, iteration int) {
-	// 跳过的步骤不影响统计
-}
-
-func (c *streamCallback) OnProgress(ctx context.Context, current, total int, stepName string) {
+	c.writer.WriteEvent(string(types.EventTypeStepCompleted), eventData)
 }
 
 func (c *streamCallback) OnExecutionComplete(ctx context.Context, summary *types.ExecutionSummary) {
 }
 
-func (c *streamCallback) OnAIChunk(ctx context.Context, stepID string, chunk string, index int) {
+func (c *streamCallback) OnAIChunk(ctx context.Context, stepID, blockID, chunk string) {
 	c.writer.WriteEvent(string(types.EventTypeAIChunk), map[string]interface{}{
+		"blockId": blockID,
 		"stepId":  stepID,
-		"content": chunk,
-		"index":   index,
+		"chunk":   chunk,
 	})
 }
 
-func (c *streamCallback) OnAIComplete(ctx context.Context, stepID string, result *types.AIResult) {
+func (c *streamCallback) OnAIThinking(ctx context.Context, stepID, blockID, chunk string) {
+	c.writer.WriteEvent(string(types.EventTypeAIThinking), map[string]interface{}{
+		"blockId": blockID,
+		"stepId":  stepID,
+		"chunk":   chunk,
+	})
+}
+
+func (c *streamCallback) OnAIToolCallStart(ctx context.Context, stepID, blockID string, toolCall *types.ToolCall) {
+	c.writer.WriteEvent(string(types.EventTypeAIToolCallStart), map[string]interface{}{
+		"blockId":       blockID,
+		"stepId":        stepID,
+		"toolName":      toolCall.Name,
+		"arguments":     toolCall.Arguments,
+		"planStepIndex": toolCall.PlanStepIndex,
+	})
+}
+
+func (c *streamCallback) OnAIToolCallComplete(ctx context.Context, stepID, blockID string, toolCall *types.ToolCall, result *types.ToolResult) {
+	c.writer.WriteEvent(string(types.EventTypeAIToolCallComplete), map[string]interface{}{
+		"blockId":    blockID,
+		"stepId":     stepID,
+		"toolName":   toolCall.Name,
+		"result":     result.Content,
+		"isError":    result.IsError,
+		"durationMs": toolCall.DurationMs,
+	})
+}
+
+func (c *streamCallback) OnAIPlanUpdate(ctx context.Context, stepID, blockID string, update *types.PlanUpdate) {
+	data := map[string]interface{}{
+		"blockId":  blockID,
+		"stepId":   stepID,
+		"action":   update.Action,
+	}
+	if update.Reason != "" {
+		data["reason"] = update.Reason
+	}
+	if update.Steps != nil {
+		data["steps"] = update.Steps
+	}
+	if update.StepIndex != 0 {
+		data["stepIndex"] = update.StepIndex
+	}
+	if update.Status != "" {
+		data["status"] = update.Status
+	}
+	if update.Result != "" {
+		data["result"] = update.Result
+	}
+	if update.Error != "" {
+		data["error"] = update.Error
+	}
+	if update.FromStepIndex != 0 {
+		data["fromStepIndex"] = update.FromStepIndex
+	}
+	if update.NewSteps != nil {
+		data["newSteps"] = update.NewSteps
+	}
+	if update.Synthesis != "" {
+		data["synthesis"] = update.Synthesis
+	}
+	c.writer.WriteEvent(string(types.EventTypeAIPlanUpdate), data)
+}
+
+func (c *streamCallback) OnAIVerify(ctx context.Context, stepID, blockID, status string, verified bool) {
+	c.writer.WriteEvent(string(types.EventTypeAIVerify), map[string]interface{}{
+		"blockId":  blockID,
+		"stepId":   stepID,
+		"status":   status,
+		"verified": verified,
+	})
+}
+
+func (c *streamCallback) OnMessageComplete(ctx context.Context, stepID string, result *types.AIResult) {
 	c.writer.WriteEvent(string(types.EventTypeMessageComplete), map[string]interface{}{
 		"stepId":  stepID,
 		"content": result.Content,
@@ -828,66 +905,6 @@ func (c *streamCallback) OnAIInteractionRequired(ctx context.Context, stepID str
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
-}
-
-func (c *streamCallback) OnAIThinking(ctx context.Context, stepID string, round int, thinking string) {
-	c.writer.WriteEvent(string(types.EventTypeAIThinking), map[string]interface{}{
-		"stepId":   stepID,
-		"round":    round,
-		"thinking": thinking,
-	})
-}
-
-func (c *streamCallback) OnAIToolCallStart(ctx context.Context, stepID string, toolCall *types.ToolCall) {
-	c.writer.WriteEvent(string(types.EventTypeAIToolCallStart), map[string]interface{}{
-		"stepId":        stepID,
-		"toolName":      toolCall.Name,
-		"arguments":     toolCall.Arguments,
-		"planStepIndex": toolCall.PlanStepIndex,
-	})
-}
-
-func (c *streamCallback) OnAIToolCallComplete(ctx context.Context, stepID string, toolCall *types.ToolCall, result *types.ToolResult) {
-	c.writer.WriteEvent(string(types.EventTypeAIToolCallComplete), map[string]interface{}{
-		"stepId":        stepID,
-		"toolName":      toolCall.Name,
-		"result":        result.Content,
-		"isError":       result.IsError,
-		"planStepIndex": toolCall.PlanStepIndex,
-	})
-}
-
-func (c *streamCallback) OnAIPlanStarted(ctx context.Context, stepID string, reason string, steps []types.PlanStepInfo) {
-	c.writer.WriteEvent(string(types.EventTypeAIPlanStarted), map[string]interface{}{
-		"stepId": stepID,
-		"reason": reason,
-		"steps":  steps,
-	})
-}
-
-func (c *streamCallback) OnAIPlanStepUpdate(ctx context.Context, stepID string, stepIndex int, status string, result string) {
-	c.writer.WriteEvent(string(types.EventTypeAIPlanStepUpdate), map[string]interface{}{
-		"stepId":    stepID,
-		"stepIndex": stepIndex,
-		"status":    status,
-		"result":    result,
-	})
-}
-
-func (c *streamCallback) OnAIPlanCompleted(ctx context.Context, stepID string, synthesis string) {
-	c.writer.WriteEvent(string(types.EventTypeAIPlanCompleted), map[string]interface{}{
-		"stepId":    stepID,
-		"synthesis": synthesis,
-	})
-}
-
-func (c *streamCallback) OnAIPlanModified(ctx context.Context, stepID string, fromStepIndex int, reason string, newSteps []types.PlanStepInfo) {
-	c.writer.WriteEvent(string(types.EventTypeAIPlanModified), map[string]interface{}{
-		"stepId":        stepID,
-		"fromStepIndex": fromStepIndex,
-		"reason":        reason,
-		"steps":         newSteps,
-	})
 }
 
 // blockingCallback 阻塞式回调（实现 types.ExecutionCallback 接口）
@@ -926,19 +943,6 @@ func (c *blockingCallback) OnStepComplete(ctx context.Context, step *types.Step,
 	c.session.StepResults = append(c.session.StepResults, stepResult)
 
 	c.session.mu.Unlock()
-}
-
-func (c *blockingCallback) OnStepFailed(ctx context.Context, step *types.Step, err error, duration time.Duration, parentID string, iteration int) {
-	// 结果已在 OnStepComplete 中收集，这里不需要重复处理
-	// OnStepFailed 仅作为额外的失败通知，可用于日志或报警等场景
-}
-
-func (c *blockingCallback) OnStepSkipped(ctx context.Context, step *types.Step, reason string, parentID string, iteration int) {
-	// 跳过的步骤不影响统计
-}
-
-func (c *blockingCallback) OnProgress(ctx context.Context, current, total int, stepName string) {
-	// 阻塞模式不需要进度
 }
 
 func (c *blockingCallback) OnExecutionComplete(ctx context.Context, summary *types.ExecutionSummary) {

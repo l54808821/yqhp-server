@@ -10,69 +10,86 @@ import (
 // 用于实时通知执行进度和结果
 type ExecutionCallback interface {
 	// OnStepStart 步骤开始执行时调用
-	// step: 当前步骤
-	// parentID: 父步骤ID（循环内的子步骤会有这个值）
-	// iteration: 迭代次数（从1开始，非循环步骤为0）
 	OnStepStart(ctx context.Context, step *Step, parentID string, iteration int)
 
-	// OnStepComplete 步骤执行成功时调用
-	// step: 当前步骤
-	// result: 执行结果
-	// parentID: 父步骤ID
-	// iteration: 迭代次数
+	// OnStepComplete 步骤执行完成时调用（成功、失败、跳过统一走此方法）
+	// result.Status 区分: success / failed / skipped
 	OnStepComplete(ctx context.Context, step *Step, result *StepResult, parentID string, iteration int)
 
-	// OnStepFailed 步骤执行失败时调用
-	// step: 当前步骤
-	// err: 错误信息
-	// duration: 执行耗时
-	// parentID: 父步骤ID
-	// iteration: 迭代次数
-	OnStepFailed(ctx context.Context, step *Step, err error, duration time.Duration, parentID string, iteration int)
-
-	// OnStepSkipped 步骤被跳过时调用
-	// step: 当前步骤
-	// reason: 跳过原因
-	// parentID: 父步骤ID
-	// iteration: 迭代次数
-	OnStepSkipped(ctx context.Context, step *Step, reason string, parentID string, iteration int)
-
-	// OnProgress 进度更新时调用
-	// current: 当前步骤序号
-	// total: 总步骤数（动态执行时可能不准确）
-	// stepName: 当前步骤名称
-	OnProgress(ctx context.Context, current, total int, stepName string)
-
 	// OnExecutionComplete 整个执行完成时调用
-	// summary: 执行汇总
 	OnExecutionComplete(ctx context.Context, summary *ExecutionSummary)
 }
 
-// AICallback AI 节点回调接口（可选实现）
-type AICallback interface {
-	// OnAIChunk AI 流式输出块
-	OnAIChunk(ctx context.Context, stepID string, chunk string, index int)
+// AIStreamCallback 统一的 AI 流式回调接口
+// 替代原 AICallback / AIToolCallback / AIThinkingCallback / AIPlanCallback
+type AIStreamCallback interface {
+	// OnAIChunk AI 流式文本块
+	OnAIChunk(ctx context.Context, stepID, blockID, chunk string)
 
-	// OnAIComplete AI 完成
-	OnAIComplete(ctx context.Context, stepID string, result *AIResult)
+	// OnAIThinking AI 思考内容（纯推理文本，不包含控制信号）
+	OnAIThinking(ctx context.Context, stepID, blockID, chunk string)
+
+	// OnAIToolCallStart 工具调用开始
+	OnAIToolCallStart(ctx context.Context, stepID, blockID string, toolCall *ToolCall)
+
+	// OnAIToolCallComplete 工具调用完成（通过 result.IsError 区分成功/失败）
+	OnAIToolCallComplete(ctx context.Context, stepID, blockID string, toolCall *ToolCall, result *ToolResult)
+
+	// OnAIPlanUpdate 计划状态更新（合并原 started/step_update/completed/modified）
+	OnAIPlanUpdate(ctx context.Context, stepID, blockID string, update *PlanUpdate)
+
+	// OnAIVerify 自我验证状态通知
+	OnAIVerify(ctx context.Context, stepID, blockID, status string, verified bool)
+
+	// OnMessageComplete AI 消息完成
+	OnMessageComplete(ctx context.Context, stepID string, result *AIResult)
 
 	// OnAIError AI 错误
 	OnAIError(ctx context.Context, stepID string, err error)
 
-	// OnAIInteractionRequired AI 需要交互
-	// 返回用户响应，如果超时返回 nil
+	// OnAIInteractionRequired AI 需要交互，返回用户响应
 	OnAIInteractionRequired(ctx context.Context, stepID string, request *InteractionRequest) (*InteractionResponse, error)
 }
 
 // AIResult AI 执行结果
 type AIResult struct {
 	Content          string `json:"content"`
-	PromptTokens     int    `json:"prompt_tokens"`
-	CompletionTokens int    `json:"completion_tokens"`
-	TotalTokens      int    `json:"total_tokens"`
+	PromptTokens     int    `json:"promptTokens"`
+	CompletionTokens int    `json:"completionTokens"`
+	TotalTokens      int    `json:"totalTokens"`
 	Model            string `json:"model,omitempty"`
-	FinishReason     string `json:"finish_reason,omitempty"`
+	FinishReason     string `json:"finishReason,omitempty"`
 	Verified         bool   `json:"verified,omitempty"`
+}
+
+// PlanUpdateAction 计划更新动作
+type PlanUpdateAction string
+
+const (
+	PlanActionStarted    PlanUpdateAction = "started"
+	PlanActionStepUpdate PlanUpdateAction = "step_update"
+	PlanActionModified   PlanUpdateAction = "modified"
+	PlanActionCompleted  PlanUpdateAction = "completed"
+)
+
+// PlanUpdate 计划状态更新数据
+type PlanUpdate struct {
+	Action        PlanUpdateAction `json:"action"`
+	Reason        string           `json:"reason,omitempty"`
+	Steps         []PlanStepInfo   `json:"steps,omitempty"`
+	StepIndex     int              `json:"stepIndex,omitempty"`
+	Status        string           `json:"status,omitempty"`
+	Result        string           `json:"result,omitempty"`
+	Error         string           `json:"error,omitempty"`
+	FromStepIndex int              `json:"fromStepIndex,omitempty"`
+	NewSteps      []PlanStepInfo   `json:"newSteps,omitempty"`
+	Synthesis     string           `json:"synthesis,omitempty"`
+}
+
+// PlanStepInfo 计划步骤信息
+type PlanStepInfo struct {
+	Index int    `json:"index"`
+	Task  string `json:"task"`
 }
 
 // InteractionType 交互类型
@@ -95,7 +112,7 @@ type InteractionRequest struct {
 	Type         InteractionType     `json:"type"`
 	Prompt       string              `json:"prompt"`
 	Options      []InteractionOption `json:"options,omitempty"`
-	DefaultValue string              `json:"default_value,omitempty"`
+	DefaultValue string              `json:"defaultValue,omitempty"`
 	Timeout      int                 `json:"timeout"`
 }
 
@@ -107,14 +124,14 @@ type InteractionResponse struct {
 
 // ExecutionSummary 执行汇总
 type ExecutionSummary struct {
-	ExecutionID   string        `json:"execution_id"`
-	TotalSteps    int           `json:"total_steps"`
-	SuccessSteps  int           `json:"success_steps"`
-	FailedSteps   int           `json:"failed_steps"`
-	TotalDuration time.Duration `json:"total_duration"`
+	ExecutionID   string        `json:"executionId"`
+	TotalSteps    int           `json:"totalSteps"`
+	SuccessSteps  int           `json:"successSteps"`
+	FailedSteps   int           `json:"failedSteps"`
+	TotalDuration time.Duration `json:"totalDuration"`
 	Status        string        `json:"status"` // success, failed, timeout, stopped
-	StartTime     time.Time     `json:"start_time"`
-	EndTime       time.Time     `json:"end_time"`
+	StartTime     time.Time     `json:"startTime"`
+	EndTime       time.Time     `json:"endTime"`
 }
 
 // NoopCallback 空实现，用于不需要回调的场景
@@ -126,57 +143,7 @@ func (n *NoopCallback) OnStepStart(ctx context.Context, step *Step, parentID str
 func (n *NoopCallback) OnStepComplete(ctx context.Context, step *Step, result *StepResult, parentID string, iteration int) {
 }
 
-func (n *NoopCallback) OnStepFailed(ctx context.Context, step *Step, err error, duration time.Duration, parentID string, iteration int) {
-}
-
-func (n *NoopCallback) OnStepSkipped(ctx context.Context, step *Step, reason string, parentID string, iteration int) {
-}
-
-func (n *NoopCallback) OnProgress(ctx context.Context, current, total int, stepName string) {}
-
 func (n *NoopCallback) OnExecutionComplete(ctx context.Context, summary *ExecutionSummary) {}
 
 // 确保 NoopCallback 实现了 ExecutionCallback 接口
 var _ ExecutionCallback = (*NoopCallback)(nil)
-
-// AIThinkingCallback AI 推理过程回调接口（可选实现）
-// 用于 ReAct 等 Agent 模式下，实时推送每轮的推理思考内容
-type AIThinkingCallback interface {
-	// OnAIThinking AI 推理思考（每轮工具调用前的推理内容）
-	OnAIThinking(ctx context.Context, stepID string, round int, thinking string)
-}
-
-// AIToolCallback AI 工具调用回调接口（可选实现）
-type AIToolCallback interface {
-	AICallback // 继承现有接口
-
-	// OnAIToolCallStart 工具调用开始
-	OnAIToolCallStart(ctx context.Context, stepID string, toolCall *ToolCall)
-
-	// OnAIToolCallComplete 工具调用完成
-	OnAIToolCallComplete(ctx context.Context, stepID string, toolCall *ToolCall, result *ToolResult)
-}
-
-// PlanStep 计划步骤信息
-type PlanStepInfo struct {
-	Index int    `json:"index"`
-	Task  string `json:"task"`
-}
-
-// AIPlanCallback AI 计划模式回调接口（可选实现）
-type AIPlanCallback interface {
-	// OnAIPlanStarted 计划生成完成，一次性推送所有步骤
-	OnAIPlanStarted(ctx context.Context, stepID string, reason string, steps []PlanStepInfo)
-
-	// OnAIPlanStepUpdate 计划步骤状态更新
-	OnAIPlanStepUpdate(ctx context.Context, stepID string, stepIndex int, status string, result string)
-
-	// OnAIPlanCompleted 计划执行完成
-	OnAIPlanCompleted(ctx context.Context, stepID string, synthesis string)
-
-	// OnAIPlanModified 计划被动态修改（预留接口，用于动态计划功能）
-	// fromStepIndex: 从哪个步骤开始修改（该步骤之前的保持不变）
-	// reason: 修改原因
-	// newSteps: 新的完整步骤列表
-	OnAIPlanModified(ctx context.Context, stepID string, fromStepIndex int, reason string, newSteps []PlanStepInfo)
-}

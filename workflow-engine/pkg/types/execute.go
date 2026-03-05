@@ -96,44 +96,23 @@ type SSEEvent struct {
 type ExecutionEventType string
 
 const (
-	// 连接事件
-	EventTypeConnected ExecutionEventType = "connected"
-	// 工作流开始
-	EventTypeWorkflowStarted ExecutionEventType = "workflow_started"
-	// 步骤开始
-	EventTypeStepStarted ExecutionEventType = "step_started"
-	// 步骤完成
-	EventTypeStepCompleted ExecutionEventType = "step_completed"
-	// 步骤失败
-	EventTypeStepFailed ExecutionEventType = "step_failed"
-	// 工作流完成
+	// === 流程控制事件 ===
+	EventTypeConnected         ExecutionEventType = "connected"
+	EventTypeStepStarted       ExecutionEventType = "step_started"
+	EventTypeStepCompleted     ExecutionEventType = "step_completed" // 统一：成功/失败/跳过都走此事件
 	EventTypeWorkflowCompleted ExecutionEventType = "workflow_completed"
-	// 需要人机交互
-	EventTypeInteractionRequired ExecutionEventType = "ai_interaction_required"
-	// 心跳
-	EventTypeHeartbeat ExecutionEventType = "heartbeat"
-	// 错误
-	EventTypeError ExecutionEventType = "error"
+	EventTypeHeartbeat         ExecutionEventType = "heartbeat"
+	EventTypeError             ExecutionEventType = "error"
 
-	// === AI 工作流事件 ===
-	// AI 流式文本块
-	EventTypeAIChunk ExecutionEventType = "ai_chunk"
-	// AI 思考过程
-	EventTypeAIThinking ExecutionEventType = "ai_thinking"
-	// AI 工具调用开始
-	EventTypeAIToolCallStart ExecutionEventType = "ai_tool_call_start"
-	// AI 工具调用完成
+	// === AI 内容事件 ===
+	EventTypeAIChunk            ExecutionEventType = "ai_chunk"
+	EventTypeAIThinking         ExecutionEventType = "ai_thinking"
+	EventTypeAIToolCallStart    ExecutionEventType = "ai_tool_call_start"
 	EventTypeAIToolCallComplete ExecutionEventType = "ai_tool_call_complete"
-	// AI 消息完成
-	EventTypeMessageComplete ExecutionEventType = "message_complete"
-	// AI 执行计划已生成
-	EventTypeAIPlanStarted ExecutionEventType = "ai_plan_started"
-	// AI 执行计划步骤状态更新
-	EventTypeAIPlanStepUpdate ExecutionEventType = "ai_plan_step_update"
-	// AI 执行计划完成
-	EventTypeAIPlanCompleted ExecutionEventType = "ai_plan_completed"
-	// AI 执行计划被修改（动态计划）
-	EventTypeAIPlanModified ExecutionEventType = "ai_plan_modified"
+	EventTypeAIPlanUpdate       ExecutionEventType = "ai_plan_update" // 合并原 started/step_update/completed/modified
+	EventTypeAIVerify           ExecutionEventType = "ai_verify"
+	EventTypeInteractionRequired ExecutionEventType = "ai_interaction_required"
+	EventTypeMessageComplete    ExecutionEventType = "message_complete"
 )
 
 // StepStartedEvent 步骤开始事件数据

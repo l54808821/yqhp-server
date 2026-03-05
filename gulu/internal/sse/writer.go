@@ -15,25 +15,23 @@ import (
 type EventType string
 
 const (
-	EventStepStarted        EventType = "step_started"
-	EventStepCompleted      EventType = "step_completed"
-	EventStepFailed         EventType = "step_failed"
-	EventStepSkipped        EventType = "step_skipped"
-	EventProgress           EventType = "progress"
-	EventWorkflowCompleted  EventType = "workflow_completed"
+	// 流程控制事件
+	EventStepStarted       EventType = "step_started"
+	EventStepCompleted     EventType = "step_completed" // 统一：成功/失败/跳过
+	EventWorkflowCompleted EventType = "workflow_completed"
+	EventHeartbeat         EventType = "heartbeat"
+	EventError             EventType = "error"
+
+	// AI 内容事件
 	EventAIChunk            EventType = "ai_chunk"
-	EventAIComplete         EventType = "ai_complete"
-	EventAIError            EventType = "ai_error"
-	EventAIInteraction      EventType = "ai_interaction_required"
 	EventAIThinking         EventType = "ai_thinking"
 	EventAIToolCallStart    EventType = "ai_tool_call_start"
 	EventAIToolCallComplete EventType = "ai_tool_call_complete"
-	EventAIPlanStarted      EventType = "ai_plan_started"
-	EventAIPlanStepUpdate   EventType = "ai_plan_step_update"
-	EventAIPlanCompleted    EventType = "ai_plan_completed"
-	EventAIPlanModified     EventType = "ai_plan_modified"
-	EventHeartbeat          EventType = "heartbeat"
-	EventError              EventType = "error"
+	EventAIPlanUpdate       EventType = "ai_plan_update" // 合并原 started/step_update/completed/modified
+	EventAIVerify           EventType = "ai_verify"
+	EventAIError            EventType = "ai_error"
+	EventAIInteraction      EventType = "ai_interaction_required"
+	EventMessageComplete    EventType = "message_complete"
 )
 
 // Timestamp 自定义时间戳类型，格式化为 "2006-01-02 15:04:05.000"
@@ -192,50 +190,17 @@ type StepStartedData struct {
 	Iteration int    `json:"iteration,omitempty"`
 }
 
-// StepCompletedData 步骤完成数据
+// StepCompletedData 步骤完成数据（统一：成功/失败/跳过）
 type StepCompletedData struct {
-	StepID    string                 `json:"stepId"`
-	StepName  string                 `json:"stepName"`
-	StepType  string                 `json:"stepType,omitempty"`
-	ParentID  string                 `json:"parentId,omitempty"`
-	Iteration int                    `json:"iteration,omitempty"`
-	Status    string                 `json:"status"`
-	Success   bool                   `json:"success"`
-	Duration  int64                  `json:"durationMs"`
-	Output    map[string]interface{} `json:"output,omitempty"`
-	Result    interface{}            `json:"result,omitempty"` // 兼容 workflow-engine 格式
-}
-
-// StepFailedData 步骤失败数据
-type StepFailedData struct {
-	StepID    string      `json:"stepId"`
-	StepName  string      `json:"stepName"`
-	StepType  string      `json:"stepType,omitempty"`
-	ParentID  string      `json:"parentId,omitempty"`
-	Iteration int         `json:"iteration,omitempty"`
-	Status    string      `json:"status"`
-	Error     string      `json:"error"`
-	Details   string      `json:"details,omitempty"`
-	Duration  int64       `json:"durationMs"`
-	Result    interface{} `json:"result,omitempty"` // 失败时也携带完整的执行结果（如 HTTPResponseData）
-}
-
-// StepSkippedData 步骤跳过数据
-type StepSkippedData struct {
-	StepID    string `json:"stepId"`
-	StepName  string `json:"stepName"`
-	StepType  string `json:"stepType,omitempty"`
-	ParentID  string `json:"parentId,omitempty"`
-	Iteration int    `json:"iteration,omitempty"`
-	Reason    string `json:"reason"`
-}
-
-// ProgressData 进度数据
-type ProgressData struct {
-	CurrentStep int    `json:"currentStep"`
-	TotalSteps  int    `json:"totalSteps"`
-	Percentage  int    `json:"percentage"`
-	StepName    string `json:"stepName"`
+	StepID     string      `json:"stepId"`
+	StepName   string      `json:"stepName"`
+	StepType   string      `json:"stepType,omitempty"`
+	ParentID   string      `json:"parentId,omitempty"`
+	Iteration  int         `json:"iteration,omitempty"`
+	Status     string      `json:"status"` // success / failed / skipped
+	DurationMs int64       `json:"durationMs"`
+	Result     interface{} `json:"result,omitempty"`
+	Error      string      `json:"error,omitempty"`
 }
 
 // WorkflowCompletedData 工作流完成数据
@@ -246,27 +211,8 @@ type WorkflowCompletedData struct {
 	FailedSteps   int                    `json:"failedSteps"`
 	TotalDuration int64                  `json:"totalDurationMs"`
 	Status        string                 `json:"status"`
-	Variables     map[string]interface{} `json:"variables,omitempty"`    // 执行完成后的最终变量（调试上下文缓存用）
-	EnvVariables  map[string]interface{} `json:"envVariables,omitempty"` // 环境变量（从环境配置加载）
-}
-
-// AIChunkData AI 块数据
-type AIChunkData struct {
-	StepID string `json:"stepId"`
-	Chunk  string `json:"chunk"`
-	Index  int    `json:"index"`
-}
-
-// AICompleteData AI 完成数据
-type AICompleteData struct {
-	StepID           string `json:"stepId"`
-	Content          string `json:"content"`
-	PromptTokens     int    `json:"promptTokens"`
-	CompletionTokens int    `json:"completionTokens"`
-	TotalTokens      int    `json:"totalTokens"`
-	Model            string `json:"model,omitempty"`
-	FinishReason     string `json:"finishReason,omitempty"`
-	Verified         bool   `json:"verified,omitempty"`
+	Variables     map[string]interface{} `json:"variables,omitempty"`
+	EnvVariables  map[string]interface{} `json:"envVariables,omitempty"`
 }
 
 // AIErrorData AI 错误数据
@@ -274,32 +220,6 @@ type AIErrorData struct {
 	StepID  string `json:"stepId"`
 	Error   string `json:"error"`
 	Details string `json:"details,omitempty"`
-}
-
-// AIThinkingData AI 推理思考数据（ReAct 模式）
-type AIThinkingData struct {
-	StepID   string `json:"stepId"`
-	Round    int    `json:"round"`
-	Thinking string `json:"thinking"`
-}
-
-// AIToolCallStartData AI 工具调用开始数据
-type AIToolCallStartData struct {
-	StepID        string `json:"stepId"`
-	ToolName      string `json:"toolName"`
-	Arguments     string `json:"arguments"`
-	PlanStepIndex int    `json:"planStepIndex,omitempty"`
-}
-
-// AIToolCallCompleteData AI 工具调用完成数据
-type AIToolCallCompleteData struct {
-	StepID        string `json:"stepId"`
-	ToolName      string `json:"toolName"`
-	Arguments     string `json:"arguments"`
-	Result        string `json:"result"`
-	IsError       bool   `json:"isError"`
-	DurationMs    int64  `json:"durationMs"`
-	PlanStepIndex int    `json:"planStepIndex,omitempty"`
 }
 
 // InteractionType 交互类型
@@ -333,41 +253,4 @@ type ErrorData struct {
 	Message     string `json:"message"`
 	Details     string `json:"details,omitempty"`
 	Recoverable bool   `json:"recoverable"`
-}
-
-// ============ AI Plan 模式事件数据 ============
-
-// AIPlanStepData Plan 步骤信息
-type AIPlanStepData struct {
-	Index int    `json:"index"`
-	Task  string `json:"task"`
-}
-
-// AIPlanStartedData Plan 开始数据
-type AIPlanStartedData struct {
-	StepID string           `json:"stepId"`
-	Reason string           `json:"reason"`
-	Steps  []AIPlanStepData `json:"steps"`
-}
-
-// AIPlanStepUpdateData Plan 步骤状态更新数据
-type AIPlanStepUpdateData struct {
-	StepID    string `json:"stepId"`
-	StepIndex int    `json:"stepIndex"`
-	Status    string `json:"status"`
-	Result    string `json:"result,omitempty"`
-}
-
-// AIPlanCompletedData Plan 完成数据
-type AIPlanCompletedData struct {
-	StepID    string `json:"stepId"`
-	Synthesis string `json:"synthesis"`
-}
-
-// AIPlanModifiedData Plan 被动态修改数据
-type AIPlanModifiedData struct {
-	StepID        string           `json:"stepId"`
-	FromStepIndex int              `json:"fromStepIndex"`
-	Reason        string           `json:"reason"`
-	NewSteps      []AIPlanStepData `json:"newSteps"`
 }

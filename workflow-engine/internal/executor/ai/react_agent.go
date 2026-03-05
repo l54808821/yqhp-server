@@ -10,13 +10,12 @@ import (
 	"yqhp/workflow-engine/pkg/logger"
 )
 
-// ReActAgent 实现 Think → Act → Observe → Reflect 循环。
-// 每轮：LLM 输出思考 + 工具调用 → 执行工具 → 将结果反馈给 LLM → 在失败/卡住时触发反思 → 重复直到 LLM 不再调用工具。
+// ReActAgent 实现 Think → Act → Observe → Reflect 循环
 type ReActAgent struct{}
 
 const (
-	reflectionTriggerRound    = 3  // 连续执行到第 N 轮时触发反思
-	reflectionConsecFailLimit = 2  // 连续失败 N 次触发反思
+	reflectionTriggerRound    = 3
+	reflectionConsecFailLimit = 2
 )
 
 func NewReActAgent() *ReActAgent {
@@ -49,7 +48,7 @@ func (a *ReActAgent) Run(ctx context.Context, req *AgentRequest) (*AIOutput, err
 
 	for round := 1; round <= maxRounds; round++ {
 		logger.Debug("[ReAct] ===== 第 %d 轮开始 (stepID=%s, model=%s) =====", round, req.StepID, req.Config.Model)
-		resp, err := callLLM(ctx, req.ChatModel, messages, req.SchemaTools, req.Config, req.StepID, req.Callbacks.AI)
+		resp, err := callLLM(ctx, req.ChatModel, messages, req.SchemaTools, req.Config, req.StepID, req.Callbacks)
 		if err != nil {
 			logger.Debug("[ReAct] 第 %d 轮 LLM 调用失败: %v", round, err)
 			return nil, err
@@ -73,7 +72,11 @@ func (a *ReActAgent) Run(ctx context.Context, req *AgentRequest) (*AIOutput, err
 		}
 		logger.Debug("[ReAct] 第 %d 轮 LLM 返回 %d 个工具调用: %s", round, len(resp.ToolCalls), strings.Join(toolNames, ", "))
 
-		a.notifyThinking(ctx, req, round, roundThinking, resp.ToolCalls)
+		// 只推送 LLM 返回的真实思考文本
+		if roundThinking != "" && req.Callbacks.Stream != nil {
+			thinkBlockID := req.Callbacks.BlockID.Next()
+			req.Callbacks.Stream.OnAIThinking(ctx, req.StepID, thinkBlockID, roundThinking)
+		}
 
 		messages = append(messages, resp)
 		toolResults := executeToolsConcurrently(
@@ -100,16 +103,12 @@ func (a *ReActAgent) Run(ctx context.Context, req *AgentRequest) (*AIOutput, err
 			consecutiveFailures = 0
 		}
 
-		// 反思机制：在连续失败或长时间未完成时，插入反思提示引导 LLM 调整策略
 		var reflectionContent string
 		if needsReflection(round, consecutiveFailures, roundToolCalls) {
 			reflectionPrompt := buildReflectionPrompt(round, consecutiveFailures, output.AgentTrace.ReAct, roundToolCalls)
 			messages = append(messages, schema.UserMessage(reflectionPrompt))
 			reflectionContent = reflectionPrompt
 			logger.Debug("[ReAct] 第 %d 轮触发反思机制 (连续失败=%d)", round, consecutiveFailures)
-			if req.Callbacks.Thinking != nil {
-				req.Callbacks.Thinking.OnAIThinking(ctx, req.StepID, round, "正在反思执行策略，调整方案...")
-			}
 		}
 
 		output.AgentTrace.ReAct = append(output.AgentTrace.ReAct, ReActRound{
@@ -128,21 +127,6 @@ func (a *ReActAgent) Run(ctx context.Context, req *AgentRequest) (*AIOutput, err
 	output.Content = selfVerifyWithCallbacks(ctx, req.ChatModel, req.Config, req.StepID, resp.Content, output, req.Callbacks)
 	updateTokenUsage(output, resp)
 	return output, nil
-}
-
-func (a *ReActAgent) notifyThinking(ctx context.Context, req *AgentRequest, round int, thinking string, toolCalls []schema.ToolCall) {
-	if req.Callbacks.Thinking == nil {
-		return
-	}
-	if thinking != "" {
-		req.Callbacks.Thinking.OnAIThinking(ctx, req.StepID, round, thinking)
-	} else {
-		toolNames := make([]string, 0, len(toolCalls))
-		for _, tc := range toolCalls {
-			toolNames = append(toolNames, tc.Function.Name)
-		}
-		req.Callbacks.Thinking.OnAIThinking(ctx, req.StepID, round, fmt.Sprintf("调用工具: %s", strings.Join(toolNames, ", ")))
-	}
 }
 
 // --- 反思机制 ---

@@ -362,14 +362,14 @@ func (e *LoopExecutor) executeLoopBody(ctx context.Context, parentStep *types.St
 		// 触发步骤开始回调
 		if callback != nil {
 			callback.OnStepStart(ctx, step, parentStep.ID, iteration+1) // iteration 从1开始
-			callback.OnProgress(ctx, i+1, len(steps), step.Name)
 		}
 
 		// 获取执行器
 		executor, err := e.GetExecutor(step.Type)
 		if err != nil {
 			if callback != nil {
-				callback.OnStepFailed(ctx, step, err, 0, parentStep.ID, iteration+1)
+				failedResult := CreateFailedResult(step.ID, time.Now(), err)
+				callback.OnStepComplete(ctx, step, failedResult, parentStep.ID, iteration+1)
 			}
 			return stepsExecuted, NewExecutionError(parentStep.ID, fmt.Sprintf("第 %d 次迭代，步骤 '%s': %v", iteration, step.ID, err), nil)
 		}
@@ -383,7 +383,9 @@ func (e *LoopExecutor) executeLoopBody(ctx context.Context, parentStep *types.St
 		result, err := executor.Execute(ctx, step, execCtx)
 		if err != nil {
 			if callback != nil {
-				callback.OnStepFailed(ctx, step, err, time.Since(startTime), parentStep.ID, iteration+1)
+				failedResult := CreateFailedResult(step.ID, startTime, err)
+				failedResult.Duration = time.Since(startTime)
+				callback.OnStepComplete(ctx, step, failedResult, parentStep.ID, iteration+1)
 			}
 			return stepsExecuted, NewExecutionError(parentStep.ID, fmt.Sprintf("第 %d 次迭代，步骤 '%s': %v", iteration, step.ID, err), nil)
 		}
@@ -396,9 +398,6 @@ func (e *LoopExecutor) executeLoopBody(ctx context.Context, parentStep *types.St
 		// 触发步骤回调（不管成功还是失败，都通过 OnStepComplete 传递完整的 StepResult）
 		if callback != nil {
 			callback.OnStepComplete(ctx, step, result, parentStep.ID, iteration+1)
-			if result.Status != types.ResultStatusSuccess {
-				callback.OnStepFailed(ctx, step, result.Error, result.Duration, parentStep.ID, iteration+1)
-			}
 		}
 
 		// 处理错误

@@ -61,22 +61,15 @@ func buildAgentRequest(ctx context.Context, step *types.Step, execCtx *executor.
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 
-	var aiCallback types.AICallback
-	if execCtx.Callback != nil {
-		if cb, ok := execCtx.Callback.(types.AICallback); ok {
-			aiCallback = cb
-		}
-	}
+	callbacks := NewAgentCallbacks(execCtx.Callback, step.ID)
 
 	ctx = WithExecCtx(ctx, execCtx)
-	if aiCallback != nil {
-		ctx = WithAICallback(ctx, aiCallback)
+	if callbacks.Stream != nil {
+		ctx = WithAICallback(ctx, callbacks.Stream)
 	}
 
-	callbacks := NewAgentCallbacks(aiCallback)
-
 	// 构建工具注册表
-	toolRegistry, mcpClients := buildToolRegistry(ctx, config, execCtx, step.ID, aiCallback)
+	toolRegistry, mcpClients := buildToolRegistry(ctx, config, execCtx, step.ID, callbacks.Stream)
 
 	allToolDefs := toolRegistry.List()
 	schemaTools := toSchemaTools(allToolDefs)
@@ -134,8 +127,8 @@ func handleAgentError(step *types.Step, req *preparedRequest, err error) (*types
 		}
 		return executor.CreateTimeoutResult(step.ID, req.startTime, timeout), nil
 	}
-	if req.agentReq.Callbacks.AI != nil {
-		req.agentReq.Callbacks.AI.OnAIError(req.ctx, step.ID, err)
+	if req.agentReq.Callbacks.Stream != nil {
+		req.agentReq.Callbacks.Stream.OnAIError(req.ctx, step.ID, err)
 	}
 	return executor.CreateFailedResult(step.ID, req.startTime,
 		executor.NewExecutionError(step.ID, "AI Agent 调用失败", err)), nil
@@ -157,7 +150,7 @@ func buildAgentResult(step *types.Step, req *preparedRequest, output *AIOutput) 
 }
 
 // buildToolRegistry 构建本次执行的工具注册表
-func buildToolRegistry(ctx context.Context, config *AIConfig, execCtx *executor.ExecutionContext, stepID string, aiCallback types.AICallback) (*executor.ToolRegistry, []mcpCloser) {
+func buildToolRegistry(ctx context.Context, config *AIConfig, execCtx *executor.ExecutionContext, stepID string, aiCallback types.AIStreamCallback) (*executor.ToolRegistry, []mcpCloser) {
 	reg := executor.DefaultToolRegistry.Clone()
 
 	if len(config.Tools) > 0 {

@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cloudwego/eino/components/model"
@@ -47,35 +48,47 @@ type AgentRequest struct {
 	MaxRounds    int
 }
 
-// AgentCallbacks 聚合所有回调接口，避免在每个方法签名中传递多个回调
+// AgentCallbacks 聚合 AI 流式回调和 blockID 生成器
 type AgentCallbacks struct {
-	AI       types.AICallback
-	Tool     types.AIToolCallback
-	Thinking types.AIThinkingCallback
-	Plan     types.AIPlanCallback
+	Stream  types.AIStreamCallback
+	BlockID *BlockIDGenerator
 }
 
-// NewAgentCallbacks 从 AICallback 中提取所有可选回调接口
-func NewAgentCallbacks(aiCallback types.AICallback) *AgentCallbacks {
-	if aiCallback == nil {
-		return &AgentCallbacks{}
+// NewAgentCallbacks 从 ExecutionCallback 中提取 AIStreamCallback
+func NewAgentCallbacks(callback types.ExecutionCallback, stepID string) *AgentCallbacks {
+	cb := &AgentCallbacks{
+		BlockID: NewBlockIDGenerator(stepID),
 	}
-	cb := &AgentCallbacks{AI: aiCallback}
-	if tc, ok := aiCallback.(types.AIToolCallback); ok {
-		cb.Tool = tc
-	}
-	if tc, ok := aiCallback.(types.AIThinkingCallback); ok {
-		cb.Thinking = tc
-	}
-	if pc, ok := aiCallback.(types.AIPlanCallback); ok {
-		cb.Plan = pc
+	if callback != nil {
+		if sc, ok := callback.(types.AIStreamCallback); ok {
+			cb.Stream = sc
+		}
 	}
 	return cb
+}
+
+// BlockIDGenerator 生成同一 step 内唯一的 block ID
+type BlockIDGenerator struct {
+	prefix string
+	seq    int64
+}
+
+func NewBlockIDGenerator(stepID string) *BlockIDGenerator {
+	prefix := stepID
+	if len(prefix) > 8 {
+		prefix = prefix[:8]
+	}
+	return &BlockIDGenerator{prefix: prefix}
+}
+
+func (g *BlockIDGenerator) Next() string {
+	return fmt.Sprintf("blk_%s_%d", g.prefix, atomic.AddInt64(&g.seq, 1))
 }
 
 // --- 共享的 LLM 调用和工具执行逻辑 ---
 
 // callLLM 统一的 LLM 调用入口，支持流式和非流式，带重试
+// callbacks 可为 nil（非流式场景或不需要回调时）
 func callLLM(
 	ctx context.Context,
 	chatModel model.ToolCallingChatModel,
@@ -83,9 +96,10 @@ func callLLM(
 	tools []*schema.ToolInfo,
 	config *AIConfig,
 	stepID string,
-	aiCallback types.AICallback,
+	callbacks *AgentCallbacks,
 ) (*schema.Message, error) {
 	maxRetries := 2
+	hasStream := config.Streaming && callbacks != nil && callbacks.Stream != nil
 
 	for retry := 0; retry <= maxRetries; retry++ {
 		var resp *schema.Message
@@ -94,10 +108,10 @@ func callLLM(
 		logger.Debug("[LLM] 调用 LLM, streaming=%v, tools数量=%d, messages数量=%d, stepID=%s",
 			config.Streaming, len(tools), len(messages), stepID)
 
-		if config.Streaming && aiCallback != nil && len(tools) > 0 {
-			resp, err = streamWithToolsCalls(ctx, chatModel, messages, tools, stepID, config, aiCallback)
-		} else if config.Streaming && aiCallback != nil {
-			resp, err = streamGenerate(ctx, chatModel, messages, stepID, aiCallback)
+		if hasStream && len(tools) > 0 {
+			resp, err = streamWithToolsCalls(ctx, chatModel, messages, tools, stepID, callbacks)
+		} else if hasStream {
+			resp, err = streamGenerate(ctx, chatModel, messages, stepID, callbacks)
 		} else if len(tools) > 0 {
 			resp, err = chatModel.Generate(ctx, messages, model.WithTools(tools))
 		} else {
@@ -271,7 +285,7 @@ func summarizeMessages(messages []*schema.Message) string {
 }
 
 // streamWithToolsCalls 流式调用 LLM（带工具），收集 chunk 后合并为完整消息
-func streamWithToolsCalls(ctx context.Context, chatModel model.ToolCallingChatModel, messages []*schema.Message, tools []*schema.ToolInfo, stepID string, config *AIConfig, callback types.AICallback) (*schema.Message, error) {
+func streamWithToolsCalls(ctx context.Context, chatModel model.ToolCallingChatModel, messages []*schema.Message, tools []*schema.ToolInfo, stepID string, callbacks *AgentCallbacks) (*schema.Message, error) {
 	stream, err := chatModel.Stream(ctx, messages, model.WithTools(tools))
 	if err != nil {
 		return nil, err
@@ -279,7 +293,7 @@ func streamWithToolsCalls(ctx context.Context, chatModel model.ToolCallingChatMo
 	defer stream.Close()
 
 	var chunks []*schema.Message
-	var chunkIndex int
+	textBlockID := callbacks.BlockID.Next()
 
 	for {
 		chunk, err := stream.Recv()
@@ -289,9 +303,8 @@ func streamWithToolsCalls(ctx context.Context, chatModel model.ToolCallingChatMo
 		if err != nil {
 			return nil, err
 		}
-		if chunk.Content != "" && callback != nil {
-			callback.OnAIChunk(ctx, stepID, chunk.Content, chunkIndex)
-			chunkIndex++
+		if chunk.Content != "" {
+			callbacks.Stream.OnAIChunk(ctx, stepID, textBlockID, chunk.Content)
 		}
 		chunks = append(chunks, chunk)
 	}
@@ -308,7 +321,7 @@ func streamWithToolsCalls(ctx context.Context, chatModel model.ToolCallingChatMo
 }
 
 // streamGenerate 流式调用 LLM（无工具），直接流式输出
-func streamGenerate(ctx context.Context, chatModel model.ToolCallingChatModel, messages []*schema.Message, stepID string, callback types.AICallback) (*schema.Message, error) {
+func streamGenerate(ctx context.Context, chatModel model.ToolCallingChatModel, messages []*schema.Message, stepID string, callbacks *AgentCallbacks) (*schema.Message, error) {
 	stream, err := chatModel.Stream(ctx, messages)
 	if err != nil {
 		return nil, err
@@ -316,8 +329,8 @@ func streamGenerate(ctx context.Context, chatModel model.ToolCallingChatModel, m
 	defer stream.Close()
 
 	var contentBuilder strings.Builder
-	var idx int
 	resp := &schema.Message{Role: schema.Assistant}
+	textBlockID := callbacks.BlockID.Next()
 
 	for {
 		chunk, err := stream.Recv()
@@ -329,8 +342,7 @@ func streamGenerate(ctx context.Context, chatModel model.ToolCallingChatModel, m
 		}
 		if chunk.Content != "" {
 			contentBuilder.WriteString(chunk.Content)
-			callback.OnAIChunk(ctx, stepID, chunk.Content, idx)
-			idx++
+			callbacks.Stream.OnAIChunk(ctx, stepID, textBlockID, chunk.Content)
 		}
 		if chunk.ResponseMeta != nil && chunk.ResponseMeta.Usage != nil {
 			if resp.ResponseMeta == nil {
@@ -415,15 +427,16 @@ func executeToolsConcurrently(
 			toolCtx, toolCancel := context.WithTimeout(ctx, toolTimeout)
 			defer toolCancel()
 
-			typesToolCall := &types.ToolCall{
-				ID:            toolCall.ID,
-				Name:          toolCall.Function.Name,
-				Arguments:     toolCall.Function.Arguments,
-				PlanStepIndex: planStepIndex,
-			}
-			if callbacks.Tool != nil {
-				callbacks.Tool.OnAIToolCallStart(toolCtx, stepID, typesToolCall)
-			}
+		typesToolCall := &types.ToolCall{
+			ID:            toolCall.ID,
+			Name:          toolCall.Function.Name,
+			Arguments:     toolCall.Function.Arguments,
+			PlanStepIndex: planStepIndex,
+		}
+		toolBlockID := callbacks.BlockID.Next()
+		if callbacks.Stream != nil {
+			callbacks.Stream.OnAIToolCallStart(toolCtx, stepID, toolBlockID, typesToolCall)
+		}
 
 			callStart := time.Now()
 			toolName := toolCall.Function.Name
@@ -484,8 +497,8 @@ func executeToolsConcurrently(
 			toolResult.ToolCallID = toolCall.ID
 			typesToolCall.DurationMs = callDuration.Milliseconds()
 
-			if callbacks.Tool != nil {
-				callbacks.Tool.OnAIToolCallComplete(ctx, stepID, typesToolCall, toolResult)
+			if callbacks.Stream != nil {
+				callbacks.Stream.OnAIToolCallComplete(ctx, stepID, toolBlockID, typesToolCall, toolResult)
 			}
 
 			results[idx] = toolCallResult{
@@ -540,8 +553,7 @@ const selfVerifyPrompt = `请验证你即将给出的回答，按以下维度检
 `
 
 // selfVerifyWithCallbacks 对生成的回答进行自我验证
-// 验证阶段使用非流式调用：因为草稿已经流式推送给前端了，验证后的内容通过 ai_complete
-// 事件的 content 字段覆盖最终文本，避免"草稿 + 验证版本"拼接问题。
+// 验证阶段使用非流式调用：草稿已流式推送，验证后内容通过 message_complete 覆盖
 func selfVerifyWithCallbacks(ctx context.Context, chatModel model.ToolCallingChatModel, config *AIConfig, stepID string, originalContent string, output *AIOutput, callbacks *AgentCallbacks) string {
 	if config.EnableSelfVerify == nil || !*config.EnableSelfVerify {
 		return originalContent
@@ -552,8 +564,10 @@ func selfVerifyWithCallbacks(ctx context.Context, chatModel model.ToolCallingCha
 
 	logger.Debug("[SelfVerify] 开始自我验证, stepID=%s, 原始回答长度=%d", stepID, len([]rune(originalContent)))
 
-	if callbacks != nil && callbacks.Thinking != nil {
-		callbacks.Thinking.OnAIThinking(ctx, stepID, 0, "正在验证回答质量...")
+	var verifyBlockID string
+	if callbacks != nil && callbacks.Stream != nil {
+		verifyBlockID = callbacks.BlockID.Next()
+		callbacks.Stream.OnAIVerify(ctx, stepID, verifyBlockID, "verifying", false)
 	}
 
 	verifyMessages := []*schema.Message{
@@ -561,24 +575,34 @@ func selfVerifyWithCallbacks(ctx context.Context, chatModel model.ToolCallingCha
 		schema.UserMessage(selfVerifyPrompt + originalContent),
 	}
 
-	// 非流式调用：验证结果不直接推流，而是在 ai_complete 事件中以最终 content 覆盖草稿
 	verifyConfig := *config
 	verifyConfig.Streaming = false
 
 	resp, err := callLLM(ctx, chatModel, verifyMessages, nil, &verifyConfig, stepID, nil)
 	if err != nil {
 		logger.Warn("[SelfVerify] 自我验证调用失败: %v, 返回原始回答", err)
+		if callbacks != nil && callbacks.Stream != nil {
+			callbacks.Stream.OnAIVerify(ctx, stepID, verifyBlockID, "completed", false)
+		}
 		return originalContent
 	}
 
 	updateTokenUsage(output, resp)
 
 	if resp.Content == "" {
+		if callbacks != nil && callbacks.Stream != nil {
+			callbacks.Stream.OnAIVerify(ctx, stepID, verifyBlockID, "completed", false)
+		}
 		return originalContent
 	}
 
+	verified := true
 	if output.AgentTrace != nil {
 		output.AgentTrace.Verified = true
+	}
+
+	if callbacks != nil && callbacks.Stream != nil {
+		callbacks.Stream.OnAIVerify(ctx, stepID, verifyBlockID, "completed", verified)
 	}
 
 	logger.Debug("[SelfVerify] 自我验证完成, 原始长度=%d, 验证后长度=%d", len([]rune(originalContent)), len([]rune(resp.Content)))

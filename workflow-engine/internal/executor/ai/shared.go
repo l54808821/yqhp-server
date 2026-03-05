@@ -27,8 +27,8 @@ type aiCallbackKeyType struct{}
 
 var aiCallbackKey = aiCallbackKeyType{}
 
-// WithAICallback 将 AICallback 注入到 context 中
-func WithAICallback(ctx context.Context, cb types.AICallback) context.Context {
+// WithAICallback 将 AIStreamCallback 注入到 context 中
+func WithAICallback(ctx context.Context, cb types.AIStreamCallback) context.Context {
 	return context.WithValue(ctx, aiCallbackKey, cb)
 }
 

@@ -30,6 +30,8 @@ type AIOutput struct {
 	ToolCalls        []ToolCallRecord        `json:"tool_calls,omitempty"`
 	AgentTrace       *AgentTrace             `json:"agent_trace,omitempty"`
 	ConsoleLogs      []types.ConsoleLogEntry `json:"console_logs,omitempty"`
+
+	planBlockID string `json:"-"` // Plan 模式下的 plan block ID（内部使用，不序列化）
 }
 
 // ToolCallRecord 工具调用记录

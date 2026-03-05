@@ -15,7 +15,7 @@ type Tool interface {
 // ContextualTool 可选接口：工具需要感知当前会话上下文（如 stepID、callback）
 type ContextualTool interface {
 	Tool
-	SetContext(stepID string, callback types.AICallback)
+	SetContext(stepID string, callback types.AIStreamCallback)
 }
 
 // AsyncTool 可选接口：异步工具完成后通过回调通知

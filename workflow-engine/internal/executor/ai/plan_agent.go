@@ -67,7 +67,7 @@ func (a *PlanAgent) RunWithReason(ctx context.Context, req *AgentRequest, reason
 		})
 	}
 
-	a.notifyPlanStarted(ctx, req, reason, tasks)
+	a.notifyPlanStarted(ctx, req, output, reason, tasks)
 
 	// 2. 按依赖关系执行（支持并行）
 	stepResults := a.executeStepsWithDeps(ctx, req, output, tasks, stepDefs)
@@ -77,8 +77,11 @@ func (a *PlanAgent) RunWithReason(ctx context.Context, req *AgentRequest, reason
 		return nil, err
 	}
 
-	if req.Callbacks.Plan != nil {
-		req.Callbacks.Plan.OnAIPlanCompleted(ctx, req.StepID, output.Content)
+	if req.Callbacks.Stream != nil {
+		req.Callbacks.Stream.OnAIPlanUpdate(ctx, req.StepID, output.planBlockID, &types.PlanUpdate{
+			Action:    types.PlanActionCompleted,
+			Synthesis: output.Content,
+		})
 	}
 
 	return output, nil
@@ -86,10 +89,6 @@ func (a *PlanAgent) RunWithReason(ctx context.Context, req *AgentRequest, reason
 
 // planPhase 规划阶段：让 LLM 生成执行计划
 func (a *PlanAgent) planPhase(ctx context.Context, req *AgentRequest, output *AIOutput) ([]PlanStepDef, error) {
-	if req.Callbacks.Thinking != nil {
-		req.Callbacks.Thinking.OnAIThinking(ctx, req.StepID, 0, "正在制定执行计划...")
-	}
-
 	planTool := createPlanToolInfo()
 	planMessages := make([]*schema.Message, len(req.Messages))
 	copy(planMessages, req.Messages)
@@ -184,16 +183,7 @@ func (a *PlanAgent) executeStepsWithDeps(ctx context.Context, req *AgentRequest,
 			stepResults[idx] = result
 			completed[idx] = true
 		} else {
-			// 多个步骤并行执行
 			logger.Debug("[Plan] 并行执行 %d 个步骤: %v", len(readyIndices), readyIndices)
-			if req.Callbacks.Thinking != nil {
-				stepNums := make([]string, len(readyIndices))
-				for i, idx := range readyIndices {
-					stepNums[i] = fmt.Sprintf("%d", idx+1)
-				}
-				req.Callbacks.Thinking.OnAIThinking(ctx, req.StepID, 0,
-					fmt.Sprintf("并行执行步骤 %s ...", strings.Join(stepNums, ", ")))
-			}
 
 			var wg sync.WaitGroup
 			for _, idx := range readyIndices {
@@ -217,7 +207,7 @@ func (a *PlanAgent) executeStepsWithDeps(ctx context.Context, req *AgentRequest,
 // executeSingleStep 执行单个计划步骤
 func (a *PlanAgent) executeSingleStep(ctx context.Context, req *AgentRequest, output *AIOutput, tasks []string, idx int, stepResults []string) string {
 	output.AgentTrace.Plan.Steps[idx].Status = "running"
-	a.notifyStepUpdate(ctx, req, idx+1, "running", "")
+	a.notifyStepUpdate(ctx, req, output, idx+1, "running", "")
 
 	historySummary := buildHistorySummary(req.Messages)
 	stepPrompt := buildPlanStepPrompt(req.Config.Prompt, tasks, idx, stepResults)
@@ -251,7 +241,7 @@ func (a *PlanAgent) executeSingleStep(ctx context.Context, req *AgentRequest, ou
 	if stepErr != nil {
 		output.AgentTrace.Plan.Steps[idx].Status = "failed"
 		output.AgentTrace.Plan.Steps[idx].Result = stepErr.Error()
-		a.notifyStepUpdate(ctx, req, idx+1, "failed", stepErr.Error())
+		a.notifyStepUpdate(ctx, req, output, idx+1, "failed", stepErr.Error())
 		return fmt.Sprintf("步骤 %d 失败: %s", idx+1, stepErr.Error())
 	}
 
@@ -270,7 +260,7 @@ func (a *PlanAgent) executeSingleStep(ctx context.Context, req *AgentRequest, ou
 		}
 	}
 
-	a.notifyStepUpdate(ctx, req, idx+1, "completed", stepOutput.Content)
+	a.notifyStepUpdate(ctx, req, output, idx+1, "completed", stepOutput.Content)
 	return resultContent
 }
 
@@ -288,7 +278,7 @@ func (a *PlanAgent) executeSteps(ctx context.Context, req *AgentRequest, output 
 
 		task := tasks[i]
 		output.AgentTrace.Plan.Steps[i].Status = "running"
-		a.notifyStepUpdate(ctx, req, i+1, "running", "")
+		a.notifyStepUpdate(ctx, req, output, i+1, "running", "")
 
 		stepPrompt := buildPlanStepPrompt(req.Config.Prompt, tasks, i, stepResults)
 		userContent := stepPrompt
@@ -321,7 +311,7 @@ func (a *PlanAgent) executeSteps(ctx context.Context, req *AgentRequest, output 
 			output.AgentTrace.Plan.Steps[i].Status = "failed"
 			output.AgentTrace.Plan.Steps[i].Result = stepErr.Error()
 			stepResults = append(stepResults, fmt.Sprintf("步骤 %d 失败: %s", i+1, stepErr.Error()))
-			a.notifyStepUpdate(ctx, req, i+1, "failed", stepErr.Error())
+			a.notifyStepUpdate(ctx, req, output, i+1, "failed", stepErr.Error())
 			consecutiveFailures++
 
 			// 连续失败时尝试重新规划剩余步骤
@@ -353,7 +343,7 @@ func (a *PlanAgent) executeSteps(ctx context.Context, req *AgentRequest, output 
 		}
 		stepResults = append(stepResults, resultContent)
 
-		a.notifyStepUpdate(ctx, req, i+1, "completed", stepOutput.Content)
+		a.notifyStepUpdate(ctx, req, output, i+1, "completed", stepOutput.Content)
 
 		// 执行过半后，检查是否需要根据中间结果调整后续计划
 		if a.shouldCheckReplan(i, len(tasks), stepOutput.Content) {
@@ -411,9 +401,17 @@ func (a *PlanAgent) tryReplan(ctx context.Context, req *AgentRequest, output *AI
 		result = append(result, newRemainingTasks...)
 
 		logger.Debug("[Plan] 重新规划成功: 剩余步骤从 %d 调整为 %d", len(remainingTasks), len(newRemainingTasks))
-		if req.Callbacks.Thinking != nil {
-			req.Callbacks.Thinking.OnAIThinking(ctx, req.StepID, 0,
-				fmt.Sprintf("根据执行结果调整计划，剩余步骤从 %d 调整为 %d", len(remainingTasks), len(newRemainingTasks)))
+		if req.Callbacks.Stream != nil {
+			newSteps := make([]types.PlanStepInfo, len(newRemainingTasks))
+			for i, t := range newRemainingTasks {
+				newSteps[i] = types.PlanStepInfo{Index: completedIndex + 2 + i, Task: t}
+			}
+			req.Callbacks.Stream.OnAIPlanUpdate(ctx, req.StepID, output.planBlockID, &types.PlanUpdate{
+				Action:        types.PlanActionModified,
+				FromStepIndex: completedIndex + 2,
+				Reason:        fmt.Sprintf("根据执行结果调整计划，剩余步骤从 %d 调整为 %d", len(remainingTasks), len(newRemainingTasks)),
+				NewSteps:      newSteps,
+			})
 		}
 		return result
 	}
@@ -512,7 +510,7 @@ func (a *PlanAgent) synthesisPhase(ctx context.Context, req *AgentRequest, outpu
 		schema.UserMessage(synthesisPrompt),
 	}
 
-	resp, err := callLLM(ctx, req.ChatModel, synthMessages, nil, req.Config, req.StepID, req.Callbacks.AI)
+	resp, err := callLLM(ctx, req.ChatModel, synthMessages, nil, req.Config, req.StepID, req.Callbacks)
 	if err != nil {
 		return fmt.Errorf("汇总阶段失败: %w", err)
 	}
@@ -529,8 +527,8 @@ func (a *PlanAgent) synthesisPhase(ctx context.Context, req *AgentRequest, outpu
 		}
 	}
 
-	if req.Callbacks.AI != nil {
-		req.Callbacks.AI.OnAIComplete(ctx, req.StepID, toAIResult(output))
+	if req.Callbacks.Stream != nil {
+		req.Callbacks.Stream.OnMessageComplete(ctx, req.StepID, toAIResult(output))
 	}
 
 	return nil
@@ -538,33 +536,41 @@ func (a *PlanAgent) synthesisPhase(ctx context.Context, req *AgentRequest, outpu
 
 // --- 通知辅助 ---
 
-func (a *PlanAgent) notifyPlanStarted(ctx context.Context, req *AgentRequest, reason string, tasks []string) {
-	if req.Callbacks.Thinking != nil {
-		var stepList strings.Builder
-		for i, s := range tasks {
-			stepList.WriteString(fmt.Sprintf("\n%d. %s", i+1, s))
-		}
-		req.Callbacks.Thinking.OnAIThinking(ctx, req.StepID, 0,
-			fmt.Sprintf("计划制定完成，共 %d 个步骤%s", len(tasks), stepList.String()))
+func (a *PlanAgent) notifyPlanStarted(ctx context.Context, req *AgentRequest, output *AIOutput, reason string, tasks []string) {
+	if req.Callbacks.Stream == nil {
+		return
 	}
+	planBlockID := req.Callbacks.BlockID.Next()
+	output.planBlockID = planBlockID
 
-	if req.Callbacks.Plan != nil {
-		planSteps := make([]types.PlanStepInfo, len(tasks))
-		for i, s := range tasks {
-			planSteps[i] = types.PlanStepInfo{Index: i + 1, Task: s}
-		}
-		req.Callbacks.Plan.OnAIPlanStarted(ctx, req.StepID, reason, planSteps)
+	planSteps := make([]types.PlanStepInfo, len(tasks))
+	for i, s := range tasks {
+		planSteps[i] = types.PlanStepInfo{Index: i + 1, Task: s}
 	}
+	req.Callbacks.Stream.OnAIPlanUpdate(ctx, req.StepID, planBlockID, &types.PlanUpdate{
+		Action: types.PlanActionStarted,
+		Reason: reason,
+		Steps:  planSteps,
+	})
 }
 
-func (a *PlanAgent) notifyStepUpdate(ctx context.Context, req *AgentRequest, stepIndex int, status string, result string) {
-	if req.Callbacks.Thinking != nil && status == "running" {
-		req.Callbacks.Thinking.OnAIThinking(ctx, req.StepID, 0,
-			fmt.Sprintf("执行步骤 %d...", stepIndex))
+func (a *PlanAgent) notifyStepUpdate(ctx context.Context, req *AgentRequest, output *AIOutput, stepIndex int, status string, result string) {
+	if req.Callbacks.Stream == nil {
+		return
 	}
-	if req.Callbacks.Plan != nil {
-		req.Callbacks.Plan.OnAIPlanStepUpdate(ctx, req.StepID, stepIndex, status, result)
+	update := &types.PlanUpdate{
+		Action:    types.PlanActionStepUpdate,
+		StepIndex: stepIndex,
+		Status:    status,
 	}
+	if result != "" {
+		if status == "failed" {
+			update.Error = result
+		} else {
+			update.Result = result
+		}
+	}
+	req.Callbacks.Stream.OnAIPlanUpdate(ctx, req.StepID, output.planBlockID, update)
 }
 
 // --- 工具辅助 ---

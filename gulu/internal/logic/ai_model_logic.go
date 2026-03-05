@@ -30,8 +30,6 @@ type CreateAiModelReq struct {
 	ModelID        string   `json:"model_id" validate:"required,max=200"`
 	Version        string   `json:"version" validate:"max=50"`
 	Description    string   `json:"description" validate:"max=1000"`
-	APIBaseURL     string   `json:"api_base_url" validate:"max=500"`
-	APIKey         string   `json:"api_key" validate:"max=500"`
 	ContextLength  int32    `json:"context_length"`
 	ParamSize      string   `json:"param_size" validate:"max=50"`
 	CapabilityTags []string `json:"capability_tags"`
@@ -47,8 +45,6 @@ type UpdateAiModelReq struct {
 	ModelID        string   `json:"model_id" validate:"max=200"`
 	Version        string   `json:"version" validate:"max=50"`
 	Description    string   `json:"description" validate:"max=1000"`
-	APIBaseURL     string   `json:"api_base_url" validate:"max=500"`
-	APIKey         string   `json:"api_key" validate:"max=500"`
 	ContextLength  int32    `json:"context_length"`
 	ParamSize      string   `json:"param_size" validate:"max=50"`
 	CapabilityTags []string `json:"capability_tags"`
@@ -93,8 +89,6 @@ type AiModelInfo struct {
 	ModelID        string     `json:"model_id"`
 	Version        string     `json:"version"`
 	Description    string     `json:"description"`
-	APIBaseURL     string     `json:"api_base_url"`
-	APIKeyMasked   string     `json:"api_key_masked"`
 	ContextLength  int32      `json:"context_length"`
 	ParamSize      string     `json:"param_size"`
 	CapabilityTags []string   `json:"capability_tags"`
@@ -146,8 +140,6 @@ func (l *AiModelLogic) Create(req *CreateAiModelReq) (*AiModelInfo, error) {
 		ModelID:        req.ModelID,
 		Version:        &req.Version,
 		Description:    &req.Description,
-		APIBaseURL:     req.APIBaseURL,
-		APIKey:         req.APIKey,
 		ContextLength:  &req.ContextLength,
 		ParamSize:      &req.ParamSize,
 		CapabilityTags: capabilityTagsJSON,
@@ -241,12 +233,6 @@ func (l *AiModelLogic) Update(id int64, req *UpdateAiModelReq) error {
 	}
 	updates["version"] = req.Version
 	updates["description"] = req.Description
-	if req.APIBaseURL != "" {
-		updates["api_base_url"] = req.APIBaseURL
-	}
-	if req.APIKey != "" {
-		updates["api_key"] = req.APIKey
-	}
 	updates["context_length"] = req.ContextLength
 	updates["param_size"] = req.ParamSize
 	updates["sort"] = req.Sort
@@ -298,16 +284,14 @@ func (l *AiModelLogic) GetByIDWithKey(id int64) (*ModelWithCredentials, error) {
 	}
 
 	result := &ModelWithCredentials{
-		ID:         aiModel.ID,
-		Name:       aiModel.Name,
-		Provider:   aiModel.Provider,
-		ModelID:    aiModel.ModelID,
-		APIBaseURL: aiModel.APIBaseURL,
-		APIKey:     aiModel.APIKey,
-		Status:     aiModel.Status,
+		ID:       aiModel.ID,
+		Name:     aiModel.Name,
+		Provider: aiModel.Provider,
+		ModelID:  aiModel.ModelID,
+		Status:   aiModel.Status,
 	}
 
-	// 优先从供应商获取凭证
+	// 从供应商获取凭证
 	if aiModel.ProviderID > 0 {
 		pl := NewAiProviderLogic(l.ctx)
 		provider, err := pl.GetByIDWithKey(aiModel.ProviderID)
@@ -410,8 +394,6 @@ func (l *AiModelLogic) toAiModelInfo(m *model.TAiModel) *AiModelInfo {
 		Name:         m.Name,
 		Provider:     m.Provider,
 		ModelID:      m.ModelID,
-		APIBaseURL:   m.APIBaseURL,
-		APIKeyMasked: maskAPIKey(m.APIKey),
 	}
 
 	if m.Version != nil {

@@ -23,8 +23,6 @@ type TAiModel struct {
 	ModelID        string     `gorm:"column:model_id;type:varchar(200);not null;comment:模型标识符" json:"model_id"`
 	Version        *string    `gorm:"column:version;type:varchar(50);comment:版本号" json:"version"`
 	Description    *string    `gorm:"column:description;type:varchar(1000);comment:模型描述" json:"description"`
-	APIBaseURL     string     `gorm:"column:api_base_url;type:varchar(500);comment:兼容旧数据" json:"api_base_url"`
-	APIKey         string     `gorm:"column:api_key;type:varchar(500);comment:兼容旧数据" json:"api_key"`
 	ContextLength  *int32     `gorm:"column:context_length;type:int;comment:上下文长度" json:"context_length"`
 	ParamSize      *string    `gorm:"column:param_size;type:varchar(50);comment:参数量" json:"param_size"`
 	CapabilityTags *string    `gorm:"column:capability_tags;type:json;comment:能力标签" json:"capability_tags"`

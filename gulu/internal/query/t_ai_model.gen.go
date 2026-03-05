@@ -39,8 +39,6 @@ func newTAiModel(db *gorm.DB, opts ...gen.DOOption) tAiModel {
 	_tAiModel.ModelID = field.NewString(tableName, "model_id")
 	_tAiModel.Version = field.NewString(tableName, "version")
 	_tAiModel.Description = field.NewString(tableName, "description")
-	_tAiModel.APIBaseURL = field.NewString(tableName, "api_base_url")
-	_tAiModel.APIKey = field.NewString(tableName, "api_key")
 	_tAiModel.ContextLength = field.NewInt32(tableName, "context_length")
 	_tAiModel.ParamSize = field.NewString(tableName, "param_size")
 	_tAiModel.CapabilityTags = field.NewString(tableName, "capability_tags")
@@ -69,8 +67,6 @@ type tAiModel struct {
 	ModelID        field.String // 模型标识符
 	Version        field.String // 版本号
 	Description    field.String // 模型描述
-	APIBaseURL     field.String // API Base URL
-	APIKey         field.String // API Key
 	ContextLength  field.Int32  // 上下文长度
 	ParamSize      field.String // 参数量
 	CapabilityTags field.String // 能力标签
@@ -104,8 +100,6 @@ func (t *tAiModel) updateTableName(table string) *tAiModel {
 	t.ModelID = field.NewString(table, "model_id")
 	t.Version = field.NewString(table, "version")
 	t.Description = field.NewString(table, "description")
-	t.APIBaseURL = field.NewString(table, "api_base_url")
-	t.APIKey = field.NewString(table, "api_key")
 	t.ContextLength = field.NewInt32(table, "context_length")
 	t.ParamSize = field.NewString(table, "param_size")
 	t.CapabilityTags = field.NewString(table, "capability_tags")
@@ -138,7 +132,7 @@ func (t *tAiModel) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (t *tAiModel) fillFieldMap() {
-	t.fieldMap = make(map[string]field.Expr, 19)
+	t.fieldMap = make(map[string]field.Expr, 17)
 	t.fieldMap["id"] = t.ID
 	t.fieldMap["created_at"] = t.CreatedAt
 	t.fieldMap["updated_at"] = t.UpdatedAt
@@ -150,8 +144,6 @@ func (t *tAiModel) fillFieldMap() {
 	t.fieldMap["model_id"] = t.ModelID
 	t.fieldMap["version"] = t.Version
 	t.fieldMap["description"] = t.Description
-	t.fieldMap["api_base_url"] = t.APIBaseURL
-	t.fieldMap["api_key"] = t.APIKey
 	t.fieldMap["context_length"] = t.ContextLength
 	t.fieldMap["param_size"] = t.ParamSize
 	t.fieldMap["capability_tags"] = t.CapabilityTags

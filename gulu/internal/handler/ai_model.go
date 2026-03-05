@@ -22,18 +22,8 @@ func AiModelCreate(c *fiber.Ctx) error {
 	if req.ModelID == "" {
 		return response.Error(c, "模型标识符不能为空")
 	}
-	// 新模式：通过 provider_id 关联供应商，不再要求直接传 api_key/api_base_url
-	// 旧模式：兼容直接传 provider + api_base_url + api_key
 	if req.ProviderID == 0 {
-		if req.Provider == "" {
-			return response.Error(c, "请选择供应商或填写厂商名称")
-		}
-		if req.APIBaseURL == "" {
-			return response.Error(c, "API Base URL 不能为空")
-		}
-		if req.APIKey == "" {
-			return response.Error(c, "API Key 不能为空")
-		}
+		return response.Error(c, "请选择供应商")
 	}
 
 	aiModelLogic := logic.NewAiModelLogic(c.UserContext())

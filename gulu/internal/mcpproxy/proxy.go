@@ -11,17 +11,19 @@ import (
 	"yqhp/workflow-engine/pkg/types"
 
 	"github.com/mark3labs/mcp-go/client"
+	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
 // MCPServerConnConfig MCP 服务器连接配置
 type MCPServerConnConfig struct {
-	Transport string            `json:"transport"` // "stdio" | "sse"
+	Transport string            `json:"transport"` // "stdio" | "sse" | "streamable-http"
 	Command   string            `json:"command,omitempty"`
 	Args      []string          `json:"args,omitempty"`
 	URL       string            `json:"url,omitempty"`
+	Headers   map[string]string `json:"headers,omitempty"`
 	Env       map[string]string `json:"env,omitempty"`
-	Timeout   int               `json:"timeout,omitempty"` // 超时秒数
+	Timeout   int               `json:"timeout,omitempty"`
 }
 
 // ServerStatus MCP 服务器连接状态
@@ -97,13 +99,29 @@ func (s *MCPProxyService) createClient(config MCPServerConnConfig) (*client.Clie
 		if config.URL == "" {
 			return nil, fmt.Errorf("sse 传输方式需要指定 url")
 		}
-		c, err := client.NewSSEMCPClient(config.URL)
+		var opts []transport.ClientOption
+		if len(config.Headers) > 0 {
+			opts = append(opts, transport.WithHeaders(config.Headers))
+		}
+		c, err := client.NewSSEMCPClient(config.URL, opts...)
 		if err != nil {
 			return nil, err
 		}
-		// SSE 客户端需要手动启动
 		if err := c.Start(context.Background()); err != nil {
 			return nil, fmt.Errorf("启动 SSE 连接失败: %w", err)
+		}
+		return c, nil
+	case "streamable-http":
+		if config.URL == "" {
+			return nil, fmt.Errorf("streamable-http 传输方式需要指定 url")
+		}
+		var opts []transport.StreamableHTTPCOption
+		if len(config.Headers) > 0 {
+			opts = append(opts, transport.WithHTTPHeaders(config.Headers))
+		}
+		c, err := client.NewStreamableHttpClient(config.URL, opts...)
+		if err != nil {
+			return nil, fmt.Errorf("创建 streamable-http 客户端失败: %w", err)
 		}
 		return c, nil
 	default:

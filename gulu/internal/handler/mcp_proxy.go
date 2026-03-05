@@ -168,6 +168,7 @@ func toConnConfig(info *logic.McpServerInfo) mcpproxy.MCPServerConnConfig {
 		Command:   info.Command,
 		Args:      info.Args,
 		URL:       info.URL,
+		Headers:   info.Headers,
 		Env:       info.Env,
 		Timeout:   int(info.Timeout),
 	}

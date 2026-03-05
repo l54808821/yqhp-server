@@ -83,6 +83,7 @@ type MCPServerConfig struct {
 	Name      string            `json:"name"`
 	Transport string            `json:"transport"`
 	URL       string            `json:"url,omitempty"`
+	Headers   map[string]string `json:"headers,omitempty"`
 	Command   string            `json:"command,omitempty"`
 	Args      []string          `json:"args,omitempty"`
 	Env       map[string]string `json:"env,omitempty"`

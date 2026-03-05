@@ -19,10 +19,11 @@ type TMcpServer struct {
 	CreatedBy   *int64     `gorm:"column:created_by;type:bigint unsigned;comment:创建人ID" json:"created_by"`
 	Name        string     `gorm:"column:name;type:varchar(100);not null;uniqueIndex:uk_name;comment:服务器名称" json:"name"`
 	Description *string    `gorm:"column:description;type:varchar(500);comment:描述" json:"description"`
-	Transport   string     `gorm:"column:transport;type:varchar(20);not null;comment:传输方式: stdio/sse" json:"transport"`
+	Transport   string     `gorm:"column:transport;type:varchar(20);not null;comment:传输方式: stdio/sse/streamable-http" json:"transport"`
 	Command     *string    `gorm:"column:command;type:varchar(500);comment:stdio模式命令" json:"command"`
 	Args        *string    `gorm:"column:args;type:json;comment:stdio模式参数" json:"args"`
-	URL         *string    `gorm:"column:url;type:varchar(500);comment:sse模式URL" json:"url"`
+	URL         *string    `gorm:"column:url;type:varchar(500);comment:sse/streamable-http模式URL" json:"url"`
+	Headers     *string    `gorm:"column:headers;type:json;comment:自定义HTTP请求头" json:"headers"`
 	Env         *string    `gorm:"column:env;type:json;comment:环境变量" json:"env"`
 	Timeout     *int32     `gorm:"column:timeout;type:int;default:30;comment:超时秒数" json:"timeout"`
 	Sort        *int32     `gorm:"column:sort;type:int;comment:排序" json:"sort"`

@@ -38,6 +38,7 @@ func newTMcpServer(db *gorm.DB, opts ...gen.DOOption) tMcpServer {
 	_tMcpServer.Command = field.NewString(tableName, "command")
 	_tMcpServer.Args = field.NewString(tableName, "args")
 	_tMcpServer.URL = field.NewString(tableName, "url")
+	_tMcpServer.Headers = field.NewString(tableName, "headers")
 	_tMcpServer.Env = field.NewString(tableName, "env")
 	_tMcpServer.Timeout = field.NewInt32(tableName, "timeout")
 	_tMcpServer.Sort = field.NewInt32(tableName, "sort")
@@ -60,10 +61,11 @@ type tMcpServer struct {
 	CreatedBy   field.Int64  // 创建人ID
 	Name        field.String // 服务器名称
 	Description field.String // 描述
-	Transport   field.String // 传输方式: stdio/sse
+	Transport   field.String // 传输方式: stdio/sse/streamable-http
 	Command     field.String // stdio模式命令
 	Args        field.String // stdio模式参数
-	URL         field.String // sse模式URL
+	URL         field.String // sse/streamable-http模式URL
+	Headers     field.String // 自定义HTTP请求头
 	Env         field.String // 环境变量
 	Timeout     field.Int32  // 超时秒数
 	Sort        field.Int32  // 排序
@@ -95,6 +97,7 @@ func (t *tMcpServer) updateTableName(table string) *tMcpServer {
 	t.Command = field.NewString(table, "command")
 	t.Args = field.NewString(table, "args")
 	t.URL = field.NewString(table, "url")
+	t.Headers = field.NewString(table, "headers")
 	t.Env = field.NewString(table, "env")
 	t.Timeout = field.NewInt32(table, "timeout")
 	t.Sort = field.NewInt32(table, "sort")
@@ -125,7 +128,7 @@ func (t *tMcpServer) GetFieldByName(fieldName string) (field.OrderExpr, bool) {
 }
 
 func (t *tMcpServer) fillFieldMap() {
-	t.fieldMap = make(map[string]field.Expr, 15)
+	t.fieldMap = make(map[string]field.Expr, 16)
 	t.fieldMap["id"] = t.ID
 	t.fieldMap["created_at"] = t.CreatedAt
 	t.fieldMap["updated_at"] = t.UpdatedAt
@@ -137,6 +140,7 @@ func (t *tMcpServer) fillFieldMap() {
 	t.fieldMap["command"] = t.Command
 	t.fieldMap["args"] = t.Args
 	t.fieldMap["url"] = t.URL
+	t.fieldMap["headers"] = t.Headers
 	t.fieldMap["env"] = t.Env
 	t.fieldMap["timeout"] = t.Timeout
 	t.fieldMap["sort"] = t.Sort

@@ -980,6 +980,9 @@ func (h *StreamExecutionHandler) resolveMCPServerConfigs(c *fiber.Ctx, config ma
 		if info.URL != "" {
 			serverData["url"] = info.URL
 		}
+		if len(info.Headers) > 0 {
+			serverData["headers"] = info.Headers
+		}
 		if info.Command != "" {
 			serverData["command"] = info.Command
 		}

@@ -25,10 +25,11 @@ func NewMcpServerLogic(ctx context.Context) *McpServerLogic {
 type CreateMcpServerReq struct {
 	Name        string            `json:"name" validate:"required,max=100"`
 	Description string            `json:"description" validate:"max=500"`
-	Transport   string            `json:"transport" validate:"required,oneof=stdio sse"`
+	Transport   string            `json:"transport" validate:"required,oneof=stdio sse streamable-http"`
 	Command     string            `json:"command" validate:"max=500"`
 	Args        []string          `json:"args"`
 	URL         string            `json:"url" validate:"max=500"`
+	Headers     map[string]string `json:"headers"`
 	Env         map[string]string `json:"env"`
 	Timeout     int32             `json:"timeout"`
 	Sort        int32             `json:"sort"`
@@ -39,10 +40,11 @@ type CreateMcpServerReq struct {
 type UpdateMcpServerReq struct {
 	Name        string            `json:"name" validate:"max=100"`
 	Description string            `json:"description" validate:"max=500"`
-	Transport   string            `json:"transport" validate:"oneof=stdio sse"`
+	Transport   string            `json:"transport" validate:"oneof=stdio sse streamable-http"`
 	Command     string            `json:"command" validate:"max=500"`
 	Args        []string          `json:"args"`
 	URL         string            `json:"url" validate:"max=500"`
+	Headers     map[string]string `json:"headers"`
 	Env         map[string]string `json:"env"`
 	Timeout     int32             `json:"timeout"`
 	Sort        int32             `json:"sort"`
@@ -70,6 +72,7 @@ type McpServerInfo struct {
 	Command     string            `json:"command"`
 	Args        []string          `json:"args"`
 	URL         string            `json:"url"`
+	Headers     map[string]string `json:"headers"`
 	Env         map[string]string `json:"env"`
 	Timeout     int32             `json:"timeout"`
 	Sort        int32             `json:"sort"`
@@ -109,6 +112,17 @@ func (l *McpServerLogic) Create(req *CreateMcpServerReq) (*McpServerInfo, error)
 		argsJSON = &s
 	}
 
+	// 序列化 Headers
+	var headersJSON *string
+	if len(req.Headers) > 0 {
+		b, err := json.Marshal(req.Headers)
+		if err != nil {
+			return nil, errors.New("请求头序列化失败")
+		}
+		s := string(b)
+		headersJSON = &s
+	}
+
 	// 序列化 Env
 	var envJSON *string
 	if len(req.Env) > 0 {
@@ -130,6 +144,7 @@ func (l *McpServerLogic) Create(req *CreateMcpServerReq) (*McpServerInfo, error)
 		Command:     &req.Command,
 		Args:        argsJSON,
 		URL:         &req.URL,
+		Headers:     headersJSON,
 		Env:         envJSON,
 		Timeout:     &timeout,
 		Sort:        &req.Sort,
@@ -177,6 +192,12 @@ func (l *McpServerLogic) Update(id int64, req *UpdateMcpServerReq) error {
 	if req.Args != nil {
 		b, _ := json.Marshal(req.Args)
 		updates["args"] = string(b)
+	}
+
+	// 序列化 Headers
+	if req.Headers != nil {
+		b, _ := json.Marshal(req.Headers)
+		updates["headers"] = string(b)
 	}
 
 	// 序列化 Env
@@ -309,6 +330,17 @@ func (l *McpServerLogic) toMcpServerInfo(m *model.TMcpServer) *McpServerInfo {
 	}
 	if info.Args == nil {
 		info.Args = []string{}
+	}
+
+	// 解析 Headers
+	if m.Headers != nil && *m.Headers != "" {
+		var headers map[string]string
+		if err := json.Unmarshal([]byte(*m.Headers), &headers); err == nil {
+			info.Headers = headers
+		}
+	}
+	if info.Headers == nil {
+		info.Headers = map[string]string{}
 	}
 
 	// 解析 Env

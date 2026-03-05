@@ -11,6 +11,7 @@ import (
 	"yqhp/workflow-engine/pkg/types"
 
 	"github.com/mark3labs/mcp-go/client"
+	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
@@ -94,12 +95,28 @@ func connectMCPServer(ctx context.Context, cfg *MCPServerConfig) (*client.Client
 		if cfg.URL == "" {
 			return nil, fmt.Errorf("MCP Server %q: sse 传输需要 url", cfg.Name)
 		}
-		c, err = client.NewSSEMCPClient(cfg.URL)
+		var opts []transport.ClientOption
+		if len(cfg.Headers) > 0 {
+			opts = append(opts, transport.WithHeaders(cfg.Headers))
+		}
+		c, err = client.NewSSEMCPClient(cfg.URL, opts...)
 		if err != nil {
 			return nil, fmt.Errorf("MCP Server %q: 创建 SSE client 失败: %w", cfg.Name, err)
 		}
 		if err := c.Start(context.Background()); err != nil {
 			return nil, fmt.Errorf("MCP Server %q: 启动 SSE 连接失败: %w", cfg.Name, err)
+		}
+	case "streamable-http":
+		if cfg.URL == "" {
+			return nil, fmt.Errorf("MCP Server %q: streamable-http 传输需要 url", cfg.Name)
+		}
+		var opts []transport.StreamableHTTPCOption
+		if len(cfg.Headers) > 0 {
+			opts = append(opts, transport.WithHTTPHeaders(cfg.Headers))
+		}
+		c, err = client.NewStreamableHttpClient(cfg.URL, opts...)
+		if err != nil {
+			return nil, fmt.Errorf("MCP Server %q: 创建 streamable-http client 失败: %w", cfg.Name, err)
 		}
 	default:
 		return nil, fmt.Errorf("MCP Server %q: 不支持的传输方式 %q", cfg.Name, cfg.Transport)

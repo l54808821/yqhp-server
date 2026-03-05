@@ -117,6 +117,9 @@ func (a *RouterAgent) runReActWithPlanSwitch(ctx context.Context, req *AgentRequ
 			if round == 1 {
 				output.AgentTrace.Mode = string(AgentModeDirect)
 			}
+			if req.Callbacks.Stream != nil {
+				req.Callbacks.Stream.OnMessageComplete(ctx, req.StepID, toAIResult(output))
+			}
 			return output, nil
 		}
 
@@ -179,6 +182,9 @@ func (a *RouterAgent) runReActWithPlanSwitch(ctx context.Context, req *AgentRequ
 	}
 	output.Content = resp.Content
 	updateTokenUsage(output, resp)
+	if req.Callbacks.Stream != nil {
+		req.Callbacks.Stream.OnMessageComplete(ctx, req.StepID, toAIResult(output))
+	}
 	return output, nil
 }
 

@@ -63,6 +63,9 @@ func (a *ReActAgent) Run(ctx context.Context, req *AgentRequest) (*AIOutput, err
 			if round == 1 {
 				output.AgentTrace.Mode = string(AgentModeDirect)
 			}
+			if req.Callbacks.Stream != nil {
+				req.Callbacks.Stream.OnMessageComplete(ctx, req.StepID, toAIResult(output))
+			}
 			return output, nil
 		}
 
@@ -126,6 +129,9 @@ func (a *ReActAgent) Run(ctx context.Context, req *AgentRequest) (*AIOutput, err
 	}
 	output.Content = resp.Content
 	updateTokenUsage(output, resp)
+	if req.Callbacks.Stream != nil {
+		req.Callbacks.Stream.OnMessageComplete(ctx, req.StepID, toAIResult(output))
+	}
 	return output, nil
 }
 

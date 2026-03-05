@@ -98,6 +98,25 @@ func AIConversationUpdateTitle(c *fiber.Ctx) error {
 	return response.Success(c, nil)
 }
 
+// AIConversationDeleteMessagesFrom 删除指定消息（含）及之后的所有消息
+// DELETE /api/conversations/:convId/messages/from/:msgId
+func AIConversationDeleteMessagesFrom(c *fiber.Ctx) error {
+	convID, err := strconv.ParseInt(c.Params("convId"), 10, 64)
+	if err != nil {
+		return response.Error(c, "无效的会话ID")
+	}
+	msgID, err := strconv.ParseInt(c.Params("msgId"), 10, 64)
+	if err != nil {
+		return response.Error(c, "无效的消息ID")
+	}
+
+	l := logic.NewAIConversationLogic(c.UserContext())
+	if err := l.DeleteMessagesFrom(convID, msgID); err != nil {
+		return response.Error(c, err.Error())
+	}
+	return response.Success(c, nil)
+}
+
 // AIConversationSaveMessage 保存消息
 // POST /api/conversations/:convId/messages
 func AIConversationSaveMessage(c *fiber.Ctx) error {

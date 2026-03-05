@@ -270,6 +270,7 @@ func Setup(app *fiber.App) {
 	conversations.Delete("/:convId", handler.AIConversationDelete)
 	conversations.Put("/:convId/title", handler.AIConversationUpdateTitle)
 	conversations.Post("/:convId/messages", handler.AIConversationSaveMessage)
+	conversations.Delete("/:convId/messages/from/:msgId", handler.AIConversationDeleteMessagesFrom)
 
 	// 执行记录管理路由（历史记录查询等）
 	executionRecords := api.Group("/execution-records")

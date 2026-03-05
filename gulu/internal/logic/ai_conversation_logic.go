@@ -111,6 +111,12 @@ func (l *AIConversationLogic) UpdateTitle(conversationID int64, title string) er
 		Update("title", title).Error
 }
 
+func (l *AIConversationLogic) DeleteMessagesFrom(conversationID int64, messageID int64) error {
+	return svc.Ctx.DB.
+		Where("conversation_id = ? AND id >= ?", conversationID, messageID).
+		Delete(&model.TAiConversationMessage{}).Error
+}
+
 func (l *AIConversationLogic) SaveMessage(conversationID int64, req *SaveMessageReq) (*model.TAiConversationMessage, error) {
 	if req.Role == "" || req.Content == "" {
 		return nil, errors.New("role 和 content 不能为空")

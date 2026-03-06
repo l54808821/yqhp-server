@@ -13,17 +13,17 @@ import (
 )
 
 // ProcessorExecutor 处理器执行器
+// 所有变量（包括环境变量）统一存储在 variables 中，
+// 环境变量通过 "env." 前缀区分（如 "env.aaa"）。
 type ProcessorExecutor struct {
-	variables map[string]interface{} // 变量上下文
-	envVars   map[string]interface{} // 环境变量
+	variables map[string]interface{} // 统一变量上下文（含 env. 前缀的环境变量）
 	response  map[string]interface{} // HTTP 响应数据
 }
 
 // NewProcessorExecutor 创建处理器执行器
-func NewProcessorExecutor(variables, envVars map[string]interface{}) *ProcessorExecutor {
+func NewProcessorExecutor(variables map[string]interface{}) *ProcessorExecutor {
 	return &ProcessorExecutor{
 		variables: variables,
-		envVars:   envVars,
 	}
 }
 
@@ -125,12 +125,14 @@ func (e *ProcessorExecutor) executeJsScript(ctx context.Context, pctx *processor
 		EnvVars:   make(map[string]interface{}),
 	}
 
-	// 注入变量
+	// 从统一 variables 中分离环境变量（env. 前缀）和普通变量
+	const envPrefix = "env."
 	for k, v := range e.variables {
-		rtConfig.Variables[k] = v
-	}
-	for k, v := range e.envVars {
-		rtConfig.EnvVars[k] = v
+		if strings.HasPrefix(k, envPrefix) {
+			rtConfig.EnvVars[k[len(envPrefix):]] = v
+		} else {
+			rtConfig.Variables[k] = v
+		}
 	}
 
 	// 如果有响应数据，注入到运行时
@@ -171,10 +173,11 @@ func (e *ProcessorExecutor) executeJsScript(ctx context.Context, pctx *processor
 		})
 	}
 
-	// 更新环境变量
+	// 更新环境变量（以 env. 前缀写回统一 variables）
 	for k, v := range execResult.EnvVars {
-		oldValue := e.envVars[k]
-		e.envVars[k] = v
+		fullKey := envPrefix + k
+		oldValue := e.variables[fullKey]
+		e.variables[fullKey] = v
 		varChanges = append(varChanges, map[string]any{
 			"name":     k,
 			"oldValue": oldValue,
@@ -211,9 +214,13 @@ func (e *ProcessorExecutor) executeSetVariable(pctx *processorContext) {
 	}
 
 	if varName != "" {
-		// 获取旧值用于追踪
-		oldValue := e.variables[varName]
-		e.variables[varName] = varValue
+		// 环境变量使用 env. 前缀存储
+		storeKey := varName
+		if scope == "env" {
+			storeKey = "env." + varName
+		}
+		oldValue := e.variables[storeKey]
+		e.variables[storeKey] = varValue
 		pctx.message = fmt.Sprintf("%s = %s", varName, varValue)
 		pctx.output = map[string]any{
 			"variableName": varName,
@@ -384,9 +391,13 @@ func (e *ProcessorExecutor) executeExtractParam(pctx *processorContext) {
 	}
 
 	if varName != "" {
-		// 获取旧值用于追踪
-		oldValue := e.variables[varName]
-		e.variables[varName] = value
+		// 环境变量使用 env. 前缀存储
+		storeKey := varName
+		if scope == "env" {
+			storeKey = "env." + varName
+		}
+		oldValue := e.variables[storeKey]
+		e.variables[storeKey] = value
 		pctx.message = fmt.Sprintf("%s = %v", varName, value)
 		pctx.output = map[string]any{
 			"variableName": varName,
@@ -441,13 +452,10 @@ func (e *ProcessorExecutor) extractValue(extractType, expression string) (interf
 }
 
 // replaceVariables 替换变量
+// 统一处理所有变量（含 env. 前缀的环境变量），一次遍历即可
 func (e *ProcessorExecutor) replaceVariables(s string) string {
 	result := s
 	for k, v := range e.variables {
-		placeholder := "${" + k + "}"
-		result = strings.ReplaceAll(result, placeholder, fmt.Sprintf("%v", v))
-	}
-	for k, v := range e.envVars {
 		placeholder := "${" + k + "}"
 		result = strings.ReplaceAll(result, placeholder, fmt.Sprintf("%v", v))
 	}

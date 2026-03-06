@@ -88,10 +88,17 @@ func (r *VariableResolver) ResolveMap(m map[string]string, ctx map[string]any) m
 }
 
 // resolveVariablePath 解析变量路径（支持嵌套访问如 obj.field.subfield）
+// 优先使用完整路径作为 key 匹配（如 "env.aaa"），支持命名空间变量；
+// 若完整 key 未命中，再按点号拆分做嵌套对象访问。
 func (r *VariableResolver) resolveVariablePath(path string, ctx map[string]any) any {
+	// 优先完整 key 匹配（支持 env.xxx、sys.xxx 等命名空间变量）
+	if val, exists := ctx[path]; exists {
+		return val
+	}
+
 	// 分割路径
 	parts := strings.Split(path, ".")
-	if len(parts) == 0 {
+	if len(parts) <= 1 {
 		return nil
 	}
 
@@ -99,11 +106,6 @@ func (r *VariableResolver) resolveVariablePath(path string, ctx map[string]any) 
 	current, exists := ctx[parts[0]]
 	if !exists {
 		return nil
-	}
-
-	// 如果只有一个部分，直接返回
-	if len(parts) == 1 {
-		return current
 	}
 
 	// 遍历路径的其余部分
@@ -119,7 +121,6 @@ func (r *VariableResolver) resolveVariablePath(path string, ctx map[string]any) 
 		case map[any]any:
 			current = m[parts[i]]
 		default:
-			// 不支持的类型
 			return nil
 		}
 	}

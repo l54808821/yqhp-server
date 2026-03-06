@@ -66,16 +66,14 @@ func (e *ScriptExecutor) executeJavaScript(ctx context.Context, step *types.Step
 	}
 
 	// 注入执行上下文变量
+	const envPrefix = "env."
 	if execCtx != nil {
-		// 复制变量
+		// 按 env. 前缀分离变量和环境变量
 		for k, v := range execCtx.Variables {
-			rtConfig.Variables[k] = v
-		}
-
-		// 从变量中提取环境变量（以 env_ 开头的变量）
-		for k, v := range execCtx.Variables {
-			if len(k) > 4 && k[:4] == "env_" {
-				rtConfig.EnvVars[k[4:]] = v
+			if len(k) > len(envPrefix) && k[:len(envPrefix)] == envPrefix {
+				rtConfig.EnvVars[k[len(envPrefix):]] = v
+			} else {
+				rtConfig.Variables[k] = v
 			}
 		}
 
@@ -137,9 +135,9 @@ func (e *ScriptExecutor) executeJavaScript(ctx context.Context, step *types.Step
 		for k, v := range result.Variables {
 			execCtx.SetVariable(k, v)
 		}
-		// 将环境变量也保存到变量中（以 env_ 前缀）
+		// 环境变量以 env. 前缀写回
 		for k, v := range result.EnvVars {
-			execCtx.SetVariable("env_"+k, v)
+			execCtx.SetVariable(envPrefix+k, v)
 		}
 	}
 

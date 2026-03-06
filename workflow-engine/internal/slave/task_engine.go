@@ -892,6 +892,15 @@ func (e *TaskEngine) executeWorkflowIteration(ctx context.Context, task *types.T
 		}
 	}
 
+	// 注入环境变量：以 env. 前缀写入 Variables，同时保留原名（向后兼容）
+	// 这样 ${env.aaa} 和 ${aaa} 都能解析，且快照可通过前缀区分环境变量
+	if workflow.EnvVariables != nil {
+		for k, v := range workflow.EnvVariables {
+			execCtx.SetVariable("env."+k, v)
+			// 原名已在 workflow.Variables 中合并，无需重复设置
+		}
+	}
+
 	// 获取执行选项
 	opts := &workflow.Options
 

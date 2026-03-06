@@ -35,11 +35,9 @@ type VariableChangeInfo struct {
 }
 
 // VariableSnapshotInfo 变量快照信息
+// Variables 统一存储所有变量，环境变量以 "env." 前缀区分，前端按前缀分类展示
 type VariableSnapshotInfo struct {
-	// EnvVars 环境变量
-	EnvVars map[string]any `json:"envVars"`
-	// TempVars 临时变量
-	TempVars map[string]any `json:"tempVars"`
+	Variables map[string]any `json:"variables"`
 }
 
 // ConsoleLogEntry 统一的控制台日志条目

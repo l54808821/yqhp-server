@@ -17,14 +17,13 @@ func executePostProcessors(ctx context.Context, step *types.Step, execCtx *execu
 	}
 
 	variables := make(map[string]interface{})
-	envVars := make(map[string]interface{})
 	if execCtx.Variables != nil {
 		for k, v := range execCtx.Variables {
 			variables[k] = v
 		}
 	}
 
-	procExecutor := pkgExecutor.NewProcessorExecutor(variables, envVars)
+	procExecutor := pkgExecutor.NewProcessorExecutor(variables)
 
 	toolCallsJSON := "[]"
 	if len(output.ToolCalls) > 0 {
@@ -92,10 +91,7 @@ func executePostProcessors(ctx context.Context, step *types.Step, execCtx *execu
 				Scope:    scope,
 				Source:   source,
 			}))
-			if scope == "env" {
-				execCtx.MarkAsEnvVar(varName)
 			}
-		}
 		if entry.Processor.Type == "js_script" {
 			if varChanges, ok := pOutput["varChanges"].([]map[string]any); ok {
 				for _, change := range varChanges {
@@ -112,9 +108,6 @@ func executePostProcessors(ctx context.Context, step *types.Step, execCtx *execu
 						Scope:    s,
 						Source:   src,
 					}))
-					if s == "env" {
-						execCtx.MarkAsEnvVar(name)
-					}
 				}
 			}
 		}

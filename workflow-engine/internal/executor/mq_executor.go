@@ -303,13 +303,12 @@ func (e *MQExecutor) Execute(ctx context.Context, step *types.Step, execCtx *Exe
 // executePreProcessors 执行前置处理器。
 func (e *MQExecutor) executePreProcessors(ctx context.Context, step *types.Step, execCtx *ExecutionContext) *pkgExecutor.ProcessorExecutor {
 	variables := make(map[string]interface{})
-	envVars := make(map[string]interface{})
 	if execCtx != nil && execCtx.Variables != nil {
 		for k, v := range execCtx.Variables {
 			variables[k] = v
 		}
 	}
-	procExecutor := pkgExecutor.NewProcessorExecutor(variables, envVars)
+	procExecutor := pkgExecutor.NewProcessorExecutor(variables)
 
 	if len(step.PreProcessors) > 0 {
 		preLogs := procExecutor.ExecuteProcessors(ctx, step.PreProcessors, "pre")
@@ -350,7 +349,7 @@ func (e *MQExecutor) collectLogsAndAssertions(execCtx *ExecutionContext, output 
 	if execCtx == nil {
 		return
 	}
-	execCtx.CreateVariableSnapshotWithEnvVars(nil)
+	execCtx.CreateVariableSnapshot()
 
 	allConsoleLogs := execCtx.FlushLogs()
 	if len(allConsoleLogs) > 0 {

@@ -329,13 +329,12 @@ func (b *HTTPBaseExecutor) PrepareConfig(step *types.Step, execCtx *ExecutionCon
 // ExecutePreProcessors 执行前置处理器，返回处理器执行器（后续后置处理器需要用到）。
 func (b *HTTPBaseExecutor) ExecutePreProcessors(ctx context.Context, step *types.Step, execCtx *ExecutionContext) *pkgExecutor.ProcessorExecutor {
 	variables := make(map[string]interface{})
-	envVars := make(map[string]interface{})
 	if execCtx != nil && execCtx.Variables != nil {
 		for k, v := range execCtx.Variables {
 			variables[k] = v
 		}
 	}
-	procExecutor := pkgExecutor.NewProcessorExecutor(variables, envVars)
+	procExecutor := pkgExecutor.NewProcessorExecutor(variables)
 
 	if len(step.PreProcessors) > 0 {
 		preLogs := procExecutor.ExecuteProcessors(ctx, step.PreProcessors, "pre")
@@ -384,7 +383,7 @@ func (b *HTTPBaseExecutor) ExecutePostProcessors(ctx context.Context, step *type
 
 // CollectLogsAndAssertions 收集日志和断言结果到 output 中。
 func (b *HTTPBaseExecutor) CollectLogsAndAssertions(execCtx *ExecutionContext, output *types.HTTPResponseData) {
-	execCtx.CreateVariableSnapshotWithEnvVars(nil)
+	execCtx.CreateVariableSnapshot()
 
 	allConsoleLogs := execCtx.FlushLogs()
 	if len(allConsoleLogs) > 0 {
@@ -448,10 +447,7 @@ func trackVariableChangesShared(execCtx *ExecutionContext, logs []types.ConsoleL
 				Source:   source,
 			}))
 
-			if scope == "env" {
-				execCtx.MarkAsEnvVar(varName)
 			}
-		}
 
 		// 处理 js_script 的变量变更
 		if entry.Processor.Type == "js_script" {
@@ -471,10 +467,6 @@ func trackVariableChangesShared(execCtx *ExecutionContext, logs []types.ConsoleL
 						Scope:    scope,
 						Source:   source,
 					}))
-
-					if scope == "env" {
-						execCtx.MarkAsEnvVar(name)
-					}
 				}
 			}
 		}

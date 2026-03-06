@@ -343,66 +343,26 @@ func (c *ExecutionContext) SetVariableWithTracking(name string, value any, scope
 	c.mu.Unlock()
 
 	if c.logCollector != nil {
-		// 标记环境变量
-		if scope == "env" {
-			c.logCollector.MarkAsEnvVar(name)
-		}
-		// 记录变量变更
 		c.logCollector.RecordVariableChange(name, oldValue, value, scope, source)
 	}
 }
 
-// MarkAsEnvVar 标记某个变量为环境变量
-func (c *ExecutionContext) MarkAsEnvVar(name string) {
-	if c.logCollector != nil {
-		c.logCollector.MarkAsEnvVar(name)
-	}
-}
-
-// IsEnvVar 检查是否是环境变量
-func (c *ExecutionContext) IsEnvVar(name string) bool {
-	if c.logCollector != nil {
-		return c.logCollector.IsEnvVar(name)
-	}
-	return false
-}
-
 // CreateVariableSnapshot 创建变量快照
+// 直接将统一的 Variables map 写入快照，前端按 env. 前缀分类展示
 func (c *ExecutionContext) CreateVariableSnapshot() {
-	c.CreateVariableSnapshotWithEnvVars(nil)
-}
-
-// CreateVariableSnapshotWithEnvVars 创建变量快照（支持单独传入环境变量）
-func (c *ExecutionContext) CreateVariableSnapshotWithEnvVars(envVars map[string]interface{}) {
 	if c.logCollector == nil {
 		return
 	}
 
 	c.mu.RLock()
-	tempVars := make(map[string]any)
-	envVarsAny := make(map[string]any)
-
-	// 分离临时变量和环境变量
+	vars := make(map[string]any, len(c.Variables))
 	for k, v := range c.Variables {
-		if c.logCollector.IsEnvVar(k) {
-			envVarsAny[k] = v
-		} else {
-			tempVars[k] = v
-		}
+		vars[k] = v
 	}
 	c.mu.RUnlock()
 
-	// 合并传入的环境变量
-	if envVars != nil {
-		for k, v := range envVars {
-			envVarsAny[k] = v
-		}
-	}
-
-	// 直接创建快照条目
 	c.logCollector.AppendLog(types.NewSnapshotEntry(types.VariableSnapshotInfo{
-		EnvVars:  envVarsAny,
-		TempVars: tempVars,
+		Variables: vars,
 	}))
 }
 

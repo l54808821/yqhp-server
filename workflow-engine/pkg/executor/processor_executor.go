@@ -15,16 +15,17 @@ import (
 // VariableGetFunc 变量获取回调
 type VariableGetFunc func(key string) (interface{}, bool)
 
-// VariableSetFunc 变量设置回调（key, value, scope, source）
-type VariableSetFunc func(key string, value interface{}, scope, source string)
+// VariableSetFunc 变量设置回调（仅设置值，不记录日志）
+type VariableSetFunc func(key string, value interface{})
 
 // ProcessorExecutor 处理器执行器
-// 通过回调委托变量操作给 ExecutionContext，实现实时同步。
+// 变量变更日志统一收集到当前处理器的日志列表中，确保时序正确。
 type ProcessorExecutor struct {
 	variables    map[string]interface{} // 本地变量缓存（用于 replaceVariables 等遍历场景）
 	response     map[string]interface{} // HTTP 响应数据
 	onGetVar     VariableGetFunc        // 变量获取回调
-	onSetVar     VariableSetFunc        // 变量设置回调（带追踪）
+	onSetVar     VariableSetFunc        // 变量设置回调（仅设置值）
+	currentLogs  *[]types.ConsoleLogEntry // 指向当前处理器的日志列表
 }
 
 // NewProcessorExecutor 创建处理器执行器
@@ -35,6 +36,7 @@ func NewProcessorExecutor(variables map[string]interface{}) *ProcessorExecutor {
 }
 
 // NewProcessorExecutorWithCallbacks 创建带回调的处理器执行器
+// setVar 回调仅负责将值同步到 ExecutionContext，不记录日志
 func NewProcessorExecutorWithCallbacks(variables map[string]interface{}, getVar VariableGetFunc, setVar VariableSetFunc) *ProcessorExecutor {
 	return &ProcessorExecutor{
 		variables: variables,
@@ -86,6 +88,9 @@ func (e *ProcessorExecutor) executeProcessor(ctx context.Context, processor type
 		logs:      make([]types.ConsoleLogEntry, 0),
 	}
 
+	e.currentLogs = &pctx.logs
+	defer func() { e.currentLogs = nil }()
+
 	switch processor.Type {
 	case "js_script":
 		e.executeJsScript(ctx, pctx)
@@ -116,18 +121,29 @@ func (e *ProcessorExecutor) executeProcessor(ctx context.Context, processor type
 		Output:  pctx.output,
 	})
 
-	// 返回：处理器条目 + 脚本产生的日志
-	result := []types.ConsoleLogEntry{procEntry}
+	// 返回：脚本产生的日志 + 处理器执行结果条目（保持执行时序）
+	result := make([]types.ConsoleLogEntry, 0, len(pctx.logs)+1)
 	result = append(result, pctx.logs...)
+	result = append(result, procEntry)
 
 	return result
 }
 
-// setVariable 设置变量，优先通过回调同步到上下文，同时更新本地缓存
+// setVariable 设置变量，同步到上下文并在当前处理器日志中记录变更
 func (e *ProcessorExecutor) setVariable(key string, value interface{}, scope, source string) {
+	oldValue := e.variables[key]
 	e.variables[key] = value
 	if e.onSetVar != nil {
-		e.onSetVar(key, value, scope, source)
+		e.onSetVar(key, value)
+	}
+	if e.currentLogs != nil {
+		*e.currentLogs = append(*e.currentLogs, types.NewVariableChangeEntry(types.VariableChangeInfo{
+			Name:     key,
+			OldValue: oldValue,
+			NewValue: value,
+			Scope:    scope,
+			Source:   source,
+		}))
 	}
 }
 
@@ -160,39 +176,47 @@ func (e *ProcessorExecutor) executeJsScript(ctx context.Context, pctx *processor
 		rtConfig.Variables[k] = v
 	}
 
-	// JS Runtime 也使用回调模式
-	if e.onGetVar != nil {
-		rtConfig.OnGetVariable = func(key string) (interface{}, bool) {
-			return e.getVariable(key)
-		}
+	// 所有回调统一写入 pctx.logs，保证 console.log 和变量变更的时序正确
+	rtConfig.OnGetVariable = func(key string) (interface{}, bool) {
+		return e.getVariable(key)
 	}
-	if e.onSetVar != nil {
-		rtConfig.OnSetVariable = func(key string, value interface{}) {
-			scope := "temp"
-			if strings.HasPrefix(key, "env.") {
-				scope = "env"
-			}
-			e.setVariable(key, value, scope, "js_script")
+	rtConfig.OnSetVariable = func(key string, value interface{}) {
+		scope := "temp"
+		if strings.HasPrefix(key, "env.") {
+			scope = "env"
 		}
-		rtConfig.OnDelVariable = func(key string) {
-			e.setVariable(key, nil, "temp", "js_script")
+		e.setVariable(key, value, scope, "js_script")
+	}
+	rtConfig.OnDelVariable = func(key string) {
+		e.setVariable(key, nil, "temp", "js_script")
+	}
+	rtConfig.OnLog = func(level, message string) {
+		if e.currentLogs != nil {
+			switch level {
+			case "warn":
+				*e.currentLogs = append(*e.currentLogs, types.NewWarnEntry(message))
+			case "error":
+				*e.currentLogs = append(*e.currentLogs, types.NewErrorEntry(message))
+			default:
+				*e.currentLogs = append(*e.currentLogs, types.NewLogEntry(message))
+			}
 		}
 	}
 
-	// 如果有响应数据，注入到运行时
 	if e.response != nil {
 		rtConfig.Response = e.response
 	}
 
-	// 创建 JS 运行时
 	runtime := script.NewJSRuntime(rtConfig)
 
-	// 执行脚本
 	execResult, err := runtime.Execute(scriptCode, 30*time.Second)
 
-	// 将脚本的 console.log 输出转换为日志条目
-	for _, log := range execResult.ConsoleLogs {
-		pctx.logs = append(pctx.logs, types.NewLogEntry(log))
+	// OnLog 回调已在执行过程中实时写入 pctx.logs，无需再从 ConsoleLogs 提取
+	// 但如果没有配置 OnLog（理论上不会），仍作为兜底
+	if rtConfig.OnLog == nil {
+		for _, log := range execResult.ConsoleLogs {
+			pctx.logs = append(pctx.logs, types.NewLogEntry(log))
+		}
 	}
 
 	if err != nil {

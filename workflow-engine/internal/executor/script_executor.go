@@ -63,14 +63,15 @@ func (e *ScriptExecutor) executeJavaScript(ctx context.Context, step *types.Step
 	// 准备运行时配置
 	rtConfig := &script.JSRuntimeConfig{}
 
+	// orderedLogs 按执行时序收集所有日志（console.log + 变量变更），确保顺序正确
+	var orderedLogs []types.ConsoleLogEntry
+
 	if execCtx != nil {
-		// 传递变量快照作为初始状态
 		rtConfig.Variables = make(map[string]interface{}, len(execCtx.Variables))
 		for k, v := range execCtx.Variables {
 			rtConfig.Variables[k] = v
 		}
 
-		// 配置变量回调，实时同步到 ExecutionContext
 		rtConfig.OnGetVariable = func(key string) (interface{}, bool) {
 			return execCtx.GetVariable(key)
 		}
@@ -79,13 +80,30 @@ func (e *ScriptExecutor) executeJavaScript(ctx context.Context, step *types.Step
 			if strings.HasPrefix(key, "env.") {
 				scope = "env"
 			}
-			execCtx.SetVariableWithTracking(key, value, scope, "js_script")
+			oldValue, _ := execCtx.GetVariable(key)
+			execCtx.SetVariable(key, value)
+			orderedLogs = append(orderedLogs, types.NewVariableChangeEntry(types.VariableChangeInfo{
+				Name:     key,
+				OldValue: oldValue,
+				NewValue: value,
+				Scope:    scope,
+				Source:   "js_script",
+			}))
 		}
 		rtConfig.OnDelVariable = func(key string) {
 			execCtx.SetVariable(key, nil)
 		}
+		rtConfig.OnLog = func(level, message string) {
+			switch level {
+			case "warn":
+				orderedLogs = append(orderedLogs, types.NewWarnEntry(message))
+			case "error":
+				orderedLogs = append(orderedLogs, types.NewErrorEntry(message))
+			default:
+				orderedLogs = append(orderedLogs, types.NewLogEntry(message))
+			}
+		}
 
-		// 查找上一步骤的结果作为 response
 		if len(execCtx.Results) > 0 {
 			for _, result := range execCtx.Results {
 				if result.Output != nil {
@@ -109,16 +127,20 @@ func (e *ScriptExecutor) executeJavaScript(ctx context.Context, step *types.Step
 		}
 	}
 
-	// 执行脚本
 	result, err := runtime.Execute(config.Script, timeout)
 
-	// 将字符串日志转换为 ConsoleLogEntry 格式
-	consoleLogs := make([]types.ConsoleLogEntry, 0, len(result.ConsoleLogs))
-	for _, log := range result.ConsoleLogs {
-		consoleLogs = append(consoleLogs, types.NewLogEntry(log))
+	// 使用 orderedLogs（通过 OnLog/OnSetVariable 回调按时序收集的日志）
+	// 如果没有使用回调（execCtx 为 nil），则从 result.ConsoleLogs 兜底
+	var consoleLogs []types.ConsoleLogEntry
+	if len(orderedLogs) > 0 {
+		consoleLogs = orderedLogs
+	} else {
+		consoleLogs = make([]types.ConsoleLogEntry, 0, len(result.ConsoleLogs))
+		for _, log := range result.ConsoleLogs {
+			consoleLogs = append(consoleLogs, types.NewLogEntry(log))
+		}
 	}
 
-	// 构建输出（使用统一的 ScriptResponseData 结构）
 	output := &types.ScriptResponseData{
 		Script:      config.Script,
 		Language:    config.Language,
@@ -131,17 +153,14 @@ func (e *ScriptExecutor) executeJavaScript(ctx context.Context, step *types.Step
 		output.Error = err.Error()
 		stepResult := CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "脚本执行失败", err))
 		stepResult.Output = output
-		// 即使失败也创建变量快照
 		if execCtx != nil {
 			execCtx.CreateVariableSnapshot()
 		}
 		return stepResult, nil
 	}
 
-	// 设置返回值
 	output.Result = result.Value
 
-	// 创建变量快照
 	if execCtx != nil {
 		execCtx.CreateVariableSnapshot()
 	}

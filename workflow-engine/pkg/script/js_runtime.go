@@ -30,6 +30,7 @@ type JSRuntime struct {
 	onGetVariable VariableGetFunc
 	onSetVariable VariableSetFunc
 	onDelVariable VariableDelFunc
+	onLog         LogFunc
 }
 
 // envPrefix 环境变量在 variables map 中的前缀
@@ -53,6 +54,9 @@ type VariableSetFunc func(key string, value interface{})
 // VariableDelFunc 变量删除回调
 type VariableDelFunc func(key string)
 
+// LogFunc console 日志回调（level: "log"/"warn"/"error"/"info", message: 格式化后的消息）
+type LogFunc func(level string, message string)
+
 // JSRuntimeConfig 运行时配置
 type JSRuntimeConfig struct {
 	Variables  map[string]interface{} // 统一变量（含 env. 前缀的环境变量）
@@ -64,6 +68,7 @@ type JSRuntimeConfig struct {
 	OnGetVariable VariableGetFunc // 变量获取回调（委托给 ExecutionContext）
 	OnSetVariable VariableSetFunc // 变量设置回调（委托给 ExecutionContext）
 	OnDelVariable VariableDelFunc // 变量删除回调（委托给 ExecutionContext）
+	OnLog         LogFunc         // console 日志回调（可选，设置后日志通过回调输出而非内部收集）
 }
 
 // NewJSRuntime 创建新的 JS 运行时
@@ -83,6 +88,7 @@ func NewJSRuntime(config *JSRuntimeConfig) *JSRuntime {
 		onGetVariable: config.OnGetVariable,
 		onSetVariable: config.OnSetVariable,
 		onDelVariable: config.OnDelVariable,
+		onLog:         config.OnLog,
 	}
 
 	// 复制变量（含 env. 前缀的环境变量）作为本地缓存
@@ -226,16 +232,20 @@ func (r *JSRuntime) setupConsole() {
 
 // appendLog 添加日志
 func (r *JSRuntime) appendLog(level string, args []goja.Value) {
-	r.logMu.Lock()
-	defer r.logMu.Unlock()
-
 	parts := make([]string, len(args))
 	for i, arg := range args {
 		parts[i] = r.formatValue(arg)
 	}
+	message := strings.Join(parts, " ")
 
-	logLine := fmt.Sprintf("[%s] %s", level, strings.Join(parts, " "))
-	r.consoleLogs = append(r.consoleLogs, logLine)
+	if r.onLog != nil {
+		r.onLog(strings.ToLower(level), message)
+		return
+	}
+
+	r.logMu.Lock()
+	defer r.logMu.Unlock()
+	r.consoleLogs = append(r.consoleLogs, message)
 }
 
 // formatValue 格式化值为字符串

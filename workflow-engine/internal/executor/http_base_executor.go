@@ -339,15 +339,14 @@ func (b *HTTPBaseExecutor) ExecutePreProcessors(ctx context.Context, step *types
 		func(key string) (interface{}, bool) {
 			return execCtx.GetVariable(key)
 		},
-		func(key string, value interface{}, scope, source string) {
-			execCtx.SetVariableWithTracking(key, value, scope, source)
+		func(key string, value interface{}) {
+			execCtx.SetVariable(key, value)
 		},
 	)
 
 	if len(step.PreProcessors) > 0 {
 		preLogs := procExecutor.ExecuteProcessors(ctx, step.PreProcessors, "pre")
 		execCtx.AppendLogs(preLogs)
-		b.trackVariableChanges(execCtx, preLogs)
 	}
 
 	return procExecutor
@@ -374,7 +373,6 @@ func (b *HTTPBaseExecutor) ExecutePostProcessors(ctx context.Context, step *type
 
 	postLogs := procExecutor.ExecuteProcessors(ctx, step.PostProcessors, "post")
 	execCtx.AppendLogs(postLogs)
-	b.trackVariableChanges(execCtx, postLogs)
 }
 
 // CollectLogsAndAssertions 收集日志和断言结果到 output 中。
@@ -398,73 +396,3 @@ func (b *HTTPBaseExecutor) CollectLogsAndAssertions(execCtx *ExecutionContext, o
 	}
 }
 
-// trackVariableChanges 从处理器日志中追踪变量变更。
-// 注意：实际逻辑委托给包级别的 trackVariableChanges 函数，以便其他执行器复用。
-func (b *HTTPBaseExecutor) trackVariableChanges(execCtx *ExecutionContext, logs []types.ConsoleLogEntry) {
-	trackVariableChangesShared(execCtx, logs)
-}
-
-// trackVariableChangesShared 从处理器日志中追踪变量变更（包级别函数，供所有执行器使用）。
-func trackVariableChangesShared(execCtx *ExecutionContext, logs []types.ConsoleLogEntry) {
-	if execCtx == nil {
-		return
-	}
-
-	for _, entry := range logs {
-		if entry.Type != types.LogTypeProcessor || entry.Processor == nil {
-			continue
-		}
-
-		output := entry.Processor.Output
-		if output == nil {
-			continue
-		}
-
-		// 处理 set_variable 和 extract_param 的变量变更
-		if entry.Processor.Type == "set_variable" || entry.Processor.Type == "extract_param" {
-			varName, _ := output["variableName"].(string)
-			if varName == "" {
-				continue
-			}
-			scope, _ := output["scope"].(string)
-			if scope == "" {
-				scope = "temp"
-			}
-			source, _ := output["source"].(string)
-			if source == "" {
-				source = entry.Processor.Type
-			}
-
-			execCtx.AppendLog(types.NewVariableChangeEntry(types.VariableChangeInfo{
-				Name:     varName,
-				OldValue: output["oldValue"],
-				NewValue: output["value"],
-				Scope:    scope,
-				Source:   source,
-			}))
-
-			}
-
-		// 处理 js_script 的变量变更
-		if entry.Processor.Type == "js_script" {
-			if varChanges, ok := output["varChanges"].([]map[string]any); ok {
-				for _, change := range varChanges {
-					name, _ := change["name"].(string)
-					if name == "" {
-						continue
-					}
-					scope, _ := change["scope"].(string)
-					source, _ := change["source"].(string)
-
-					execCtx.AppendLog(types.NewVariableChangeEntry(types.VariableChangeInfo{
-						Name:     name,
-						OldValue: change["oldValue"],
-						NewValue: change["newValue"],
-						Scope:    scope,
-						Source:   source,
-					}))
-				}
-			}
-		}
-	}
-}

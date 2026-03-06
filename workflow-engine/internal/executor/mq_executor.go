@@ -313,15 +313,14 @@ func (e *MQExecutor) executePreProcessors(ctx context.Context, step *types.Step,
 		func(key string) (interface{}, bool) {
 			return execCtx.GetVariable(key)
 		},
-		func(key string, value interface{}, scope, source string) {
-			execCtx.SetVariableWithTracking(key, value, scope, source)
+		func(key string, value interface{}) {
+			execCtx.SetVariable(key, value)
 		},
 	)
 
 	if len(step.PreProcessors) > 0 {
 		preLogs := procExecutor.ExecuteProcessors(ctx, step.PreProcessors, "pre")
 		execCtx.AppendLogs(preLogs)
-		trackVariableChangesShared(execCtx, preLogs)
 	}
 
 	return procExecutor
@@ -337,7 +336,6 @@ func (e *MQExecutor) executePostProcessors(ctx context.Context, step *types.Step
 
 	postLogs := procExecutor.ExecuteProcessors(ctx, step.PostProcessors, "post")
 	execCtx.AppendLogs(postLogs)
-	trackVariableChangesShared(execCtx, postLogs)
 }
 
 // collectLogsAndAssertions 收集日志和断言结果到 output 中。

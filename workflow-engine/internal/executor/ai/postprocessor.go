@@ -28,8 +28,8 @@ func executePostProcessors(ctx context.Context, step *types.Step, execCtx *execu
 		func(key string) (interface{}, bool) {
 			return execCtx.GetVariable(key)
 		},
-		func(key string, value interface{}, scope, source string) {
-			execCtx.SetVariableWithTracking(key, value, scope, source)
+		func(key string, value interface{}) {
+			execCtx.SetVariable(key, value)
 		},
 	)
 
@@ -70,56 +70,6 @@ func executePostProcessors(ctx context.Context, step *types.Step, execCtx *execu
 
 	postLogs := procExecutor.ExecuteProcessors(ctx, step.PostProcessors, "post")
 	execCtx.AppendLogs(postLogs)
-
-	for _, entry := range postLogs {
-		if entry.Type != types.LogTypeProcessor || entry.Processor == nil {
-			continue
-		}
-		pOutput := entry.Processor.Output
-		if pOutput == nil {
-			continue
-		}
-		if entry.Processor.Type == "set_variable" || entry.Processor.Type == "extract_param" {
-			varName, _ := pOutput["variableName"].(string)
-			if varName == "" {
-				continue
-			}
-			scope, _ := pOutput["scope"].(string)
-			if scope == "" {
-				scope = "temp"
-			}
-			source, _ := pOutput["source"].(string)
-			if source == "" {
-				source = entry.Processor.Type
-			}
-			execCtx.AppendLog(types.NewVariableChangeEntry(types.VariableChangeInfo{
-				Name:     varName,
-				OldValue: pOutput["oldValue"],
-				NewValue: pOutput["value"],
-				Scope:    scope,
-				Source:   source,
-			}))
-			}
-		if entry.Processor.Type == "js_script" {
-			if varChanges, ok := pOutput["varChanges"].([]map[string]any); ok {
-				for _, change := range varChanges {
-					name, _ := change["name"].(string)
-					if name == "" {
-						continue
-					}
-					s, _ := change["scope"].(string)
-					src, _ := change["source"].(string)
-					execCtx.AppendLog(types.NewVariableChangeEntry(types.VariableChangeInfo{
-						Name:     name,
-						OldValue: change["oldValue"],
-						NewValue: change["newValue"],
-						Scope:    s,
-						Source:   src,
-					}))
-				}
-			}
-		}
-	}
 
 	allLogs := execCtx.FlushLogs()
 	if len(allLogs) > 0 {

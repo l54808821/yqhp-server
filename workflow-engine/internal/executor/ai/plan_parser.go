@@ -11,9 +11,8 @@ import (
 
 // PlanStepDef 计划步骤定义
 type PlanStepDef struct {
-	Step      int    `json:"step"`
-	Task      string `json:"task"`
-	DependsOn []int  `json:"depends_on,omitempty"`
+	Step int    `json:"step"`
+	Task string `json:"task"`
 }
 
 // parsePlanFromToolCall 从 create_plan 工具调用中解析计划步骤

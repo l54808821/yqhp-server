@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"strings"
-	"sync"
 
 	"github.com/cloudwego/eino/schema"
 
@@ -69,8 +68,8 @@ func (a *PlanAgent) RunWithReason(ctx context.Context, req *AgentRequest, reason
 
 	a.notifyPlanStarted(ctx, req, output, reason, tasks)
 
-	// 2. 按依赖关系执行（支持并行）
-	stepResults := a.executeStepsWithDeps(ctx, req, output, tasks, stepDefs)
+	// 2. 逐步执行（支持动态 replan）
+	stepResults := a.executeSteps(ctx, req, output, tasks)
 
 	// 3. 汇总阶段
 	if err := a.synthesisPhase(ctx, req, output, tasks, stepResults); err != nil {
@@ -118,153 +117,7 @@ func (a *PlanAgent) planPhase(ctx context.Context, req *AgentRequest, output *AI
 	return parsePlanFromText(resp.Content), nil
 }
 
-// executeStepsWithDeps 根据依赖关系调度步骤执行，无依赖的步骤并行执行
-func (a *PlanAgent) executeStepsWithDeps(ctx context.Context, req *AgentRequest, output *AIOutput, tasks []string, stepDefs []PlanStepDef) []string {
-	hasDeps := false
-	for _, sd := range stepDefs {
-		if len(sd.DependsOn) > 0 {
-			hasDeps = true
-			break
-		}
-	}
-
-	// 如果没有任何依赖声明，回退到原有的顺序执行
-	if !hasDeps {
-		return a.executeSteps(ctx, req, output, tasks)
-	}
-
-	stepResults := make([]string, len(tasks))
-	completed := make([]bool, len(tasks))
-	var mu sync.Mutex
-
-	// 构建依赖图：stepIndex -> 依赖的 stepIndex 列表
-	depMap := make(map[int][]int)
-	for i, sd := range stepDefs {
-		for _, dep := range sd.DependsOn {
-			depIdx := dep - 1 // 步骤编号从 1 开始
-			if depIdx >= 0 && depIdx < len(tasks) {
-				depMap[i] = append(depMap[i], depIdx)
-			}
-		}
-	}
-
-	// 按批次执行：每批找出所有依赖已满足的步骤，并行执行
-	for {
-		if ctx.Err() != nil {
-			break
-		}
-
-		// 找出当前可执行的步骤
-		var readyIndices []int
-		for i := range tasks {
-			if completed[i] {
-				continue
-			}
-			depsOK := true
-			for _, depIdx := range depMap[i] {
-				if !completed[depIdx] {
-					depsOK = false
-					break
-				}
-			}
-			if depsOK {
-				readyIndices = append(readyIndices, i)
-			}
-		}
-
-		if len(readyIndices) == 0 {
-			break
-		}
-
-		if len(readyIndices) == 1 {
-			// 单个步骤直接执行
-			idx := readyIndices[0]
-			result := a.executeSingleStep(ctx, req, output, tasks, idx, stepResults)
-			stepResults[idx] = result
-			completed[idx] = true
-		} else {
-			logger.Debug("[Plan] 并行执行 %d 个步骤: %v", len(readyIndices), readyIndices)
-
-			var wg sync.WaitGroup
-			for _, idx := range readyIndices {
-				wg.Add(1)
-				go func(stepIdx int) {
-					defer wg.Done()
-					result := a.executeSingleStep(ctx, req, output, tasks, stepIdx, stepResults)
-					mu.Lock()
-					stepResults[stepIdx] = result
-					completed[stepIdx] = true
-					mu.Unlock()
-				}(idx)
-			}
-			wg.Wait()
-		}
-	}
-
-	return stepResults
-}
-
-// executeSingleStep 执行单个计划步骤
-func (a *PlanAgent) executeSingleStep(ctx context.Context, req *AgentRequest, output *AIOutput, tasks []string, idx int, stepResults []string) string {
-	output.AgentTrace.Plan.Steps[idx].Status = "running"
-	a.notifyStepUpdate(ctx, req, output, idx+1, "running", "")
-
-	historySummary := buildHistorySummary(req.Messages)
-	stepPrompt := buildPlanStepPrompt(req.Config.Prompt, tasks, idx, stepResults)
-	userContent := stepPrompt
-	if historySummary != "" {
-		userContent = historySummary + "\n" + stepPrompt
-	}
-	stepMessages := []*schema.Message{
-		schema.SystemMessage(req.Config.SystemPrompt),
-		schema.UserMessage(userContent),
-	}
-
-	task := tasks[idx]
-	stepToolDefs := filterToolDefsForStep(req.AllToolDefs, task, req.Config.Skills)
-	stepSchemaTools := toSchemaTools(stepToolDefs)
-
-	stepReq := &AgentRequest{
-		Config:       req.Config,
-		ChatModel:    req.ChatModel,
-		Messages:     stepMessages,
-		ToolRegistry: req.ToolRegistry,
-		SchemaTools:  stepSchemaTools,
-		AllToolDefs:  stepToolDefs,
-		StepID:       req.StepID,
-		ExecCtx:      req.ExecCtx,
-		Callbacks:    req.Callbacks,
-		MaxRounds:    5,
-	}
-
-	stepOutput, stepErr := a.executeMiniReAct(ctx, stepReq, idx+1)
-	if stepErr != nil {
-		output.AgentTrace.Plan.Steps[idx].Status = "failed"
-		output.AgentTrace.Plan.Steps[idx].Result = stepErr.Error()
-		a.notifyStepUpdate(ctx, req, output, idx+1, "failed", stepErr.Error())
-		return fmt.Sprintf("步骤 %d 失败: %s", idx+1, stepErr.Error())
-	}
-
-	mergeTokenUsage(output, stepOutput)
-	output.AgentTrace.Plan.Steps[idx].Status = "completed"
-	output.AgentTrace.Plan.Steps[idx].Result = stepOutput.Content
-	output.AgentTrace.Plan.Steps[idx].ToolCalls = stepOutput.ToolCalls
-	output.AgentTrace.Plan.Steps[idx].PromptTokens = stepOutput.PromptTokens
-	output.AgentTrace.Plan.Steps[idx].CompletionTokens = stepOutput.CompletionTokens
-	output.AgentTrace.Plan.Steps[idx].TotalTokens = stepOutput.TotalTokens
-
-	resultContent := stepOutput.Content
-	for _, tc := range stepOutput.ToolCalls {
-		if tc.Result != "" && !tc.IsError {
-			resultContent += fmt.Sprintf("\n\n[工具 %s 的原始输出]:\n%s", tc.ToolName, tc.Result)
-		}
-	}
-
-	a.notifyStepUpdate(ctx, req, output, idx+1, "completed", stepOutput.Content)
-	return resultContent
-}
-
-// executeSteps 逐步执行计划中的每个步骤，支持动态重新规划（无依赖时的顺序执行模式）
+// executeSteps 逐步执行计划中的每个步骤，支持动态重新规划
 func (a *PlanAgent) executeSteps(ctx context.Context, req *AgentRequest, output *AIOutput, tasks []string) []string {
 	historySummary := buildHistorySummary(req.Messages)
 
@@ -579,7 +432,7 @@ func (a *PlanAgent) notifyStepUpdate(ctx context.Context, req *AgentRequest, out
 func createPlanToolInfo() *schema.ToolInfo {
 	return &schema.ToolInfo{
 		Name: createPlanToolName,
-		Desc: "创建执行计划，将复杂任务分解为有序的执行步骤。每个步骤应独立且具体。支持通过 depends_on 声明步骤间依赖关系，无依赖的步骤将并行执行。",
+		Desc: "创建执行计划，将复杂任务分解为有序的执行步骤。每个步骤应独立且具体，按逻辑顺序排列。",
 		ParamsOneOf: schema.NewParamsOneOfByParams(map[string]*schema.ParameterInfo{
 			"steps": {
 				Type:     schema.Array,
@@ -597,13 +450,6 @@ func createPlanToolInfo() *schema.ToolInfo {
 							Type:     schema.String,
 							Desc:     "步骤任务描述",
 							Required: true,
-						},
-						"depends_on": {
-							Type: schema.Array,
-							Desc: "依赖的步骤编号列表。如果为空或不设置，表示该步骤没有依赖，可以与其他无依赖步骤并行执行",
-							ElemInfo: &schema.ParameterInfo{
-								Type: schema.Integer,
-							},
 						},
 					},
 				},

@@ -151,17 +151,11 @@ func (h *StreamExecutionHandler) Execute(c *fiber.Ctx) error {
 		return response.Error(c, "工作流定义不能为空（需要提供 workflow 或 step）")
 	}
 
-	// AI 工作流：将对话历史和用户消息注入变量
+	// AI 工作流：将对话历史和会话ID注入变量
 	hasUserMessage := len(req.UserMessage) > 0 && string(req.UserMessage) != `""`
 	if hasUserMessage || len(req.ChatHistory) > 0 {
 		if req.Variables == nil {
 			req.Variables = make(map[string]interface{})
-		}
-		if hasUserMessage {
-			var userMsg interface{}
-			if err := json.Unmarshal(req.UserMessage, &userMsg); err == nil {
-				req.Variables["__user_message__"] = userMsg
-			}
 		}
 		if len(req.ChatHistory) > 0 {
 			historySlice := make([]interface{}, len(req.ChatHistory))

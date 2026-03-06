@@ -131,35 +131,29 @@ func (s *Server) executeWorkflow(c *fiber.Ctx) error {
 		}
 	}
 
-	// AI 工作流：将对话历史和用户消息注入变量
-	hasUserMsg := len(req.UserMessage) > 0 && string(req.UserMessage) != `""`
-	if len(req.ChatHistory) > 0 || hasUserMsg {
+	// AI 工作流：将对话历史和会话ID注入变量
+	if len(req.ChatHistory) > 0 {
 		if wf.Variables == nil {
 			wf.Variables = make(map[string]interface{})
 		}
-		if len(req.ChatHistory) > 0 {
-			historySlice := make([]interface{}, len(req.ChatHistory))
-			for i, m := range req.ChatHistory {
-				var content interface{}
-				if err := json.Unmarshal(m.Content, &content); err != nil {
-					content = string(m.Content)
-				}
-				historySlice[i] = map[string]interface{}{
-					"role":    m.Role,
-					"content": content,
-				}
+		historySlice := make([]interface{}, len(req.ChatHistory))
+		for i, m := range req.ChatHistory {
+			var content interface{}
+			if err := json.Unmarshal(m.Content, &content); err != nil {
+				content = string(m.Content)
 			}
-			wf.Variables["__chat_history__"] = historySlice
-		}
-		if hasUserMsg {
-			var userMsg interface{}
-			if err := json.Unmarshal(req.UserMessage, &userMsg); err == nil {
-				wf.Variables["__user_message__"] = userMsg
+			historySlice[i] = map[string]interface{}{
+				"role":    m.Role,
+				"content": content,
 			}
 		}
-		if req.ConversationID != "" {
-			wf.Variables["__conversation_id__"] = req.ConversationID
+		wf.Variables["__chat_history__"] = historySlice
+	}
+	if req.ConversationID != "" {
+		if wf.Variables == nil {
+			wf.Variables = make(map[string]interface{})
 		}
+		wf.Variables["__conversation_id__"] = req.ConversationID
 	}
 
 	// 设置超时

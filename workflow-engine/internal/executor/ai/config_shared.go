@@ -221,26 +221,79 @@ func extractMultimodalTextContent(content interface{}) string {
 	return strings.Join(texts, "\n")
 }
 
-// applyUserMessage 如果执行上下文中有 __user_message__，用它覆盖 config.Prompt
-// 支持纯文本字符串和多模态 ContentPart 数组
-func applyUserMessage(config *AIConfig, execCtx *executor.ExecutionContext) {
+// applyUserInputFiles 如果执行上下文中有 userinput.files，将文件与已解析的 Prompt 文本
+// 一起构建为多模态 PromptMultiContent，使大模型能够使用用户上传的文件
+func applyUserInputFiles(config *AIConfig, execCtx *executor.ExecutionContext) {
 	if execCtx == nil || execCtx.Variables == nil {
 		return
 	}
-	userMsg := execCtx.Variables["__user_message__"]
-	if userMsg == nil {
+
+	raw := execCtx.Variables["userinput.files"]
+	if raw == nil {
 		return
 	}
 
-	if s, ok := userMsg.(string); ok && s != "" {
-		config.Prompt = s
-		config.PromptMultiContent = nil
+	var files []interface{}
+	switch v := raw.(type) {
+	case []interface{}:
+		files = v
+	case string:
+		if v == "" || v == "[]" {
+			return
+		}
+		if err := json.Unmarshal([]byte(v), &files); err != nil {
+			return
+		}
+	default:
 		return
 	}
 
-	if parts, ok := userMsg.([]interface{}); ok && len(parts) > 0 {
+	if len(files) == 0 {
+		return
+	}
+
+	var parts []interface{}
+	if config.Prompt != "" {
+		parts = append(parts, map[string]interface{}{"type": "text", "text": config.Prompt})
+	}
+
+	for _, f := range files {
+		fm, ok := f.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		fileType, _ := fm["type"].(string)
+		url, _ := fm["url"].(string)
+		if url == "" {
+			continue
+		}
+		switch fileType {
+		case "image":
+			parts = append(parts, map[string]interface{}{
+				"type":      "image_url",
+				"image_url": map[string]interface{}{"url": url},
+			})
+		case "audio":
+			parts = append(parts, map[string]interface{}{
+				"type":        "input_audio",
+				"input_audio": map[string]interface{}{"url": url},
+			})
+		case "video":
+			parts = append(parts, map[string]interface{}{
+				"type":      "video_url",
+				"video_url": map[string]interface{}{"url": url},
+			})
+		default:
+			name, _ := fm["name"].(string)
+			parts = append(parts, map[string]interface{}{
+				"type":     "file_url",
+				"file_url": map[string]interface{}{"url": url, "name": name},
+			})
+		}
+	}
+
+	if len(parts) > 0 {
 		config.PromptMultiContent = parts
-		config.Prompt = extractMultimodalTextContent(userMsg)
 	}
 }
 

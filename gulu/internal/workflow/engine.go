@@ -320,6 +320,38 @@ func convertToWorkflow(def *WorkflowDefinition, executionID string, debugMode bo
 		},
 	}
 
+	if len(def.Params) > 0 {
+		paramValues := make(map[string]interface{}, len(def.Params))
+		for _, p := range def.Params {
+			if p.Name != "" && p.DefaultValue != "" {
+				paramValues[p.Name] = p.DefaultValue
+			}
+		}
+		if len(paramValues) > 0 {
+			if wf.ParamValues == nil {
+				wf.ParamValues = paramValues
+			} else {
+				for k, v := range paramValues {
+					if _, exists := wf.ParamValues[k]; !exists {
+						wf.ParamValues[k] = v
+					}
+				}
+			}
+		}
+	}
+
+	if len(def.Params) > 0 {
+		paramValues := make(map[string]interface{})
+		for _, p := range def.Params {
+			if p.Name != "" && p.DefaultValue != "" {
+				paramValues[p.Name] = p.DefaultValue
+			}
+		}
+		if len(paramValues) > 0 {
+			wf.ParamValues = paramValues
+		}
+	}
+
 	if globalEngine != nil && globalEngine.config != nil && len(globalEngine.config.Outputs) > 0 {
 		for _, out := range globalEngine.config.Outputs {
 			wf.Options.Outputs = append(wf.Options.Outputs, types.OutputConfig{

@@ -212,11 +212,11 @@ func (c *SSECallback) OnMessageComplete(ctx context.Context, stepID string, resu
 		Data: map[string]interface{}{
 			"stepId":  stepID,
 			"content": result.Content,
-		"usage": map[string]int{
-			"prompt_tokens":     result.PromptTokens,
-			"completion_tokens": result.CompletionTokens,
-			"total_tokens":      result.TotalTokens,
-		},
+			"usage": map[string]int{
+				"prompt_tokens":     result.PromptTokens,
+				"completion_tokens": result.CompletionTokens,
+				"total_tokens":      result.TotalTokens,
+			},
 			"model": result.Model,
 		},
 	})

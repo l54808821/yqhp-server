@@ -43,8 +43,9 @@ func buildAgentRequest(ctx context.Context, step *types.Step, execCtx *executor.
 	if err != nil {
 		return nil, func() {}, err
 	}
+	userInputFiles := extractUserInputFiles(execCtx)
 	config = resolveConfigVariables(config, execCtx)
-	applyUserInputFiles(config, execCtx)
+	applyUserInputFiles(config, userInputFiles)
 	chatHistory := extractChatHistory(execCtx)
 
 	chatModel, err := createChatModelFromConfig(ctx, config)

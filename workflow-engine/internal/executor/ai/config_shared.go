@@ -221,17 +221,20 @@ func extractMultimodalTextContent(content interface{}) string {
 	return strings.Join(texts, "\n")
 }
 
-// applyUserInputFiles 如果执行上下文中有 userinput.files，将文件与已解析的 Prompt 文本
-// 一起构建为多模态 PromptMultiContent，使大模型能够使用用户上传的文件
-func applyUserInputFiles(config *AIConfig, execCtx *executor.ExecutionContext) {
+// extractUserInputFiles 在变量解析之前从执行上下文中提取 userinput.files，
+// 同时将上下文中的 userinput.files 置空，避免 ${userinput.files} 被变量解析器
+// 替换为原始 JSON 文本混入 prompt。
+func extractUserInputFiles(execCtx *executor.ExecutionContext) []interface{} {
 	if execCtx == nil || execCtx.Variables == nil {
-		return
+		return nil
 	}
 
 	raw := execCtx.Variables["userinput.files"]
 	if raw == nil {
-		return
+		return nil
 	}
+
+	execCtx.Variables["userinput.files"] = ""
 
 	var files []interface{}
 	switch v := raw.(type) {
@@ -239,15 +242,24 @@ func applyUserInputFiles(config *AIConfig, execCtx *executor.ExecutionContext) {
 		files = v
 	case string:
 		if v == "" || v == "[]" {
-			return
+			return nil
 		}
 		if err := json.Unmarshal([]byte(v), &files); err != nil {
-			return
+			return nil
 		}
 	default:
-		return
+		return nil
 	}
 
+	if len(files) == 0 {
+		return nil
+	}
+	return files
+}
+
+// applyUserInputFiles 将预先提取的用户上传文件与已解析的 Prompt 文本
+// 一起构建为多模态 PromptMultiContent，使大模型能够识别文件内容。
+func applyUserInputFiles(config *AIConfig, files []interface{}) {
 	if len(files) == 0 {
 		return
 	}
@@ -307,7 +319,7 @@ func resolveConfigVariables(config *AIConfig, execCtx *executor.ExecutionContext
 	resolver := executor.GetVariableResolver()
 	config.APIKey = resolver.ResolveString(config.APIKey, evalCtx)
 	config.SystemPrompt = resolver.ResolveString(config.SystemPrompt, evalCtx)
-	config.Prompt = resolver.ResolveString(config.Prompt, evalCtx)
+	config.Prompt = strings.TrimSpace(resolver.ResolveString(config.Prompt, evalCtx))
 	config.BaseURL = resolver.ResolveString(config.BaseURL, evalCtx)
 	config.QdrantHost = resolver.ResolveString(config.QdrantHost, evalCtx)
 	config.GuluHost = resolver.ResolveString(config.GuluHost, evalCtx)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/cloudwego/eino/schema"
 
@@ -27,12 +28,17 @@ func (a *ReActAgent) Mode() AgentMode {
 }
 
 func (a *ReActAgent) Run(ctx context.Context, req *AgentRequest) (*AIOutput, error) {
+	logger.Debug("[ReAct] 开始执行, model=%s, stepID=%s, tools数量=%d, maxRounds=%d",
+		req.Config.Model, req.StepID, len(req.SchemaTools), req.MaxRounds)
+	startTime := time.Now()
+
 	output := &AIOutput{
 		Model:      req.Config.Model,
 		AgentTrace: &AgentTrace{Mode: string(AgentModeReAct)},
 	}
 
 	if len(req.SchemaTools) == 0 {
+		logger.Debug("[ReAct] 无可用工具, 降级为 Direct 模式, stepID=%s", req.StepID)
 		return NewDirectAgent().Run(ctx, req)
 	}
 
@@ -47,10 +53,11 @@ func (a *ReActAgent) Run(ctx context.Context, req *AgentRequest) (*AIOutput, err
 	consecutiveFailures := 0
 
 	for round := 1; round <= maxRounds; round++ {
-		logger.Debug("[ReAct] ===== 第 %d 轮开始 (stepID=%s, model=%s) =====", round, req.StepID, req.Config.Model)
+		logger.Debug("[ReAct] ===== 第 %d/%d 轮开始 (stepID=%s, model=%s, 当前messages数=%d) =====",
+			round, maxRounds, req.StepID, req.Config.Model, len(messages))
 		resp, err := callLLM(ctx, req.ChatModel, messages, req.SchemaTools, req.Config, req.StepID, req.Callbacks)
 		if err != nil {
-			logger.Debug("[ReAct] 第 %d 轮 LLM 调用失败: %v", round, err)
+			logger.Debug("[ReAct] 第 %d 轮 LLM 调用失败, 总耗时=%v: %v", round, time.Since(startTime), err)
 			return nil, err
 		}
 
@@ -58,7 +65,8 @@ func (a *ReActAgent) Run(ctx context.Context, req *AgentRequest) (*AIOutput, err
 		roundThinking := resp.Content
 
 		if len(resp.ToolCalls) == 0 {
-			logger.Debug("[ReAct] 第 %d 轮 LLM 未返回工具调用，直接输出文本 (长度=%d)", round, len(resp.Content))
+			logger.Debug("[ReAct] 第 %d 轮 LLM 未返回工具调用，直接输出文本 (长度=%d), 总耗时=%v, 累计tokens=%d",
+				round, len([]rune(resp.Content)), time.Since(startTime), output.TotalTokens)
 			output.Content = resp.Content
 			if round == 1 {
 				output.AgentTrace.Mode = string(AgentModeDirect)
@@ -73,7 +81,8 @@ func (a *ReActAgent) Run(ctx context.Context, req *AgentRequest) (*AIOutput, err
 		for _, tc := range resp.ToolCalls {
 			toolNames = append(toolNames, tc.Function.Name)
 		}
-		logger.Debug("[ReAct] 第 %d 轮 LLM 返回 %d 个工具调用: %s", round, len(resp.ToolCalls), strings.Join(toolNames, ", "))
+		logger.Debug("[ReAct] 第 %d 轮 LLM 返回 %d 个工具调用: %s, thinking长度=%d",
+			round, len(resp.ToolCalls), strings.Join(toolNames, ", "), len([]rune(roundThinking)))
 
 		// 只推送 LLM 返回的真实思考文本
 		if roundThinking != "" && req.Callbacks.Stream != nil {
@@ -122,13 +131,16 @@ func (a *ReActAgent) Run(ctx context.Context, req *AgentRequest) (*AIOutput, err
 		})
 	}
 
-	logger.Warn("[ReAct] 工具调用轮次达到最大值 %d，生成最终回复", maxRounds)
+	logger.Warn("[ReAct] 工具调用轮次达到最大值 %d，生成最终回复 (stepID=%s)", maxRounds, req.StepID)
 	resp, err := callLLM(ctx, req.ChatModel, messages, nil, req.Config, req.StepID, nil)
 	if err != nil {
+		logger.Debug("[ReAct] 最终回复生成失败, stepID=%s, 总耗时=%v: %v", req.StepID, time.Since(startTime), err)
 		return output, fmt.Errorf("最终回复生成失败: %w", err)
 	}
 	output.Content = resp.Content
 	updateTokenUsage(output, resp)
+	logger.Debug("[ReAct] 执行完成, stepID=%s, 总轮次=%d, 总耗时=%v, content长度=%d, 累计tokens=%d",
+		req.StepID, maxRounds, time.Since(startTime), len([]rune(output.Content)), output.TotalTokens)
 	if req.Callbacks.Stream != nil {
 		req.Callbacks.Stream.OnMessageComplete(ctx, req.StepID, toAIResult(output))
 	}

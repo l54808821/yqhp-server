@@ -2,12 +2,12 @@ package ai
 
 import (
 	"context"
-	"log"
 	"time"
 
 	mcpclient "github.com/mark3labs/mcp-go/client"
 
 	"yqhp/workflow-engine/internal/executor"
+	"yqhp/workflow-engine/pkg/logger"
 	"yqhp/workflow-engine/pkg/types"
 )
 
@@ -20,7 +20,7 @@ type mcpCloser struct {
 func closeMCPClients(clients []mcpCloser) {
 	for _, c := range clients {
 		if err := c.client.Close(); err != nil {
-			log.Printf("[MCPTool] 关闭 MCP Server %q 连接失败: %v", c.name, err)
+			logger.Warn("[MCPTool] 关闭 MCP Server %q 连接失败: %v", c.name, err)
 		}
 	}
 }
@@ -38,11 +38,16 @@ type preparedRequest struct {
 // buildAgentRequest 统一构建 Agent 请求（所有 Executor 共用）
 func buildAgentRequest(ctx context.Context, step *types.Step, execCtx *executor.ExecutionContext, mode AgentMode) (*preparedRequest, context.CancelFunc, error) {
 	startTime := time.Now()
+	logger.Debug("[AgentBuild] 开始构建请求, stepID=%s, stepType=%s, mode=%s", step.ID, step.Type, mode)
 
 	config, err := parseAIConfig(step.Config)
 	if err != nil {
+		logger.Debug("[AgentBuild] 解析 AI 配置失败, stepID=%s: %v", step.ID, err)
 		return nil, func() {}, err
 	}
+	logger.Debug("[AgentBuild] AI 配置: provider=%s, model=%s, streaming=%v, tools=%v, mcpServers=%d, skills=%d, knowledgeBases=%d, stepID=%s",
+		config.Provider, config.Model, config.Streaming, config.Tools, len(config.MCPServers), len(config.Skills), len(config.KnowledgeBases), step.ID)
+
 	userInputFiles := extractUserInputFiles(execCtx)
 	config = resolveConfigVariables(config, execCtx)
 	applyUserInputFiles(config, userInputFiles)
@@ -50,8 +55,11 @@ func buildAgentRequest(ctx context.Context, step *types.Step, execCtx *executor.
 
 	chatModel, err := createChatModelFromConfig(ctx, config)
 	if err != nil {
+		logger.Debug("[AgentBuild] 创建 AI 模型失败, provider=%s, model=%s, stepID=%s: %v",
+			config.Provider, config.Model, step.ID, err)
 		return nil, func() {}, executor.NewExecutionError(step.ID, "创建 AI 模型失败", err)
 	}
+	logger.Debug("[AgentBuild] AI 模型创建成功, provider=%s, model=%s", config.Provider, config.Model)
 
 	timeout := step.Timeout
 	if timeout <= 0 && config.Timeout > 0 {
@@ -75,11 +83,20 @@ func buildAgentRequest(ctx context.Context, step *types.Step, execCtx *executor.
 	allToolDefs := toolRegistry.List()
 	schemaTools := toSchemaTools(allToolDefs)
 
+	toolNames := make([]string, 0, len(allToolDefs))
+	for _, td := range allToolDefs {
+		toolNames = append(toolNames, td.Name)
+	}
+	logger.Debug("[AgentBuild] 工具注册表构建完成, 工具数=%d, tools=%v, mcpClients=%d, stepID=%s",
+		len(allToolDefs), toolNames, len(mcpClients), step.ID)
+
 	// 使用 PromptBuilder 构建系统提示词
 	pb := NewPromptBuilder(config, allToolDefs, mode)
 	systemPrompt := pb.Build()
 
 	messages := buildUnifiedMessages(systemPrompt, chatHistory, config)
+	logger.Debug("[AgentBuild] 消息构建完成, messages数=%d, systemPrompt长度=%d, chatHistory数=%d, stepID=%s",
+		len(messages), len([]rune(systemPrompt)), len(chatHistory), step.ID)
 
 	maxRounds := config.MaxToolRounds
 	if maxRounds <= 0 {
@@ -187,15 +204,19 @@ func buildToolRegistry(ctx context.Context, config *AIConfig, execCtx *executor.
 	var mcpClients []mcpCloser
 	if len(config.MCPServers) > 0 {
 		for _, serverCfg := range config.MCPServers {
+			logger.Debug("[AgentBuild] 加载 MCP Server %q, transport=%s", serverCfg.Name, serverCfg.Transport)
 			tools, cli, err := loadMCPTools(ctx, serverCfg)
 			if err != nil {
-				log.Printf("[WARN] MCP Server %q 加载失败: %v", serverCfg.Name, err)
+				logger.Warn("[AgentBuild] MCP Server %q 加载失败: %v", serverCfg.Name, err)
 				continue
 			}
 			mcpClients = append(mcpClients, mcpCloser{name: serverCfg.Name, client: cli})
+			mcpToolNames := make([]string, 0, len(tools))
 			for _, t := range tools {
 				reg.Register(t)
+				mcpToolNames = append(mcpToolNames, t.Definition().Name)
 			}
+			logger.Debug("[AgentBuild] MCP Server %q 加载成功, 注册 %d 个工具: %v", serverCfg.Name, len(tools), mcpToolNames)
 		}
 	}
 

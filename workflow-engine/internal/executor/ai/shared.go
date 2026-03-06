@@ -9,6 +9,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"yqhp/workflow-engine/internal/executor"
+	"yqhp/workflow-engine/pkg/logger"
 	"yqhp/workflow-engine/pkg/types"
 )
 
@@ -72,7 +73,15 @@ func createChatModelFromConfig(ctx context.Context, config *AIConfig) (einomodel
 		chatConfig.PresencePenalty = config.PresencePenalty
 	}
 
-	return openai.NewChatModel(ctx, chatConfig)
+	logger.Debug("[ModelCreate] 创建模型, provider=%s, model=%s, baseURL=%s, streaming=%v",
+		config.Provider, config.Model, baseURL, config.Streaming)
+
+	chatModel, err := openai.NewChatModel(ctx, chatConfig)
+	if err != nil {
+		logger.Debug("[ModelCreate] 模型创建失败, provider=%s, model=%s: %v", config.Provider, config.Model, err)
+		return nil, err
+	}
+	return chatModel, nil
 }
 
 // getQdrantHost 获取 Qdrant 服务地址

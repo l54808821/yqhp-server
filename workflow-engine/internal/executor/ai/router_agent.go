@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"strings"
+	"time"
 
 	"github.com/cloudwego/eino/schema"
+
+	"yqhp/workflow-engine/pkg/logger"
 )
 
 const switchToPlanToolName = "switch_to_plan"
@@ -37,15 +39,18 @@ func (a *RouterAgent) Mode() AgentMode {
 
 func (a *RouterAgent) Run(ctx context.Context, req *AgentRequest) (*AIOutput, error) {
 	hasTools := len(req.SchemaTools) > 0
+	enablePlan := req.Config.EnablePlanMode != nil && *req.Config.EnablePlanMode
+
+	logger.Debug("[Router] 开始执行, model=%s, stepID=%s, hasTools=%v, enablePlan=%v, tools数量=%d",
+		req.Config.Model, req.StepID, hasTools, enablePlan, len(req.SchemaTools))
 
 	if !hasTools {
+		logger.Debug("[Router] 无工具, 委托给 Direct 模式, stepID=%s", req.StepID)
 		return a.direct.Run(ctx, req)
 	}
 
-	enablePlan := req.Config.EnablePlanMode != nil && *req.Config.EnablePlanMode
-
-	// 基于规则的快速任务复杂度预判：满足条件时直接进入 Plan 模式
 	if enablePlan && a.shouldDirectPlan(req) {
+		logger.Debug("[Router] 任务复杂度预判命中, 直接进入 Plan 模式, stepID=%s", req.StepID)
 		return a.plan.RunWithReason(ctx, req, "任务复杂度预判：检测到复杂多步任务")
 	}
 
@@ -102,10 +107,14 @@ func (a *RouterAgent) runReActWithPlanSwitch(ctx context.Context, req *AgentRequ
 	messages := make([]*schema.Message, len(req.Messages))
 	copy(messages, req.Messages)
 	toolTimeout := getToolTimeout(req.Config)
+	startTime := time.Now()
 
 	for round := 1; round <= maxRounds; round++ {
+		logger.Debug("[Router] ===== 第 %d/%d 轮开始 (stepID=%s, 当前messages数=%d) =====",
+			round, maxRounds, req.StepID, len(messages))
 		resp, err := callLLM(ctx, req.ChatModel, messages, schemaTools, req.Config, req.StepID, req.Callbacks)
 		if err != nil {
+			logger.Debug("[Router] 第 %d 轮 LLM 调用失败, 总耗时=%v: %v", round, time.Since(startTime), err)
 			return nil, err
 		}
 
@@ -113,6 +122,8 @@ func (a *RouterAgent) runReActWithPlanSwitch(ctx context.Context, req *AgentRequ
 		roundThinking := resp.Content
 
 		if len(resp.ToolCalls) == 0 {
+			logger.Debug("[Router] 第 %d 轮 LLM 未返回工具调用, 直接输出文本 (长度=%d), 总耗时=%v",
+				round, len([]rune(resp.Content)), time.Since(startTime))
 			output.Content = resp.Content
 			if round == 1 {
 				output.AgentTrace.Mode = string(AgentModeDirect)
@@ -123,8 +134,16 @@ func (a *RouterAgent) runReActWithPlanSwitch(ctx context.Context, req *AgentRequ
 			return output, nil
 		}
 
+		toolNames := make([]string, 0, len(resp.ToolCalls))
+		for _, tc := range resp.ToolCalls {
+			toolNames = append(toolNames, tc.Function.Name)
+		}
+		logger.Debug("[Router] 第 %d 轮 LLM 返回 %d 个工具调用: %s, thinking长度=%d",
+			round, len(resp.ToolCalls), strings.Join(toolNames, ", "), len([]rune(roundThinking)))
+
 		if enablePlan {
 			if planReason := findSwitchToPlan(resp.ToolCalls); planReason != "" {
+				logger.Debug("[Router] LLM 请求切换到 Plan 模式, reason=%s, stepID=%s", planReason, req.StepID)
 				planReq := &AgentRequest{
 					Config:       req.Config,
 					ChatModel:    req.ChatModel,
@@ -175,13 +194,16 @@ func (a *RouterAgent) runReActWithPlanSwitch(ctx context.Context, req *AgentRequ
 		})
 	}
 
-	log.Printf("[WARN] Router 工具调用轮次达到最大值 %d，生成最终回复", maxRounds)
+	logger.Warn("[Router] 工具调用轮次达到最大值 %d, 生成最终回复 (stepID=%s)", maxRounds, req.StepID)
 	resp, err := callLLM(ctx, req.ChatModel, messages, nil, req.Config, req.StepID, nil)
 	if err != nil {
+		logger.Debug("[Router] 最终回复生成失败, stepID=%s, 总耗时=%v: %v", req.StepID, time.Since(startTime), err)
 		return output, fmt.Errorf("最终回复生成失败: %w", err)
 	}
 	output.Content = resp.Content
 	updateTokenUsage(output, resp)
+	logger.Debug("[Router] 执行完成, stepID=%s, 总轮次=%d, 总耗时=%v, content长度=%d, 累计tokens=%d",
+		req.StepID, maxRounds, time.Since(startTime), len([]rune(output.Content)), output.TotalTokens)
 	if req.Callbacks.Stream != nil {
 		req.Callbacks.Stream.OnMessageComplete(ctx, req.StepID, toAIResult(output))
 	}

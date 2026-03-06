@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"time"
 
 	"yqhp/workflow-engine/internal/executor"
+	"yqhp/workflow-engine/pkg/logger"
 	"yqhp/workflow-engine/pkg/types"
 
 	"github.com/mark3labs/mcp-go/client"
@@ -154,7 +154,7 @@ func loadMCPTools(ctx context.Context, cfg *MCPServerConfig) ([]executor.Tool, *
 	for _, tool := range toolsResult.Tools {
 		schemaBytes, err := json.Marshal(tool.InputSchema)
 		if err != nil {
-			log.Printf("[WARN] MCP Server %q: 工具 %q schema 序列化失败: %v", cfg.Name, tool.Name, err)
+			logger.Warn("[MCPTool] MCP Server %q: 工具 %q schema 序列化失败: %v", cfg.Name, tool.Name, err)
 			continue
 		}
 
@@ -172,7 +172,7 @@ func loadMCPTools(ctx context.Context, cfg *MCPServerConfig) ([]executor.Tool, *
 		tools = append(tools, wrapper)
 	}
 
-	log.Printf("[MCPTool] MCP Server %q (%s): 加载了 %d 个工具", cfg.Name, cfg.Transport, len(tools))
+	logger.Debug("[MCPTool] MCP Server %q (%s): 加载了 %d 个工具", cfg.Name, cfg.Transport, len(tools))
 	return tools, c, nil
 }
 

@@ -6,12 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strings"
 	"time"
 
 	"yqhp/workflow-engine/internal/executor"
+	"yqhp/workflow-engine/pkg/logger"
 	"yqhp/workflow-engine/pkg/types"
 )
 
@@ -108,13 +108,13 @@ type knowledgeChunk struct {
 func searchQdrant(ctx context.Context, kb *KnowledgeBaseInfo, query string, topK int, qdrantHost string) []knowledgeChunk {
 	queryVector, err := callEmbeddingAPI(ctx, kb.EmbeddingBaseURL, kb.EmbeddingAPIKey, kb.EmbeddingModel, query)
 	if err != nil {
-		log.Printf("[WARN] 知识库 %s 的查询向量化失败: %v", kb.Name, err)
+		logger.Warn("[Knowledge] 知识库 %s 的查询向量化失败: %v", kb.Name, err)
 		return nil
 	}
 
 	hits, err := searchQdrantREST(ctx, qdrantHost, kb.QdrantCollection, queryVector, topK, float32(kb.ScoreThreshold))
 	if err != nil {
-		log.Printf("[WARN] 知识库 %s 向量搜索失败: %v", kb.Name, err)
+		logger.Warn("[Knowledge] 知识库 %s 向量搜索失败: %v", kb.Name, err)
 		return nil
 	}
 
@@ -259,21 +259,21 @@ func searchGraph(ctx context.Context, kb *KnowledgeBaseInfo, query string, topK 
 
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(bodyBytes))
 	if err != nil {
-		log.Printf("[WARN] 图知识库 %s 搜索请求创建失败: %v", kb.Name, err)
+		logger.Warn("[Knowledge] 图知识库 %s 搜索请求创建失败: %v", kb.Name, err)
 		return nil
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 
 	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(httpReq)
 	if err != nil {
-		log.Printf("[WARN] 图知识库 %s 搜索失败: %v", kb.Name, err)
+		logger.Warn("[Knowledge] 图知识库 %s 搜索失败: %v", kb.Name, err)
 		return nil
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("[WARN] 图知识库 %s 搜索返回错误: %s", kb.Name, string(body))
+		logger.Warn("[Knowledge] 图知识库 %s 搜索返回错误: %s", kb.Name, string(body))
 		return nil
 	}
 

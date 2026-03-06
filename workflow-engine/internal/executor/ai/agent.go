@@ -101,12 +101,25 @@ func callLLM(
 	maxRetries := 2
 	hasStream := config.Streaming && callbacks != nil && callbacks.Stream != nil
 
+	toolNames := make([]string, 0, len(tools))
+	for _, t := range tools {
+		toolNames = append(toolNames, t.Name)
+	}
+
 	for retry := 0; retry <= maxRetries; retry++ {
 		var resp *schema.Message
 		var err error
 
-		logger.Debug("[LLM] 调用 LLM, streaming=%v, tools数量=%d, messages数量=%d, stepID=%s",
-			config.Streaming, len(tools), len(messages), stepID)
+		logger.Debug("[LLM] 调用 LLM, provider=%s, model=%s, streaming=%v, tools数量=%d, tools=%v, messages数量=%d, stepID=%s",
+			config.Provider, config.Model, config.Streaming, len(tools), toolNames, len(messages), stepID)
+		if logger.IsDebugEnabled() {
+			for i, msg := range messages {
+				logger.Debug("[LLM] 入参 messages[%d]: role=%s, content长度=%d, toolCalls=%d",
+					i, msg.Role, len([]rune(msg.Content)), len(msg.ToolCalls))
+			}
+		}
+
+		callStart := time.Now()
 
 		if hasStream && len(tools) > 0 {
 			resp, err = streamWithToolsCalls(ctx, chatModel, messages, tools, stepID, callbacks)
@@ -118,7 +131,24 @@ func callLLM(
 			resp, err = chatModel.Generate(ctx, messages)
 		}
 
+		callDuration := time.Since(callStart)
+
 		if err == nil {
+			respToolNames := make([]string, 0, len(resp.ToolCalls))
+			for _, tc := range resp.ToolCalls {
+				respToolNames = append(respToolNames, tc.Function.Name)
+			}
+			tokenInfo := ""
+			if resp.ResponseMeta != nil && resp.ResponseMeta.Usage != nil {
+				tokenInfo = fmt.Sprintf(", promptTokens=%d, completionTokens=%d, totalTokens=%d",
+					resp.ResponseMeta.Usage.PromptTokens, resp.ResponseMeta.Usage.CompletionTokens, resp.ResponseMeta.Usage.TotalTokens)
+			}
+			finishReason := ""
+			if resp.ResponseMeta != nil && resp.ResponseMeta.FinishReason != "" {
+				finishReason = fmt.Sprintf(", finishReason=%s", resp.ResponseMeta.FinishReason)
+			}
+			logger.Debug("[LLM] 调用完成, 耗时=%v, content长度=%d, toolCalls=%d, toolCallNames=%v%s%s, stepID=%s",
+				callDuration, len([]rune(resp.Content)), len(resp.ToolCalls), respToolNames, tokenInfo, finishReason, stepID)
 			return resp, nil
 		}
 
@@ -286,8 +316,10 @@ func summarizeMessages(messages []*schema.Message) string {
 
 // streamWithToolsCalls 流式调用 LLM（带工具），收集 chunk 后合并为完整消息
 func streamWithToolsCalls(ctx context.Context, chatModel model.ToolCallingChatModel, messages []*schema.Message, tools []*schema.ToolInfo, stepID string, callbacks *AgentCallbacks) (*schema.Message, error) {
+	logger.Debug("[LLM-Stream] 开始流式调用(带工具), tools数量=%d, stepID=%s", len(tools), stepID)
 	stream, err := chatModel.Stream(ctx, messages, model.WithTools(tools))
 	if err != nil {
+		logger.Debug("[LLM-Stream] 创建流失败: %v", err)
 		return nil, err
 	}
 	defer stream.Close()
@@ -301,6 +333,7 @@ func streamWithToolsCalls(ctx context.Context, chatModel model.ToolCallingChatMo
 			break
 		}
 		if err != nil {
+			logger.Debug("[LLM-Stream] 接收chunk出错(已收到%d个chunk): %v", len(chunks), err)
 			return nil, err
 		}
 		if chunk.Content != "" {
@@ -308,6 +341,8 @@ func streamWithToolsCalls(ctx context.Context, chatModel model.ToolCallingChatMo
 		}
 		chunks = append(chunks, chunk)
 	}
+
+	logger.Debug("[LLM-Stream] 流式调用(带工具)完成, 共收到 %d 个chunk, stepID=%s", len(chunks), stepID)
 
 	if len(chunks) == 0 {
 		return &schema.Message{Role: schema.Assistant}, nil
@@ -322,8 +357,10 @@ func streamWithToolsCalls(ctx context.Context, chatModel model.ToolCallingChatMo
 
 // streamGenerate 流式调用 LLM（无工具），直接流式输出
 func streamGenerate(ctx context.Context, chatModel model.ToolCallingChatModel, messages []*schema.Message, stepID string, callbacks *AgentCallbacks) (*schema.Message, error) {
+	logger.Debug("[LLM-Stream] 开始流式调用(无工具), stepID=%s", stepID)
 	stream, err := chatModel.Stream(ctx, messages)
 	if err != nil {
+		logger.Debug("[LLM-Stream] 创建流失败: %v", err)
 		return nil, err
 	}
 	defer stream.Close()
@@ -331,6 +368,7 @@ func streamGenerate(ctx context.Context, chatModel model.ToolCallingChatModel, m
 	var contentBuilder strings.Builder
 	resp := &schema.Message{Role: schema.Assistant}
 	textBlockID := callbacks.BlockID.Next()
+	chunkCount := 0
 
 	for {
 		chunk, err := stream.Recv()
@@ -338,8 +376,10 @@ func streamGenerate(ctx context.Context, chatModel model.ToolCallingChatModel, m
 			break
 		}
 		if err != nil {
+			logger.Debug("[LLM-Stream] 接收chunk出错(已收到%d个chunk): %v", chunkCount, err)
 			return nil, err
 		}
+		chunkCount++
 		if chunk.Content != "" {
 			contentBuilder.WriteString(chunk.Content)
 			callbacks.Stream.OnAIChunk(ctx, stepID, textBlockID, chunk.Content)
@@ -354,6 +394,14 @@ func streamGenerate(ctx context.Context, chatModel model.ToolCallingChatModel, m
 		}
 	}
 	resp.Content = contentBuilder.String()
+
+	tokenInfo := ""
+	if resp.ResponseMeta != nil && resp.ResponseMeta.Usage != nil {
+		tokenInfo = fmt.Sprintf(", promptTokens=%d, completionTokens=%d, totalTokens=%d",
+			resp.ResponseMeta.Usage.PromptTokens, resp.ResponseMeta.Usage.CompletionTokens, resp.ResponseMeta.Usage.TotalTokens)
+	}
+	logger.Debug("[LLM-Stream] 流式调用(无工具)完成, chunks=%d, content长度=%d%s, stepID=%s",
+		chunkCount, len([]rune(resp.Content)), tokenInfo, stepID)
 	return resp, nil
 }
 

@@ -3,8 +3,8 @@ package ai
 import (
 	"context"
 	"fmt"
-	"log"
 	"strings"
+	"time"
 
 	"github.com/cloudwego/eino/schema"
 
@@ -34,6 +34,10 @@ func (a *PlanAgent) Run(ctx context.Context, req *AgentRequest) (*AIOutput, erro
 
 // RunWithReason 带原因说明的 Plan 执行（由 Router 调用时传入原因）
 func (a *PlanAgent) RunWithReason(ctx context.Context, req *AgentRequest, reason string) (*AIOutput, error) {
+	logger.Debug("[Plan] 开始执行, model=%s, stepID=%s, reason=%s, tools数量=%d",
+		req.Config.Model, req.StepID, reason, len(req.SchemaTools))
+	planStartTime := time.Now()
+
 	output := &AIOutput{
 		Model: req.Config.Model,
 		AgentTrace: &AgentTrace{
@@ -43,10 +47,13 @@ func (a *PlanAgent) RunWithReason(ctx context.Context, req *AgentRequest, reason
 	}
 
 	// 1. 规划阶段
+	logger.Debug("[Plan] === 规划阶段开始, stepID=%s ===", req.StepID)
 	stepDefs, err := a.planPhase(ctx, req, output)
 	if err != nil {
+		logger.Debug("[Plan] 规划阶段失败, stepID=%s, 耗时=%v: %v", req.StepID, time.Since(planStartTime), err)
 		return nil, fmt.Errorf("规划阶段失败: %w", err)
 	}
+	logger.Debug("[Plan] 规划阶段完成, stepID=%s, 生成 %d 个步骤", req.StepID, len(stepDefs))
 
 	maxSteps := req.Config.MaxPlanSteps
 	if maxSteps <= 0 {
@@ -69,12 +76,21 @@ func (a *PlanAgent) RunWithReason(ctx context.Context, req *AgentRequest, reason
 	a.notifyPlanStarted(ctx, req, output, reason, tasks)
 
 	// 2. 逐步执行（支持动态 replan）
+	logger.Debug("[Plan] === 执行阶段开始, stepID=%s, 步骤数=%d ===", req.StepID, len(tasks))
+	execStartTime := time.Now()
 	stepResults := a.executeSteps(ctx, req, output, tasks)
+	logger.Debug("[Plan] === 执行阶段完成, stepID=%s, 步骤数=%d, 结果数=%d, 耗时=%v ===",
+		req.StepID, len(tasks), len(stepResults), time.Since(execStartTime))
 
 	// 3. 汇总阶段
+	logger.Debug("[Plan] === 汇总阶段开始, stepID=%s ===", req.StepID)
 	if err := a.synthesisPhase(ctx, req, output, tasks, stepResults); err != nil {
+		logger.Debug("[Plan] 汇总阶段失败, stepID=%s: %v", req.StepID, err)
 		return nil, err
 	}
+
+	logger.Debug("[Plan] 执行全部完成, stepID=%s, 总耗时=%v, content长度=%d, 累计tokens=%d",
+		req.StepID, time.Since(planStartTime), len([]rune(output.Content)), output.TotalTokens)
 
 	if req.Callbacks.Stream != nil {
 		req.Callbacks.Stream.OnAIPlanUpdate(ctx, req.StepID, output.planBlockID, &types.PlanUpdate{
@@ -93,7 +109,8 @@ func (a *PlanAgent) planPhase(ctx context.Context, req *AgentRequest, output *AI
 	copy(planMessages, req.Messages)
 	planMessages = append(planMessages, schema.UserMessage(buildPlanningPrompt(req.Config.Skills)))
 
-	// 优先使用 tool_call 方式获取结构化输出
+	logger.Debug("[Plan] planPhase: 调用 LLM 生成计划, messages数=%d, stepID=%s", len(planMessages), req.StepID)
+
 	resp, err := callLLM(ctx, req.ChatModel, planMessages, []*schema.ToolInfo{planTool}, req.Config, req.StepID, nil)
 	if err != nil {
 		return nil, err
@@ -106,15 +123,19 @@ func (a *PlanAgent) planPhase(ctx context.Context, req *AgentRequest, output *AI
 			CompletionTokens: resp.ResponseMeta.Usage.CompletionTokens,
 			TotalTokens:      resp.ResponseMeta.Usage.TotalTokens,
 		}
+		logger.Debug("[Plan] planPhase: LLM 返回, toolCalls=%d, content长度=%d, promptTokens=%d, completionTokens=%d",
+			len(resp.ToolCalls), len([]rune(resp.Content)),
+			resp.ResponseMeta.Usage.PromptTokens, resp.ResponseMeta.Usage.CompletionTokens)
 	}
 
-	// 尝试从 tool_call 解析
 	if steps, ok := parsePlanFromToolCall(resp.ToolCalls); ok {
+		logger.Debug("[Plan] planPhase: 从 tool_call 解析出 %d 个步骤", len(steps))
 		return steps, nil
 	}
 
-	// 回退到文本解析
-	return parsePlanFromText(resp.Content), nil
+	steps := parsePlanFromText(resp.Content)
+	logger.Debug("[Plan] planPhase: 从文本解析出 %d 个步骤 (回退模式)", len(steps))
+	return steps, nil
 }
 
 // executeSteps 逐步执行计划中的每个步骤，支持动态重新规划
@@ -126,10 +147,13 @@ func (a *PlanAgent) executeSteps(ctx context.Context, req *AgentRequest, output 
 
 	for i := 0; i < len(tasks); i++ {
 		if ctx.Err() != nil {
+			logger.Debug("[Plan] 执行被取消, stepID=%s, 已完成 %d/%d 步", req.StepID, i, len(tasks))
 			break
 		}
 
 		task := tasks[i]
+		logger.Debug("[Plan] 开始执行步骤 %d/%d: %s, stepID=%s", i+1, len(tasks), truncateForLog(task, 100), req.StepID)
+		stepStartTime := time.Now()
 		output.AgentTrace.Plan.Steps[i].Status = "running"
 		a.notifyStepUpdate(ctx, req, output, i+1, "running", "")
 
@@ -161,6 +185,7 @@ func (a *PlanAgent) executeSteps(ctx context.Context, req *AgentRequest, output 
 
 		stepOutput, stepErr := a.executeMiniReAct(ctx, stepReq, i+1)
 		if stepErr != nil {
+			logger.Debug("[Plan] 步骤 %d/%d 执行失败, 耗时=%v: %v", i+1, len(tasks), time.Since(stepStartTime), stepErr)
 			output.AgentTrace.Plan.Steps[i].Status = "failed"
 			output.AgentTrace.Plan.Steps[i].Result = stepErr.Error()
 			stepResults = append(stepResults, fmt.Sprintf("步骤 %d 失败: %s", i+1, stepErr.Error()))
@@ -187,6 +212,10 @@ func (a *PlanAgent) executeSteps(ctx context.Context, req *AgentRequest, output 
 		output.AgentTrace.Plan.Steps[i].PromptTokens = stepOutput.PromptTokens
 		output.AgentTrace.Plan.Steps[i].CompletionTokens = stepOutput.CompletionTokens
 		output.AgentTrace.Plan.Steps[i].TotalTokens = stepOutput.TotalTokens
+
+		logger.Debug("[Plan] 步骤 %d/%d 执行完成, 耗时=%v, content长度=%d, toolCalls=%d, tokens=%d",
+			i+1, len(tasks), time.Since(stepStartTime), len([]rune(stepOutput.Content)),
+			len(stepOutput.ToolCalls), stepOutput.TotalTokens)
 
 		resultContent := stepOutput.Content
 		for _, tc := range stepOutput.ToolCalls {
@@ -231,6 +260,9 @@ func (a *PlanAgent) tryReplan(ctx context.Context, req *AgentRequest, output *AI
 		return nil
 	}
 
+	logger.Debug("[Plan] tryReplan: 开始重新规划, completedIndex=%d, 剩余步骤=%d, stepID=%s",
+		completedIndex, len(remainingTasks), req.StepID)
+
 	replanPrompt := buildReplanPrompt(req.Config.Prompt, currentTasks, completedIndex, stepResults, remainingTasks)
 	replanMessages := []*schema.Message{
 		schema.SystemMessage(req.Config.SystemPrompt),
@@ -240,7 +272,7 @@ func (a *PlanAgent) tryReplan(ctx context.Context, req *AgentRequest, output *AI
 	planTool := createPlanToolInfo()
 	resp, err := callLLM(ctx, req.ChatModel, replanMessages, []*schema.ToolInfo{planTool}, req.Config, req.StepID, nil)
 	if err != nil {
-		logger.Warn("[Plan] 重新规划调用失败: %v", err)
+		logger.Warn("[Plan] 重新规划 LLM 调用失败, stepID=%s: %v", req.StepID, err)
 		return nil
 	}
 	updateTokenUsage(output, resp)
@@ -311,27 +343,45 @@ func (a *PlanAgent) executeMiniReAct(ctx context.Context, req *AgentRequest, pla
 	copy(messages, req.Messages)
 	toolTimeout := getToolTimeout(req.Config)
 
+	logger.Debug("[Plan-MiniReAct] 步骤 %d 开始, tools数量=%d, maxRounds=%d, stepID=%s",
+		planStepIndex, len(req.SchemaTools), maxRounds, req.StepID)
+
 	if len(req.SchemaTools) == 0 {
+		logger.Debug("[Plan-MiniReAct] 步骤 %d 无工具, 直接调用 LLM", planStepIndex)
 		resp, err := callLLM(ctx, req.ChatModel, messages, nil, req.Config, req.StepID, nil)
 		if err != nil {
 			return nil, err
 		}
 		output.Content = resp.Content
 		updateTokenUsage(output, resp)
+		logger.Debug("[Plan-MiniReAct] 步骤 %d 完成(无工具), content长度=%d, tokens=%d",
+			planStepIndex, len([]rune(output.Content)), output.TotalTokens)
 		return output, nil
 	}
 
 	for round := 1; round <= maxRounds; round++ {
+		logger.Debug("[Plan-MiniReAct] 步骤 %d, 第 %d/%d 轮, messages数=%d",
+			planStepIndex, round, maxRounds, len(messages))
 		resp, err := callLLM(ctx, req.ChatModel, messages, req.SchemaTools, req.Config, req.StepID, nil)
 		if err != nil {
+			logger.Debug("[Plan-MiniReAct] 步骤 %d, 第 %d 轮 LLM 调用失败: %v", planStepIndex, round, err)
 			return nil, err
 		}
 		updateTokenUsage(output, resp)
 
 		if len(resp.ToolCalls) == 0 {
+			logger.Debug("[Plan-MiniReAct] 步骤 %d, 第 %d 轮 LLM 无工具调用, content长度=%d",
+				planStepIndex, round, len([]rune(resp.Content)))
 			output.Content = resp.Content
 			return output, nil
 		}
+
+		toolNames := make([]string, 0, len(resp.ToolCalls))
+		for _, tc := range resp.ToolCalls {
+			toolNames = append(toolNames, tc.Function.Name)
+		}
+		logger.Debug("[Plan-MiniReAct] 步骤 %d, 第 %d 轮 LLM 返回 %d 个工具调用: %s",
+			planStepIndex, round, len(resp.ToolCalls), strings.Join(toolNames, ", "))
 
 		messages = append(messages, resp)
 		toolResults := executeToolsConcurrently(
@@ -345,13 +395,16 @@ func (a *PlanAgent) executeMiniReAct(ctx context.Context, req *AgentRequest, pla
 		}
 	}
 
+	logger.Warn("[Plan-MiniReAct] 步骤 %d 轮次耗尽(%d), 生成最终回复, stepID=%s", planStepIndex, maxRounds, req.StepID)
 	resp, err := callLLM(ctx, req.ChatModel, messages, nil, req.Config, req.StepID, nil)
 	if err != nil {
-		log.Printf("[WARN] miniReAct 轮次耗尽后最终回复生成失败: %v", err)
+		logger.Warn("[Plan-MiniReAct] 步骤 %d 最终回复生成失败: %v", planStepIndex, err)
 		return output, fmt.Errorf("最终回复生成失败: %w", err)
 	}
 	output.Content = resp.Content
 	updateTokenUsage(output, resp)
+	logger.Debug("[Plan-MiniReAct] 步骤 %d 完成, content长度=%d, 累计tokens=%d",
+		planStepIndex, len([]rune(output.Content)), output.TotalTokens)
 	return output, nil
 }
 
@@ -362,6 +415,9 @@ func (a *PlanAgent) synthesisPhase(ctx context.Context, req *AgentRequest, outpu
 		schema.SystemMessage(req.Config.SystemPrompt),
 		schema.UserMessage(synthesisPrompt),
 	}
+
+	logger.Debug("[Plan] synthesisPhase: 调用 LLM 进行汇总, 步骤数=%d, 结果数=%d, messages数=%d, stepID=%s",
+		len(tasks), len(stepResults), len(synthMessages), req.StepID)
 
 	resp, err := callLLM(ctx, req.ChatModel, synthMessages, nil, req.Config, req.StepID, req.Callbacks)
 	if err != nil {
@@ -378,6 +434,12 @@ func (a *PlanAgent) synthesisPhase(ctx context.Context, req *AgentRequest, outpu
 			CompletionTokens: resp.ResponseMeta.Usage.CompletionTokens,
 			TotalTokens:      resp.ResponseMeta.Usage.TotalTokens,
 		}
+		logger.Debug("[Plan] synthesisPhase: 汇总完成, content长度=%d, promptTokens=%d, completionTokens=%d, stepID=%s",
+			len([]rune(output.Content)), resp.ResponseMeta.Usage.PromptTokens,
+			resp.ResponseMeta.Usage.CompletionTokens, req.StepID)
+	} else {
+		logger.Debug("[Plan] synthesisPhase: 汇总完成, content长度=%d, stepID=%s",
+			len([]rune(output.Content)), req.StepID)
 	}
 
 	if req.Callbacks.Stream != nil {

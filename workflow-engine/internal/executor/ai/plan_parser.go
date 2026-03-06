@@ -2,11 +2,12 @@ package ai
 
 import (
 	"encoding/json"
-	"log"
 	"regexp"
 	"strings"
 
 	"github.com/cloudwego/eino/schema"
+
+	"yqhp/workflow-engine/pkg/logger"
 )
 
 // PlanStepDef 计划步骤定义
@@ -25,7 +26,7 @@ func parsePlanFromToolCall(toolCalls []schema.ToolCall) ([]PlanStepDef, bool) {
 			Steps []PlanStepDef `json:"steps"`
 		}
 		if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
-			log.Printf("[WARN] create_plan 工具参数解析失败: %v", err)
+			logger.Warn("[Plan] create_plan 工具参数解析失败: %v", err)
 			continue
 		}
 		if len(args.Steps) > 0 {
@@ -51,18 +52,18 @@ func parsePlanFromText(content string) []PlanStepDef {
 
 	// 策略 3: 解析编号列表（支持多种格式）
 	if steps := parseNumberedListEnhanced(trimmed); len(steps) > 0 {
-		log.Printf("[WARN] Plan JSON 解析失败，回退到编号列表解析，提取到 %d 个步骤", len(steps))
+		logger.Warn("[Plan] Plan JSON 解析失败，回退到编号列表解析，提取到 %d 个步骤", len(steps))
 		return steps
 	}
 
 	// 策略 4: 解析 markdown 列表
 	if steps := parseMarkdownList(trimmed); len(steps) > 0 {
-		log.Printf("[WARN] Plan 回退到 markdown 列表解析，提取到 %d 个步骤", len(steps))
+		logger.Warn("[Plan] Plan 回退到 markdown 列表解析，提取到 %d 个步骤", len(steps))
 		return steps
 	}
 
 	// 最终兜底: 整段内容作为单一步骤
-	log.Printf("[WARN] Plan 步骤解析失败，将整段内容作为单一步骤执行")
+	logger.Warn("[Plan] Plan 步骤解析失败，将整段内容作为单一步骤执行")
 	return []PlanStepDef{{Step: 1, Task: trimmed}}
 }
 

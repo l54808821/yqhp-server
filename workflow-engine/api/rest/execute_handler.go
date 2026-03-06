@@ -121,6 +121,16 @@ func (s *Server) executeWorkflow(c *fiber.Ctx) error {
 		}
 	}
 
+	// 合并参数值
+	if req.ParamValues != nil {
+		if wf.ParamValues == nil {
+			wf.ParamValues = make(map[string]interface{})
+		}
+		for k, v := range req.ParamValues {
+			wf.ParamValues[k] = v
+		}
+	}
+
 	// AI 工作流：将对话历史和用户消息注入变量
 	hasUserMsg := len(req.UserMessage) > 0 && string(req.UserMessage) != `""`
 	if len(req.ChatHistory) > 0 || hasUserMsg {

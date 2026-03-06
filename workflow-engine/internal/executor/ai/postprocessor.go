@@ -23,7 +23,15 @@ func executePostProcessors(ctx context.Context, step *types.Step, execCtx *execu
 		}
 	}
 
-	procExecutor := pkgExecutor.NewProcessorExecutor(variables)
+	procExecutor := pkgExecutor.NewProcessorExecutorWithCallbacks(
+		variables,
+		func(key string) (interface{}, bool) {
+			return execCtx.GetVariable(key)
+		},
+		func(key string, value interface{}, scope, source string) {
+			execCtx.SetVariableWithTracking(key, value, scope, source)
+		},
+	)
 
 	toolCallsJSON := "[]"
 	if len(output.ToolCalls) > 0 {
@@ -110,12 +118,6 @@ func executePostProcessors(ctx context.Context, step *types.Step, execCtx *execu
 					}))
 				}
 			}
-		}
-	}
-
-	if execCtx.Variables != nil {
-		for k, v := range procExecutor.GetVariables() {
-			execCtx.Variables[k] = v
 		}
 	}
 

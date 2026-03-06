@@ -26,6 +26,10 @@ type JSRuntime struct {
 	prevResult  interface{}
 	request     interface{}
 	response    interface{}
+
+	onGetVariable VariableGetFunc
+	onSetVariable VariableSetFunc
+	onDelVariable VariableDelFunc
 }
 
 // envPrefix 环境变量在 variables map 中的前缀
@@ -40,6 +44,15 @@ type ScriptResult struct {
 	ErrorMsg    string                 `json:"error,omitempty"`
 }
 
+// VariableGetFunc 变量获取回调
+type VariableGetFunc func(key string) (interface{}, bool)
+
+// VariableSetFunc 变量设置回调
+type VariableSetFunc func(key string, value interface{})
+
+// VariableDelFunc 变量删除回调
+type VariableDelFunc func(key string)
+
 // JSRuntimeConfig 运行时配置
 type JSRuntimeConfig struct {
 	Variables  map[string]interface{} // 统一变量（含 env. 前缀的环境变量）
@@ -47,6 +60,10 @@ type JSRuntimeConfig struct {
 	Request    interface{}            // 当前请求信息
 	Response   interface{}            // 上一个 HTTP 响应
 	HTTPClient *http.Client           // HTTP 客户端
+
+	OnGetVariable VariableGetFunc // 变量获取回调（委托给 ExecutionContext）
+	OnSetVariable VariableSetFunc // 变量设置回调（委托给 ExecutionContext）
+	OnDelVariable VariableDelFunc // 变量删除回调（委托给 ExecutionContext）
 }
 
 // NewJSRuntime 创建新的 JS 运行时
@@ -56,16 +73,19 @@ func NewJSRuntime(config *JSRuntimeConfig) *JSRuntime {
 	}
 
 	rt := &JSRuntime{
-		vm:          goja.New(),
-		consoleLogs: make([]string, 0),
-		variables:   make(map[string]interface{}),
-		httpClient:  config.HTTPClient,
-		prevResult:  config.PrevResult,
-		request:     config.Request,
-		response:    config.Response,
+		vm:            goja.New(),
+		consoleLogs:   make([]string, 0),
+		variables:     make(map[string]interface{}),
+		httpClient:    config.HTTPClient,
+		prevResult:    config.PrevResult,
+		request:       config.Request,
+		response:      config.Response,
+		onGetVariable: config.OnGetVariable,
+		onSetVariable: config.OnSetVariable,
+		onDelVariable: config.OnDelVariable,
 	}
 
-	// 复制变量（含 env. 前缀的环境变量）
+	// 复制变量（含 env. 前缀的环境变量）作为本地缓存
 	if config.Variables != nil {
 		for k, v := range config.Variables {
 			rt.variables[k] = v
@@ -140,6 +160,37 @@ func (r *JSRuntime) Execute(script string, timeout time.Duration) (*ScriptResult
 	}
 
 	return result, nil
+}
+
+// getVar 获取变量，优先通过回调获取，降级到本地 map
+func (r *JSRuntime) getVar(key string) (interface{}, bool) {
+	if r.onGetVariable != nil {
+		return r.onGetVariable(key)
+	}
+	val, ok := r.variables[key]
+	return val, ok
+}
+
+// setVar 设置变量，优先通过回调设置，同时更新本地 map
+func (r *JSRuntime) setVar(key string, value interface{}) {
+	r.variables[key] = value
+	if r.onSetVariable != nil {
+		r.onSetVariable(key, value)
+	}
+}
+
+// delVar 删除变量，优先通过回调删除，同时更新本地 map
+func (r *JSRuntime) delVar(key string) {
+	delete(r.variables, key)
+	if r.onDelVariable != nil {
+		r.onDelVariable(key)
+	}
+}
+
+// hasVar 检查变量是否存在
+func (r *JSRuntime) hasVar(key string) bool {
+	_, ok := r.getVar(key)
+	return ok
 }
 
 // setupConsole 设置 console 对象
@@ -220,7 +271,7 @@ func (r *JSRuntime) setupSimpleAPI() {
 			return goja.Undefined()
 		}
 		key := envPrefix + call.Arguments[0].String()
-		if val, ok := r.variables[key]; ok {
+		if val, ok := r.getVar(key); ok {
 			return r.vm.ToValue(val)
 		}
 		return goja.Undefined()
@@ -230,7 +281,7 @@ func (r *JSRuntime) setupSimpleAPI() {
 			return goja.Undefined()
 		}
 		key := envPrefix + call.Arguments[0].String()
-		r.variables[key] = call.Arguments[1].Export()
+		r.setVar(key, call.Arguments[1].Export())
 		return goja.Undefined()
 	})
 	env.Set("has", func(call goja.FunctionCall) goja.Value {
@@ -238,15 +289,14 @@ func (r *JSRuntime) setupSimpleAPI() {
 			return r.vm.ToValue(false)
 		}
 		key := envPrefix + call.Arguments[0].String()
-		_, ok := r.variables[key]
-		return r.vm.ToValue(ok)
+		return r.vm.ToValue(r.hasVar(key))
 	})
 	env.Set("del", func(call goja.FunctionCall) goja.Value {
 		if len(call.Arguments) == 0 {
 			return goja.Undefined()
 		}
 		key := envPrefix + call.Arguments[0].String()
-		delete(r.variables, key)
+		r.delVar(key)
 		return goja.Undefined()
 	})
 	env.Set("all", func(call goja.FunctionCall) goja.Value {
@@ -267,7 +317,7 @@ func (r *JSRuntime) setupSimpleAPI() {
 			return goja.Undefined()
 		}
 		key := call.Arguments[0].String()
-		if val, ok := r.variables[key]; ok {
+		if val, ok := r.getVar(key); ok {
 			return r.vm.ToValue(val)
 		}
 		return goja.Undefined()
@@ -277,8 +327,7 @@ func (r *JSRuntime) setupSimpleAPI() {
 			return goja.Undefined()
 		}
 		key := call.Arguments[0].String()
-		val := call.Arguments[1].Export()
-		r.variables[key] = val
+		r.setVar(key, call.Arguments[1].Export())
 		return goja.Undefined()
 	})
 	vars.Set("has", func(call goja.FunctionCall) goja.Value {
@@ -286,15 +335,14 @@ func (r *JSRuntime) setupSimpleAPI() {
 			return r.vm.ToValue(false)
 		}
 		key := call.Arguments[0].String()
-		_, ok := r.variables[key]
-		return r.vm.ToValue(ok)
+		return r.vm.ToValue(r.hasVar(key))
 	})
 	vars.Set("del", func(call goja.FunctionCall) goja.Value {
 		if len(call.Arguments) == 0 {
 			return goja.Undefined()
 		}
 		key := call.Arguments[0].String()
-		delete(r.variables, key)
+		r.delVar(key)
 		return goja.Undefined()
 	})
 	vars.Set("all", func(call goja.FunctionCall) goja.Value {

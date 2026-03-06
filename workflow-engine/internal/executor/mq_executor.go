@@ -308,18 +308,20 @@ func (e *MQExecutor) executePreProcessors(ctx context.Context, step *types.Step,
 			variables[k] = v
 		}
 	}
-	procExecutor := pkgExecutor.NewProcessorExecutor(variables)
+	procExecutor := pkgExecutor.NewProcessorExecutorWithCallbacks(
+		variables,
+		func(key string) (interface{}, bool) {
+			return execCtx.GetVariable(key)
+		},
+		func(key string, value interface{}, scope, source string) {
+			execCtx.SetVariableWithTracking(key, value, scope, source)
+		},
+	)
 
 	if len(step.PreProcessors) > 0 {
 		preLogs := procExecutor.ExecuteProcessors(ctx, step.PreProcessors, "pre")
 		execCtx.AppendLogs(preLogs)
 		trackVariableChangesShared(execCtx, preLogs)
-
-		if execCtx != nil && execCtx.Variables != nil {
-			for k, v := range procExecutor.GetVariables() {
-				execCtx.Variables[k] = v
-			}
-		}
 	}
 
 	return procExecutor
@@ -336,12 +338,6 @@ func (e *MQExecutor) executePostProcessors(ctx context.Context, step *types.Step
 	postLogs := procExecutor.ExecuteProcessors(ctx, step.PostProcessors, "post")
 	execCtx.AppendLogs(postLogs)
 	trackVariableChangesShared(execCtx, postLogs)
-
-	if execCtx != nil && execCtx.Variables != nil {
-		for k, v := range procExecutor.GetVariables() {
-			execCtx.Variables[k] = v
-		}
-	}
 }
 
 // collectLogsAndAssertions 收集日志和断言结果到 output 中。

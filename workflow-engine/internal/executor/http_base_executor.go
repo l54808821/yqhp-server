@@ -334,18 +334,20 @@ func (b *HTTPBaseExecutor) ExecutePreProcessors(ctx context.Context, step *types
 			variables[k] = v
 		}
 	}
-	procExecutor := pkgExecutor.NewProcessorExecutor(variables)
+	procExecutor := pkgExecutor.NewProcessorExecutorWithCallbacks(
+		variables,
+		func(key string) (interface{}, bool) {
+			return execCtx.GetVariable(key)
+		},
+		func(key string, value interface{}, scope, source string) {
+			execCtx.SetVariableWithTracking(key, value, scope, source)
+		},
+	)
 
 	if len(step.PreProcessors) > 0 {
 		preLogs := procExecutor.ExecuteProcessors(ctx, step.PreProcessors, "pre")
 		execCtx.AppendLogs(preLogs)
 		b.trackVariableChanges(execCtx, preLogs)
-
-		if execCtx != nil && execCtx.Variables != nil {
-			for k, v := range procExecutor.GetVariables() {
-				execCtx.Variables[k] = v
-			}
-		}
 	}
 
 	return procExecutor
@@ -373,12 +375,6 @@ func (b *HTTPBaseExecutor) ExecutePostProcessors(ctx context.Context, step *type
 	postLogs := procExecutor.ExecuteProcessors(ctx, step.PostProcessors, "post")
 	execCtx.AppendLogs(postLogs)
 	b.trackVariableChanges(execCtx, postLogs)
-
-	if execCtx != nil && execCtx.Variables != nil {
-		for k, v := range procExecutor.GetVariables() {
-			execCtx.Variables[k] = v
-		}
-	}
 }
 
 // CollectLogsAndAssertions 收集日志和断言结果到 output 中。

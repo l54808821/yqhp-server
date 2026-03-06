@@ -53,20 +53,22 @@ func (e *RefWorkflowExecutor) Execute(ctx context.Context, step *types.Step, exe
 		return CreateFailedResult(step.ID, startTime, err), nil
 	}
 
-	// 创建独立的子执行上下文
+	// 创建独立的子执行上下文（完全隔离，不继承父上下文变量）
 	childCtx := NewExecutionContext()
 	childCtx.WithWorkflowID(execCtx.WorkflowID)
 	childCtx.WithExecutionID(execCtx.ExecutionID)
 	childCtx.WithCallback(execCtx.GetCallback())
 
-	// 注入子工作流自身的 variables
+	// 注入顺序：子工作流 variables -> 入参映射（覆盖同名 variables） -> 子工作流独立环境变量（env. 前缀）
+
+	// 1. 注入子工作流自身的 variables
 	if wfDef.Variables != nil {
 		for k, v := range wfDef.Variables {
 			childCtx.SetVariable(k, v)
 		}
 	}
 
-	// 解析并注入参数映射（父上下文变量 -> 子上下文变量）
+	// 2. 解析并注入参数映射（父上下文变量 -> 子上下文变量，覆盖同名 variables）
 	if params, ok := step.Config["params"].(map[string]any); ok && len(params) > 0 {
 		evalCtx := execCtx.ToEvaluationContext()
 		resolver := GetVariableResolver()
@@ -76,6 +78,13 @@ func (e *RefWorkflowExecutor) Execute(ctx context.Context, step *types.Step, exe
 			} else {
 				childCtx.SetVariable(paramName, paramValue)
 			}
+		}
+	}
+
+	// 3. 注入子工作流独立的环境变量（env. 前缀）
+	if wfDef.EnvVariables != nil {
+		for k, v := range wfDef.EnvVariables {
+			childCtx.SetVariable("env."+k, v)
 		}
 	}
 
@@ -135,8 +144,9 @@ func (e *RefWorkflowExecutor) Execute(ctx context.Context, step *types.Step, exe
 
 // subWorkflowDef 子工作流定义（从 config 中解析）
 type subWorkflowDef struct {
-	Variables map[string]any `json:"variables"`
-	Steps     []types.Step   `json:"steps"`
+	Variables    map[string]any `json:"variables"`
+	EnvVariables map[string]any `json:"env_variables"`
+	Steps        []types.Step   `json:"steps"`
 }
 
 func (e *RefWorkflowExecutor) parseWorkflowDefinition(config map[string]any) (*subWorkflowDef, error) {
@@ -152,6 +162,10 @@ func (e *RefWorkflowExecutor) parseWorkflowDefinition(config map[string]any) (*s
 		// 解析 variables
 		if vars, ok := v["variables"].(map[string]any); ok {
 			def.Variables = vars
+		}
+		// 解析 env_variables（子工作流独立的环境变量）
+		if envVars, ok := v["env_variables"].(map[string]any); ok {
+			def.EnvVariables = envVars
 		}
 		// 解析 steps
 		stepsRaw, ok := v["steps"]

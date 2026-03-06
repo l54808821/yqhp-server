@@ -885,14 +885,19 @@ func (e *TaskEngine) executeWorkflowIteration(ctx context.Context, task *types.T
 		execCtx.WithCallback(task.Workflow.Callback)
 	}
 
-	// 复制工作流变量
+	// 注入顺序：参数先 -> 变量后（覆盖同名参数） -> 环境变量（env. 前缀）
+	if workflow.ParamValues != nil {
+		for k, v := range workflow.ParamValues {
+			execCtx.SetVariable(k, v)
+		}
+	}
+
 	if workflow.Variables != nil {
 		for k, v := range workflow.Variables {
 			execCtx.SetVariable(k, v)
 		}
 	}
 
-	// 注入环境变量：以 env. 前缀写入，通过 ${env.xxx} 访问
 	if workflow.EnvVariables != nil {
 		for k, v := range workflow.EnvVariables {
 			execCtx.SetVariable("env."+k, v)

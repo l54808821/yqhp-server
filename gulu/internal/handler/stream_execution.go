@@ -57,6 +57,8 @@ type ExecuteRequest struct {
 	EnvID int64 `json:"envId,omitempty"`
 	// 变量
 	Variables map[string]interface{} `json:"variables,omitempty"`
+	// 参数值（工作流参数的实际运行时值，不加前缀直接注入上下文）
+	ParamValues map[string]interface{} `json:"paramValues,omitempty"`
 	// 执行模式：debug（失败即停止）或 normal（继续执行）
 	Mode string `json:"mode,omitempty"`
 	// 会话 ID
@@ -192,7 +194,7 @@ func (h *StreamExecutionHandler) Execute(c *fiber.Ctx) error {
 	}
 
 	// 准备执行上下文（无 workflowID，直接使用定义）
-	execCtx, err := h.prepareExecutionFromDefinition(c, workflowDef, req.EnvID, req.Variables, mode, shouldPersist(req.Persist), req.Timeout, req.SessionID)
+	execCtx, err := h.prepareExecutionFromDefinition(c, workflowDef, req.EnvID, req.Variables, req.ParamValues, mode, shouldPersist(req.Persist), req.Timeout, req.SessionID)
 	if err != nil {
 		if execErr, ok := err.(*executionError); ok {
 			if execErr.code == "NOT_FOUND" {
@@ -215,7 +217,7 @@ func (h *StreamExecutionHandler) Execute(c *fiber.Ctx) error {
 }
 
 // prepareExecutionFromDefinition 从工作流定义准备执行上下文
-func (h *StreamExecutionHandler) prepareExecutionFromDefinition(c *fiber.Ctx, definition interface{}, envID int64, variables map[string]interface{}, mode string, persist bool, timeout int, sessionID string) (*ExecutionContext, error) {
+func (h *StreamExecutionHandler) prepareExecutionFromDefinition(c *fiber.Ctx, definition interface{}, envID int64, variables map[string]interface{}, paramValues map[string]interface{}, mode string, persist bool, timeout int, sessionID string) (*ExecutionContext, error) {
 	userID := middleware.GetCurrentUserID(c)
 
 	// 生成会话 ID
@@ -293,6 +295,11 @@ func (h *StreamExecutionHandler) prepareExecutionFromDefinition(c *fiber.Ctx, de
 	// 保存环境变量快照到工作流（用于调试上下文区分环境变量和临时变量）
 	if envVarsSnapshot != nil {
 		engineWf.EnvVariables = envVarsSnapshot
+	}
+
+	// 注入参数值到工作流（由 task_engine 按顺序注入：参数 -> 变量 -> 环境变量）
+	if len(paramValues) > 0 {
+		engineWf.ParamValues = paramValues
 	}
 
 	// 创建执行记录（仅当 persist=true 时）

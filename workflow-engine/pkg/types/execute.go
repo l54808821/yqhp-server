@@ -20,6 +20,8 @@ type ExecuteWorkflowRequest struct {
 	EnvID int64 `json:"envId,omitempty"`
 	// 变量
 	Variables map[string]interface{} `json:"variables,omitempty"`
+	// 参数值（工作流参数的实际运行时值，不加前缀直接注入上下文）
+	ParamValues map[string]interface{} `json:"paramValues,omitempty"`
 	// 环境变量
 	EnvVars map[string]interface{} `json:"envVars,omitempty"`
 	// 超时时间（秒）

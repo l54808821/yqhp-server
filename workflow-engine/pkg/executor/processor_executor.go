@@ -12,18 +12,34 @@ import (
 	"yqhp/workflow-engine/pkg/types"
 )
 
+// VariableGetFunc 变量获取回调
+type VariableGetFunc func(key string) (interface{}, bool)
+
+// VariableSetFunc 变量设置回调（key, value, scope, source）
+type VariableSetFunc func(key string, value interface{}, scope, source string)
+
 // ProcessorExecutor 处理器执行器
-// 所有变量（包括环境变量）统一存储在 variables 中，
-// 环境变量通过 "env." 前缀区分（如 "env.aaa"）。
+// 通过回调委托变量操作给 ExecutionContext，实现实时同步。
 type ProcessorExecutor struct {
-	variables map[string]interface{} // 统一变量上下文（含 env. 前缀的环境变量）
-	response  map[string]interface{} // HTTP 响应数据
+	variables    map[string]interface{} // 本地变量缓存（用于 replaceVariables 等遍历场景）
+	response     map[string]interface{} // HTTP 响应数据
+	onGetVar     VariableGetFunc        // 变量获取回调
+	onSetVar     VariableSetFunc        // 变量设置回调（带追踪）
 }
 
 // NewProcessorExecutor 创建处理器执行器
 func NewProcessorExecutor(variables map[string]interface{}) *ProcessorExecutor {
 	return &ProcessorExecutor{
 		variables: variables,
+	}
+}
+
+// NewProcessorExecutorWithCallbacks 创建带回调的处理器执行器
+func NewProcessorExecutorWithCallbacks(variables map[string]interface{}, getVar VariableGetFunc, setVar VariableSetFunc) *ProcessorExecutor {
+	return &ProcessorExecutor{
+		variables: variables,
+		onGetVar:  getVar,
+		onSetVar:  setVar,
 	}
 }
 
@@ -107,6 +123,23 @@ func (e *ProcessorExecutor) executeProcessor(ctx context.Context, processor type
 	return result
 }
 
+// setVariable 设置变量，优先通过回调同步到上下文，同时更新本地缓存
+func (e *ProcessorExecutor) setVariable(key string, value interface{}, scope, source string) {
+	e.variables[key] = value
+	if e.onSetVar != nil {
+		e.onSetVar(key, value, scope, source)
+	}
+}
+
+// getVariable 获取变量，优先通过回调获取，降级到本地缓存
+func (e *ProcessorExecutor) getVariable(key string) (interface{}, bool) {
+	if e.onGetVar != nil {
+		return e.onGetVar(key)
+	}
+	val, ok := e.variables[key]
+	return val, ok
+}
+
 // executeJsScript 执行 JS 脚本
 func (e *ProcessorExecutor) executeJsScript(ctx context.Context, pctx *processorContext) {
 	scriptCode := ""
@@ -125,6 +158,25 @@ func (e *ProcessorExecutor) executeJsScript(ctx context.Context, pctx *processor
 	}
 	for k, v := range e.variables {
 		rtConfig.Variables[k] = v
+	}
+
+	// JS Runtime 也使用回调模式
+	if e.onGetVar != nil {
+		rtConfig.OnGetVariable = func(key string) (interface{}, bool) {
+			return e.getVariable(key)
+		}
+	}
+	if e.onSetVar != nil {
+		rtConfig.OnSetVariable = func(key string, value interface{}) {
+			scope := "temp"
+			if strings.HasPrefix(key, "env.") {
+				scope = "env"
+			}
+			e.setVariable(key, value, scope, "js_script")
+		}
+		rtConfig.OnDelVariable = func(key string) {
+			e.setVariable(key, nil, "temp", "js_script")
+		}
 	}
 
 	// 如果有响应数据，注入到运行时
@@ -149,9 +201,11 @@ func (e *ProcessorExecutor) executeJsScript(ctx context.Context, pctx *processor
 		return
 	}
 
-	// 更新临时变量
-	for k, v := range execResult.Variables {
-		e.variables[k] = v
+	// 如果没有回调，需要手动同步变量到本地缓存
+	if e.onSetVar == nil {
+		for k, v := range execResult.Variables {
+			e.variables[k] = v
+		}
 	}
 
 	pctx.message = "脚本执行成功"
@@ -173,19 +227,17 @@ func (e *ProcessorExecutor) executeSetVariable(pctx *processorContext) {
 	if value, ok := pctx.processor.Config["value"].(string); ok {
 		varValue = e.replaceVariables(value)
 	}
-	// 读取 scope 配置，支持 "env" 或 "temp"
 	if s, ok := pctx.processor.Config["scope"].(string); ok && s != "" {
 		scope = s
 	}
 
 	if varName != "" {
-		// 环境变量使用 env. 前缀存储
 		storeKey := varName
 		if scope == "env" {
 			storeKey = "env." + varName
 		}
-		oldValue := e.variables[storeKey]
-		e.variables[storeKey] = varValue
+		oldValue, _ := e.getVariable(storeKey)
+		e.setVariable(storeKey, varValue, scope, "set_variable")
 		pctx.message = fmt.Sprintf("%s = %s", varName, varValue)
 		pctx.output = map[string]any{
 			"variableName": varName,
@@ -343,7 +395,6 @@ func (e *ProcessorExecutor) executeExtractParam(pctx *processorContext) {
 	if name, ok := pctx.processor.Config["variableName"].(string); ok {
 		varName = name
 	}
-	// 读取 scope 配置，支持 "env" 或 "temp"
 	if s, ok := pctx.processor.Config["scope"].(string); ok && s != "" {
 		scope = s
 	}
@@ -356,13 +407,12 @@ func (e *ProcessorExecutor) executeExtractParam(pctx *processorContext) {
 	}
 
 	if varName != "" {
-		// 环境变量使用 env. 前缀存储
 		storeKey := varName
 		if scope == "env" {
 			storeKey = "env." + varName
 		}
-		oldValue := e.variables[storeKey]
-		e.variables[storeKey] = value
+		oldValue, _ := e.getVariable(storeKey)
+		e.setVariable(storeKey, value, scope, "extract_param")
 		pctx.message = fmt.Sprintf("%s = %v", varName, value)
 		pctx.output = map[string]any{
 			"variableName": varName,

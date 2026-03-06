@@ -18,6 +18,8 @@ type Workflow struct {
 	Options     ExecutionOptions  `yaml:"options,omitempty" json:"options,omitempty"`
 	Callback    ExecutionCallback `yaml:"-" json:"-"`
 
+	// ParamValues 参数的实际运行时值（执行时由调用方传入，不加前缀直接注入上下文）
+	ParamValues map[string]any `yaml:"-" json:"-"`
 	// FinalVariables 执行完成后的最终变量快照（调试上下文缓存用）
 	FinalVariables map[string]any `yaml:"-" json:"-"`
 	// EnvVariables 环境变量快照（在执行前从环境配置加载的变量）

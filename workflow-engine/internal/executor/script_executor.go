@@ -3,6 +3,7 @@ package executor
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"yqhp/workflow-engine/pkg/script"
@@ -63,10 +64,25 @@ func (e *ScriptExecutor) executeJavaScript(ctx context.Context, step *types.Step
 	rtConfig := &script.JSRuntimeConfig{}
 
 	if execCtx != nil {
-		// 直接传递统一的 variables map（含 env. 前缀的环境变量）
+		// 传递变量快照作为初始状态
 		rtConfig.Variables = make(map[string]interface{}, len(execCtx.Variables))
 		for k, v := range execCtx.Variables {
 			rtConfig.Variables[k] = v
+		}
+
+		// 配置变量回调，实时同步到 ExecutionContext
+		rtConfig.OnGetVariable = func(key string) (interface{}, bool) {
+			return execCtx.GetVariable(key)
+		}
+		rtConfig.OnSetVariable = func(key string, value interface{}) {
+			scope := "temp"
+			if strings.HasPrefix(key, "env.") {
+				scope = "env"
+			}
+			execCtx.SetVariableWithTracking(key, value, scope, "js_script")
+		}
+		rtConfig.OnDelVariable = func(key string) {
+			execCtx.SetVariable(key, nil)
 		}
 
 		// 查找上一步骤的结果作为 response
@@ -115,17 +131,19 @@ func (e *ScriptExecutor) executeJavaScript(ctx context.Context, step *types.Step
 		output.Error = err.Error()
 		stepResult := CreateFailedResult(step.ID, startTime, NewExecutionError(step.ID, "脚本执行失败", err))
 		stepResult.Output = output
+		// 即使失败也创建变量快照
+		if execCtx != nil {
+			execCtx.CreateVariableSnapshot()
+		}
 		return stepResult, nil
 	}
 
 	// 设置返回值
 	output.Result = result.Value
 
-	// 将脚本设置的变量更新到执行上下文
+	// 创建变量快照
 	if execCtx != nil {
-		for k, v := range result.Variables {
-			execCtx.SetVariable(k, v)
-		}
+		execCtx.CreateVariableSnapshot()
 	}
 
 	// 创建成功结果

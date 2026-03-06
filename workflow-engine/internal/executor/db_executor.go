@@ -224,6 +224,11 @@ func (e *DBExecutor) Execute(ctx context.Context, step *types.Step, execCtx *Exe
 	result.Driver = string(stepConfig.Driver)
 	result.ActualSQL = op.SQL
 
+	// 创建变量快照
+	if execCtx != nil {
+		execCtx.CreateVariableSnapshot()
+	}
+
 	stepResult := CreateSuccessResult(step.ID, startTime, result)
 	stepResult.AddMetric("data_sent", float64(len(op.SQL)))
 	if result.Data != nil {

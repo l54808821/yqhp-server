@@ -16,32 +16,33 @@ import (
 )
 
 // JSRuntime JavaScript 运行时封装
+// 所有变量统一存储在 variables 中，环境变量以 "env." 前缀区分
 type JSRuntime struct {
 	vm          *goja.Runtime
 	consoleLogs []string
 	logMu       sync.Mutex
 	variables   map[string]interface{}
-	envVars     map[string]interface{}
 	httpClient  *http.Client
 	prevResult  interface{}
 	request     interface{}
 	response    interface{}
 }
 
+// envPrefix 环境变量在 variables map 中的前缀
+const envPrefix = "env."
+
 // ScriptResult 脚本执行结果
 type ScriptResult struct {
 	Value       interface{}            `json:"value"`
 	ConsoleLogs []string               `json:"console_logs"`
 	Variables   map[string]interface{} `json:"variables"`
-	EnvVars     map[string]interface{} `json:"env_vars"`
 	Error       error                  `json:"-"`
 	ErrorMsg    string                 `json:"error,omitempty"`
 }
 
 // JSRuntimeConfig 运行时配置
 type JSRuntimeConfig struct {
-	Variables  map[string]interface{} // 初始变量
-	EnvVars    map[string]interface{} // 环境变量
+	Variables  map[string]interface{} // 统一变量（含 env. 前缀的环境变量）
 	PrevResult interface{}            // 上一步骤结果
 	Request    interface{}            // 当前请求信息
 	Response   interface{}            // 上一个 HTTP 响应
@@ -58,24 +59,16 @@ func NewJSRuntime(config *JSRuntimeConfig) *JSRuntime {
 		vm:          goja.New(),
 		consoleLogs: make([]string, 0),
 		variables:   make(map[string]interface{}),
-		envVars:     make(map[string]interface{}),
 		httpClient:  config.HTTPClient,
 		prevResult:  config.PrevResult,
 		request:     config.Request,
 		response:    config.Response,
 	}
 
-	// 复制初始变量
+	// 复制变量（含 env. 前缀的环境变量）
 	if config.Variables != nil {
 		for k, v := range config.Variables {
 			rt.variables[k] = v
-		}
-	}
-
-	// 复制环境变量
-	if config.EnvVars != nil {
-		for k, v := range config.EnvVars {
-			rt.envVars[k] = v
 		}
 	}
 
@@ -99,7 +92,6 @@ func (r *JSRuntime) Execute(script string, timeout time.Duration) (*ScriptResult
 	result := &ScriptResult{
 		ConsoleLogs: make([]string, 0),
 		Variables:   make(map[string]interface{}),
-		EnvVars:     make(map[string]interface{}),
 	}
 
 	// 创建带超时的上下文
@@ -128,9 +120,6 @@ func (r *JSRuntime) Execute(script string, timeout time.Duration) (*ScriptResult
 	// 复制变量
 	for k, v := range r.variables {
 		result.Variables[k] = v
-	}
-	for k, v := range r.envVars {
-		result.EnvVars[k] = v
 	}
 
 	if err != nil {
@@ -224,14 +213,14 @@ func (r *JSRuntime) formatValue(val goja.Value) string {
 
 // setupSimpleAPI 设置简洁版 API（env、vars、http、response）
 func (r *JSRuntime) setupSimpleAPI() {
-	// env 对象 - 环境变量操作
+	// env 对象 - 环境变量操作（通过 env. 前缀访问 variables map）
 	env := r.vm.NewObject()
 	env.Set("get", func(call goja.FunctionCall) goja.Value {
 		if len(call.Arguments) == 0 {
 			return goja.Undefined()
 		}
-		key := call.Arguments[0].String()
-		if val, ok := r.envVars[key]; ok {
+		key := envPrefix + call.Arguments[0].String()
+		if val, ok := r.variables[key]; ok {
 			return r.vm.ToValue(val)
 		}
 		return goja.Undefined()
@@ -240,29 +229,34 @@ func (r *JSRuntime) setupSimpleAPI() {
 		if len(call.Arguments) < 2 {
 			return goja.Undefined()
 		}
-		key := call.Arguments[0].String()
-		val := call.Arguments[1].Export()
-		r.envVars[key] = val
+		key := envPrefix + call.Arguments[0].String()
+		r.variables[key] = call.Arguments[1].Export()
 		return goja.Undefined()
 	})
 	env.Set("has", func(call goja.FunctionCall) goja.Value {
 		if len(call.Arguments) == 0 {
 			return r.vm.ToValue(false)
 		}
-		key := call.Arguments[0].String()
-		_, ok := r.envVars[key]
+		key := envPrefix + call.Arguments[0].String()
+		_, ok := r.variables[key]
 		return r.vm.ToValue(ok)
 	})
 	env.Set("del", func(call goja.FunctionCall) goja.Value {
 		if len(call.Arguments) == 0 {
 			return goja.Undefined()
 		}
-		key := call.Arguments[0].String()
-		delete(r.envVars, key)
+		key := envPrefix + call.Arguments[0].String()
+		delete(r.variables, key)
 		return goja.Undefined()
 	})
 	env.Set("all", func(call goja.FunctionCall) goja.Value {
-		return r.vm.ToValue(r.envVars)
+		result := make(map[string]interface{})
+		for k, v := range r.variables {
+			if strings.HasPrefix(k, envPrefix) {
+				result[k[len(envPrefix):]] = v
+			}
+		}
+		return r.vm.ToValue(result)
 	})
 	r.vm.Set("env", env)
 
@@ -728,21 +722,7 @@ func (r *JSRuntime) GetVariables() map[string]interface{} {
 	return result
 }
 
-// GetEnvVars 获取环境变量
-func (r *JSRuntime) GetEnvVars() map[string]interface{} {
-	result := make(map[string]interface{})
-	for k, v := range r.envVars {
-		result[k] = v
-	}
-	return result
-}
-
 // SetVariable 设置变量
 func (r *JSRuntime) SetVariable(key string, value interface{}) {
 	r.variables[key] = value
-}
-
-// SetEnvVar 设置环境变量
-func (r *JSRuntime) SetEnvVar(key string, value interface{}) {
-	r.envVars[key] = value
 }

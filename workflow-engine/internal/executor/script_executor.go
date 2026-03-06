@@ -60,26 +60,17 @@ func (e *ScriptExecutor) Execute(ctx context.Context, step *types.Step, execCtx 
 // executeJavaScript 执行 JavaScript 脚本
 func (e *ScriptExecutor) executeJavaScript(ctx context.Context, step *types.Step, execCtx *ExecutionContext, config *ScriptConfig, startTime time.Time) (*types.StepResult, error) {
 	// 准备运行时配置
-	rtConfig := &script.JSRuntimeConfig{
-		Variables: make(map[string]interface{}),
-		EnvVars:   make(map[string]interface{}),
-	}
+	rtConfig := &script.JSRuntimeConfig{}
 
-	// 注入执行上下文变量
-	const envPrefix = "env."
 	if execCtx != nil {
-		// 按 env. 前缀分离变量和环境变量
+		// 直接传递统一的 variables map（含 env. 前缀的环境变量）
+		rtConfig.Variables = make(map[string]interface{}, len(execCtx.Variables))
 		for k, v := range execCtx.Variables {
-			if len(k) > len(envPrefix) && k[:len(envPrefix)] == envPrefix {
-				rtConfig.EnvVars[k[len(envPrefix):]] = v
-			} else {
-				rtConfig.Variables[k] = v
-			}
+			rtConfig.Variables[k] = v
 		}
 
 		// 查找上一步骤的结果作为 response
 		if len(execCtx.Results) > 0 {
-			// 获取最近的 HTTP 步骤结果
 			for _, result := range execCtx.Results {
 				if result.Output != nil {
 					rtConfig.Response = result.Output
@@ -134,10 +125,6 @@ func (e *ScriptExecutor) executeJavaScript(ctx context.Context, step *types.Step
 	if execCtx != nil {
 		for k, v := range result.Variables {
 			execCtx.SetVariable(k, v)
-		}
-		// 环境变量以 env. 前缀写回
-		for k, v := range result.EnvVars {
-			execCtx.SetVariable(envPrefix+k, v)
 		}
 	}
 

@@ -262,20 +262,10 @@ func (h *StreamExecutionHandler) prepareExecutionFromDefinition(c *fiber.Ctx, de
 		} else {
 			mergedConfig = mc
 
-			// 保存环境变量快照
+			// 保存环境变量快照（由 task_engine 以 env. 前缀注入到统一 Variables map）
 			envVarsSnapshot = make(map[string]interface{}, len(mergedConfig.Variables))
 			for k, v := range mergedConfig.Variables {
 				envVarsSnapshot[k] = v
-			}
-
-			// 将环境变量合并到请求变量中（请求变量优先级高于环境变量）
-			if variables == nil {
-				variables = make(map[string]interface{})
-			}
-			for k, v := range mergedConfig.Variables {
-				if _, exists := variables[k]; !exists {
-					variables[k] = v
-				}
 			}
 		}
 	}

@@ -119,20 +119,12 @@ func (e *ProcessorExecutor) executeJsScript(ctx context.Context, pctx *processor
 		return
 	}
 
-	// 准备运行时配置
+	// 准备运行时配置，直接传递统一 variables（含 env. 前缀的环境变量）
 	rtConfig := &script.JSRuntimeConfig{
-		Variables: make(map[string]interface{}),
-		EnvVars:   make(map[string]interface{}),
+		Variables: make(map[string]interface{}, len(e.variables)),
 	}
-
-	// 从统一 variables 中分离环境变量（env. 前缀）和普通变量
-	const envPrefix = "env."
 	for k, v := range e.variables {
-		if strings.HasPrefix(k, envPrefix) {
-			rtConfig.EnvVars[k[len(envPrefix):]] = v
-		} else {
-			rtConfig.Variables[k] = v
-		}
+		rtConfig.Variables[k] = v
 	}
 
 	// 如果有响应数据，注入到运行时
@@ -157,42 +149,15 @@ func (e *ProcessorExecutor) executeJsScript(ctx context.Context, pctx *processor
 		return
 	}
 
-	// 收集变量变更信息
-	varChanges := make([]map[string]any, 0)
-
 	// 更新临时变量
 	for k, v := range execResult.Variables {
-		oldValue := e.variables[k]
 		e.variables[k] = v
-		varChanges = append(varChanges, map[string]any{
-			"name":     k,
-			"oldValue": oldValue,
-			"newValue": v,
-			"scope":    "temp",
-			"source":   "js_script",
-		})
-	}
-
-	// 更新环境变量（以 env. 前缀写回统一 variables）
-	for k, v := range execResult.EnvVars {
-		fullKey := envPrefix + k
-		oldValue := e.variables[fullKey]
-		e.variables[fullKey] = v
-		varChanges = append(varChanges, map[string]any{
-			"name":     k,
-			"oldValue": oldValue,
-			"newValue": v,
-			"scope":    "env",
-			"source":   "js_script",
-		})
 	}
 
 	pctx.message = "脚本执行成功"
 	pctx.output = map[string]any{
-		"result":     execResult.Value,
-		"variables":  execResult.Variables,
-		"envVars":    execResult.EnvVars,
-		"varChanges": varChanges,
+		"result":    execResult.Value,
+		"variables": execResult.Variables,
 	}
 }
 

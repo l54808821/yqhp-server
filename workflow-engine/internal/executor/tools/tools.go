@@ -17,9 +17,8 @@ func RegisterAll(registry *executor.ToolRegistry) {
 		&VarWriteTool{},
 		&JSONParseTool{},
 		// 联网工具
-		&BingSearchTool{},
-		&GoogleSearchTool{},
-		&WebFetchTool{},
+		&TavilySearchTool{},
+		&JinaReaderTool{},
 		// 代码执行
 		&CodeExecuteTool{},
 		// 命令行

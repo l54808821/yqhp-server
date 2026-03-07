@@ -3,6 +3,7 @@ package workflow
 
 import (
 	"context"
+	"os"
 	"sync"
 
 	"yqhp/gulu/internal/config"
@@ -35,6 +36,14 @@ func Init(cfg *config.WorkflowEngineConfig) error {
 		// 根据配置启用调试日志
 		if cfg.Debug {
 			logger.EnableDebug()
+		}
+
+		// 将 API Key 配置注入环境变量，供 workflow-engine 内置工具使用
+		if cfg.TavilyAPIKey != "" {
+			os.Setenv("TAVILY_API_KEY", cfg.TavilyAPIKey)
+		}
+		if cfg.JinaAPIKey != "" {
+			os.Setenv("JINA_API_KEY", cfg.JinaAPIKey)
 		}
 
 		if cfg.Embedded {

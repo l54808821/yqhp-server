@@ -26,6 +26,8 @@ type WorkflowEngineConfig struct {
 	HeartbeatTimeout time.Duration  `yaml:"heartbeat_timeout"` // 心跳超时
 	Debug            bool           `yaml:"debug"`             // 是否启用调试日志
 	Outputs          []OutputConfig `yaml:"outputs"`           // 默认输出配置
+	TavilyAPIKey     string         `yaml:"tavily_api_key"`    // Tavily 搜索 API Key
+	JinaAPIKey       string         `yaml:"jina_api_key"`      // Jina Reader API Key（可选）
 }
 
 // OutputConfig 输出配置

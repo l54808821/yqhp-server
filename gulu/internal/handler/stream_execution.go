@@ -414,16 +414,16 @@ type InteractionRequest struct {
 
 // ExecutionContext 执行上下文（公共逻辑抽取）
 type ExecutionContext struct {
-	WorkflowID   int64
-	SessionID    string
-	EnvID        int64
-	UserID       int64
-	EngineWf     *types.Workflow
-	Persist      bool
-	ExecMode     scheduler.ExecutionMode
-	ExecLogic    *logic.ExecutionLogic
-	ScheduleRes  *scheduler.ScheduleResult
-	ExecReq      *executor.ExecuteRequest
+	WorkflowID  int64
+	SessionID   string
+	EnvID       int64
+	UserID      int64
+	EngineWf    *types.Workflow
+	Persist     bool
+	ExecMode    scheduler.ExecutionMode
+	ExecLogic   *logic.ExecutionLogic
+	ScheduleRes *scheduler.ScheduleResult
+	ExecReq     *executor.ExecuteRequest
 }
 
 // shouldPersist 判断是否需要持久化
@@ -433,7 +433,6 @@ func shouldPersist(persist *bool) bool {
 	}
 	return *persist
 }
-
 
 // executionError 执行错误
 type executionError struct {
@@ -1042,5 +1041,3 @@ func filterSteps(steps []types.Step, selectedIDs []string) []types.Step {
 
 	return filtered
 }
-
-

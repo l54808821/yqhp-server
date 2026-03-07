@@ -195,7 +195,7 @@ func buildToolRegistry(ctx context.Context, config *AIConfig, execCtx *executor.
 				filteredReg.Register(tool)
 			}
 		}
-		for _, name := range []string{"bing_search", "google_search", "web_fetch", "code_execute"} {
+		for _, name := range []string{"web_search", "web_read", "code_execute"} {
 			if tool, ok := reg.Get(name); ok {
 				filteredReg.Register(tool)
 			}

@@ -73,6 +73,9 @@ workflow_engine:
   max_executions: 100 # 最大并发执行数
   heartbeat_timeout: 30s # Slave 心跳超时
   debug: true # 是否启用调试日志
+  # AI Agent 联网工具 API Key
+  tavily_api_key: "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" # Tavily 搜索 API Key（必填，免费申请: https://tavily.com）
+  jina_api_key: "" # Jina Reader API Key（可选，不填也能用，有 rate limit）
 
 
 # 文件存储配置

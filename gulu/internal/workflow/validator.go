@@ -387,9 +387,8 @@ func validateAIStep(step *types.Step, prefix string) []ValidationError {
 			"var_write":         true,
 			"json_parse":        true,
 			"human_interaction": true,
-			"bing_search":       true,
-			"google_search":     true,
-			"web_fetch":         true,
+			"web_search":        true,
+			"web_read":          true,
 			"code_execute":      true,
 			"shell_exec":        true,
 		}

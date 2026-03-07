@@ -299,7 +299,7 @@ func TestRegisterAll(t *testing.T) {
 
 	expectedTools := []string{
 		"http_request", "var_read", "var_write", "json_parse",
-		"bing_search", "google_search", "web_fetch",
+		"web_search", "web_read",
 		"code_execute", "shell_exec",
 	}
 	for _, name := range expectedTools {

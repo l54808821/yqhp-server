@@ -482,10 +482,7 @@ type toolCallResult struct {
 	record ToolCallRecord
 }
 
-var toolFallbackMap = map[string]string{
-	"google_search": "bing_search",
-	"bing_search":   "google_search",
-}
+var toolFallbackMap = map[string]string{}
 
 const maxToolRetries = 1
 

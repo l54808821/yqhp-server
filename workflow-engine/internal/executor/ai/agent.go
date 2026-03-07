@@ -105,6 +105,9 @@ func RunAgent(ctx context.Context, req *AgentRequest) (*AIOutput, error) {
 
 		updateTokenUsage(output, resp)
 		roundThinking := resp.Content
+		if roundThinking == "" {
+			roundThinking = resp.ReasoningContent + "======"
+		}
 
 		if len(resp.ToolCalls) == 0 {
 			logger.Debug("[Agent] 第 %d 轮 LLM 未返回工具调用，直接输出 (长度=%d), 总耗时=%v",
@@ -126,6 +129,7 @@ func RunAgent(ctx context.Context, req *AgentRequest) (*AIOutput, error) {
 		if roundThinking != "" && req.Callbacks.Stream != nil {
 			thinkBlockID := req.Callbacks.BlockID.Next()
 			req.Callbacks.Stream.OnAIThinking(ctx, req.StepID, thinkBlockID, roundThinking)
+			req.Callbacks.Stream.OnAIThinkingComplete(ctx, req.StepID, thinkBlockID)
 		}
 
 		messages = append(messages, resp)
@@ -409,6 +413,8 @@ func streamWithToolsCalls(ctx context.Context, chatModel model.ToolCallingChatMo
 
 	var chunks []*schema.Message
 	textBlockID := callbacks.BlockID.Next()
+	thinkBlockID := callbacks.BlockID.Next()
+	hasThinking := false
 
 	for {
 		chunk, err := stream.Recv()
@@ -417,6 +423,10 @@ func streamWithToolsCalls(ctx context.Context, chatModel model.ToolCallingChatMo
 		}
 		if err != nil {
 			return nil, err
+		}
+		if chunk.ReasoningContent != "" {
+			callbacks.Stream.OnAIThinking(ctx, stepID, thinkBlockID, chunk.ReasoningContent)
+			hasThinking = true
 		}
 		if chunk.Content != "" {
 			callbacks.Stream.OnAIChunk(ctx, stepID, textBlockID, chunk.Content)
@@ -429,11 +439,17 @@ func streamWithToolsCalls(ctx context.Context, chatModel model.ToolCallingChatMo
 	}
 
 	merged, err := schema.ConcatMessages(chunks)
-	logger.Debug("[LLM Stream] 收到结果：=%s", merged.Content)
+	logger.Debug("[LLM Stream] 收到结果：content=%s, reasoning=%s", merged.Content, merged.ReasoningContent)
 
 	if err != nil {
 		return nil, fmt.Errorf("合并流式消息失败: %w", err)
 	}
+
+	if hasThinking {
+		callbacks.Stream.OnAIThinkingComplete(ctx, stepID, thinkBlockID)
+		merged.ReasoningContent = ""
+	}
+
 	return merged, nil
 }
 

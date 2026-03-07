@@ -29,6 +29,9 @@ type AIStreamCallback interface {
 	// OnAIThinking AI 思考内容（纯推理文本，不包含控制信号）
 	OnAIThinking(ctx context.Context, stepID, blockID, chunk string)
 
+	// OnAIThinkingComplete 标记某个思考块已结束
+	OnAIThinkingComplete(ctx context.Context, stepID, blockID string)
+
 	// OnAIToolCallStart 工具调用开始
 	OnAIToolCallStart(ctx context.Context, stepID, blockID string, toolCall *ToolCall)
 

@@ -18,9 +18,28 @@ type TodoTool struct {
 }
 
 type TodoItem struct {
-	ID      string `json:"id"`
-	Content string `json:"content"`
-	Status  string `json:"status"`
+	ID      flexString `json:"id"`
+	Content string     `json:"content"`
+	Status  string     `json:"status"`
+}
+
+type flexString string
+
+func (f *flexString) UnmarshalJSON(data []byte) error {
+	if len(data) > 0 && data[0] == '"' {
+		var s string
+		if err := json.Unmarshal(data, &s); err != nil {
+			return err
+		}
+		*f = flexString(s)
+		return nil
+	}
+	var n json.Number
+	if err := json.Unmarshal(data, &n); err != nil {
+		return err
+	}
+	*f = flexString(n.String())
+	return nil
 }
 
 func NewTodoTool() *TodoTool {
@@ -50,7 +69,7 @@ func (t *TodoTool) Definition() *types.ToolDefinition {
 						"properties": {
 							"id": {
 								"type": "string",
-								"description": "任务唯一标识"
+								"description": "任务唯一标识,建议使用简短且有意义的字符串"
 							},
 							"content": {
 								"type": "string",
@@ -91,7 +110,7 @@ func (t *TodoTool) Execute(ctx context.Context, arguments string, execCtx *execu
 	defer t.mu.Unlock()
 
 	if args.Merge {
-		existingMap := make(map[string]int)
+		existingMap := make(map[flexString]int)
 		for i, todo := range t.todos {
 			existingMap[todo.ID] = i
 		}

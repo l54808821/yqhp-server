@@ -140,6 +140,17 @@ func (c *SSECallback) OnAIThinking(ctx context.Context, stepID, blockID, chunk s
 	})
 }
 
+func (c *SSECallback) OnAIThinkingComplete(ctx context.Context, stepID, blockID string) {
+	c.writer.WriteEvent(&sse.Event{
+		Type: sse.EventAIThinking,
+		Data: map[string]interface{}{
+			"blockId":    blockID,
+			"stepId":     stepID,
+			"isComplete": true,
+		},
+	})
+}
+
 func (c *SSECallback) OnAIToolCallStart(ctx context.Context, stepID, blockID string, toolCall *types.ToolCall) {
 	c.writer.WriteEvent(&sse.Event{
 		Type: sse.EventAIToolCallStart,

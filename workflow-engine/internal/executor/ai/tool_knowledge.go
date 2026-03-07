@@ -26,14 +26,18 @@ func NewKnowledgeTool(kbs []*KnowledgeBaseInfo, config *AIConfig) *KnowledgeTool
 }
 
 func (t *KnowledgeTool) Definition() *types.ToolDefinition {
-	var kbNames []string
+	var sb strings.Builder
+	sb.WriteString("在已接入的知识库中搜索信息。当需要专业知识或事实依据时使用此工具。\n\n可用知识库：\n")
 	for _, kb := range t.knowledgeBases {
-		kbNames = append(kbNames, kb.Name)
+		typeLabel := "向量检索"
+		if kb.Type == "graph" {
+			typeLabel = "图谱检索"
+		}
+		sb.WriteString(fmt.Sprintf("- %s（%s）\n", kb.Name, typeLabel))
 	}
-	kbList := strings.Join(kbNames, "、")
 	return &types.ToolDefinition{
 		Name:        "knowledge_search",
-		Description: fmt.Sprintf("[知识库检索] 从以下知识库中检索相关信息：%s。当你需要获取更精确的知识来回答用户问题时，可调用此工具。", kbList),
+		Description: sb.String(),
 		Parameters: json.RawMessage(`{
 			"type": "object",
 			"properties": {

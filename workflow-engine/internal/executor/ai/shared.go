@@ -106,11 +106,6 @@ func getGuluHost(config *AIConfig) string {
 	return defaultGuluHost
 }
 
-// hasToolsConfig 检查配置中是否启用了工具
-func hasToolsConfig(config *AIConfig) bool {
-	return len(config.Tools) > 0 || len(config.MCPServers) > 0 ||
-		config.Interactive || len(config.Skills) > 0 || len(config.KnowledgeBases) > 0
-}
 
 // jsonSchemaMapToParams 将 JSON Schema map 转换为 schema.ParameterInfo map
 func jsonSchemaMapToParams(schemaMap map[string]any) map[string]*schema.ParameterInfo {

@@ -2,16 +2,55 @@ package ai
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"time"
 
 	mcpclient "github.com/mark3labs/mcp-go/client"
+
+	"github.com/cloudwego/eino/schema"
 
 	"yqhp/workflow-engine/internal/executor"
 	"yqhp/workflow-engine/pkg/logger"
 	"yqhp/workflow-engine/pkg/types"
 )
 
-// mcpCloser 记录需要在执行结束后关闭的 MCP 连接
+const AgentType = "ai_agent"
+
+// AgentExecutor 唯一的 AI Agent Step Executor
+type AgentExecutor struct {
+	*executor.BaseExecutor
+}
+
+func NewAgentExecutor() *AgentExecutor {
+	return &AgentExecutor{
+		BaseExecutor: executor.NewBaseExecutor(AgentType),
+	}
+}
+
+func (e *AgentExecutor) Init(ctx context.Context, config map[string]any) error {
+	return e.BaseExecutor.Init(ctx, config)
+}
+
+func (e *AgentExecutor) Execute(ctx context.Context, step *types.Step, execCtx *executor.ExecutionContext) (*types.StepResult, error) {
+	req, cleanup, err := buildAgentRequest(ctx, step, execCtx)
+	if err != nil {
+		return executor.CreateFailedResult(step.ID, time.Now(), err), nil
+	}
+	defer cleanup()
+
+	output, err := RunAgent(req.ctx, req.agentReq)
+	if err != nil {
+		return handleAgentError(step, req, err)
+	}
+
+	return buildAgentResult(step, req, output)
+}
+
+func (e *AgentExecutor) Cleanup(ctx context.Context) error { return nil }
+
+// --- 请求构建 ---
+
 type mcpCloser struct {
 	name   string
 	client *mcpclient.Client
@@ -25,7 +64,6 @@ func closeMCPClients(clients []mcpCloser) {
 	}
 }
 
-// preparedRequest 封装构建好的 Agent 请求和相关资源
 type preparedRequest struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
@@ -35,18 +73,13 @@ type preparedRequest struct {
 	startTime  time.Time
 }
 
-// buildAgentRequest 统一构建 Agent 请求（所有 Executor 共用）
-func buildAgentRequest(ctx context.Context, step *types.Step, execCtx *executor.ExecutionContext, mode AgentMode) (*preparedRequest, context.CancelFunc, error) {
+func buildAgentRequest(ctx context.Context, step *types.Step, execCtx *executor.ExecutionContext) (*preparedRequest, context.CancelFunc, error) {
 	startTime := time.Now()
-	logger.Debug("[AgentBuild] 开始构建请求, stepID=%s, stepType=%s, mode=%s", step.ID, step.Type, mode)
 
 	config, err := parseAIConfig(step.Config)
 	if err != nil {
-		logger.Debug("[AgentBuild] 解析 AI 配置失败, stepID=%s: %v", step.ID, err)
 		return nil, func() {}, err
 	}
-	logger.Debug("[AgentBuild] AI 配置: provider=%s, model=%s, streaming=%v, tools=%v, mcpServers=%d, skills=%d, knowledgeBases=%d, stepID=%s",
-		config.Provider, config.Model, config.Streaming, config.Tools, len(config.MCPServers), len(config.Skills), len(config.KnowledgeBases), step.ID)
 
 	userInputFiles := extractUserInputFiles(execCtx)
 	config = resolveConfigVariables(config, execCtx)
@@ -55,11 +88,8 @@ func buildAgentRequest(ctx context.Context, step *types.Step, execCtx *executor.
 
 	chatModel, err := createChatModelFromConfig(ctx, config)
 	if err != nil {
-		logger.Debug("[AgentBuild] 创建 AI 模型失败, provider=%s, model=%s, stepID=%s: %v",
-			config.Provider, config.Model, step.ID, err)
 		return nil, func() {}, executor.NewExecutionError(step.ID, "创建 AI 模型失败", err)
 	}
-	logger.Debug("[AgentBuild] AI 模型创建成功, provider=%s, model=%s", config.Provider, config.Model)
 
 	timeout := step.Timeout
 	if timeout <= 0 && config.Timeout > 0 {
@@ -77,26 +107,15 @@ func buildAgentRequest(ctx context.Context, step *types.Step, execCtx *executor.
 		ctx = WithAICallback(ctx, callbacks.Stream)
 	}
 
-	// 构建工具注册表
 	toolRegistry, mcpClients := buildToolRegistry(ctx, config, execCtx, step.ID, callbacks.Stream)
 
 	allToolDefs := toolRegistry.List()
 	schemaTools := toSchemaTools(allToolDefs)
 
-	toolNames := make([]string, 0, len(allToolDefs))
-	for _, td := range allToolDefs {
-		toolNames = append(toolNames, td.Name)
-	}
-	logger.Debug("[AgentBuild] 工具注册表构建完成, 工具数=%d, tools=%v, mcpClients=%d, stepID=%s",
-		len(allToolDefs), toolNames, len(mcpClients), step.ID)
-
-	// 使用 PromptBuilder 构建系统提示词
-	pb := NewPromptBuilder(config, allToolDefs, mode)
+	pb := NewPromptBuilder(config, allToolDefs)
 	systemPrompt := pb.Build()
 
-	messages := buildUnifiedMessages(systemPrompt, chatHistory, config)
-	logger.Debug("[AgentBuild] 消息构建完成, messages数=%d, systemPrompt长度=%d, chatHistory数=%d, stepID=%s",
-		len(messages), len([]rune(systemPrompt)), len(chatHistory), step.ID)
+	messages := buildMessages(systemPrompt, chatHistory, config)
 
 	maxRounds := config.MaxToolRounds
 	if maxRounds <= 0 {
@@ -133,7 +152,6 @@ func buildAgentRequest(ctx context.Context, step *types.Step, execCtx *executor.
 	}, cleanup, nil
 }
 
-// handleAgentError 统一处理 Agent 执行错误
 func handleAgentError(step *types.Step, req *preparedRequest, err error) (*types.StepResult, error) {
 	if req.ctx.Err() == context.DeadlineExceeded {
 		timeout := step.Timeout
@@ -152,12 +170,10 @@ func handleAgentError(step *types.Step, req *preparedRequest, err error) (*types
 		executor.NewExecutionError(step.ID, "AI Agent 调用失败", err)), nil
 }
 
-// buildAgentResult 统一构建 Agent 执行结果
 func buildAgentResult(step *types.Step, req *preparedRequest, output *AIOutput) (*types.StepResult, error) {
 	output.SystemPrompt = req.config.SystemPrompt
 	output.Prompt = req.config.Prompt
 
-	// 执行后置处理器
 	executePostProcessors(req.ctx, step, req.agentReq.ExecCtx, output, req.startTime)
 
 	result := executor.CreateSuccessResult(step.ID, req.startTime, output)
@@ -167,7 +183,8 @@ func buildAgentResult(step *types.Step, req *preparedRequest, output *AIOutput) 
 	return result, nil
 }
 
-// buildToolRegistry 构建本次执行的工具注册表
+// --- 工具注册表 ---
+
 func buildToolRegistry(ctx context.Context, config *AIConfig, execCtx *executor.ExecutionContext, stepID string, aiCallback types.AIStreamCallback) (*executor.ToolRegistry, []mcpCloser) {
 	reg := executor.DefaultToolRegistry.Clone()
 
@@ -178,7 +195,6 @@ func buildToolRegistry(ctx context.Context, config *AIConfig, execCtx *executor.
 				filteredReg.Register(tool)
 			}
 		}
-		// 始终保留基础联网和代码工具
 		for _, name := range []string{"bing_search", "google_search", "web_fetch", "code_execute"} {
 			if tool, ok := reg.Get(name); ok {
 				filteredReg.Register(tool)
@@ -186,6 +202,8 @@ func buildToolRegistry(ctx context.Context, config *AIConfig, execCtx *executor.
 		}
 		reg = filteredReg
 	}
+
+	reg.Register(NewTodoTool())
 
 	if config.Interactive {
 		interactionTool := NewHumanInteractionTool(config)
@@ -204,21 +222,66 @@ func buildToolRegistry(ctx context.Context, config *AIConfig, execCtx *executor.
 	var mcpClients []mcpCloser
 	if len(config.MCPServers) > 0 {
 		for _, serverCfg := range config.MCPServers {
-			logger.Debug("[AgentBuild] 加载 MCP Server %q, transport=%s", serverCfg.Name, serverCfg.Transport)
 			tools, cli, err := loadMCPTools(ctx, serverCfg)
 			if err != nil {
 				logger.Warn("[AgentBuild] MCP Server %q 加载失败: %v", serverCfg.Name, err)
 				continue
 			}
 			mcpClients = append(mcpClients, mcpCloser{name: serverCfg.Name, client: cli})
-			mcpToolNames := make([]string, 0, len(tools))
 			for _, t := range tools {
 				reg.Register(t)
-				mcpToolNames = append(mcpToolNames, t.Definition().Name)
 			}
-			logger.Debug("[AgentBuild] MCP Server %q 加载成功, 注册 %d 个工具: %v", serverCfg.Name, len(tools), mcpToolNames)
 		}
 	}
 
 	return reg, mcpClients
+}
+
+// --- 消息构建 ---
+
+func buildMessages(systemPrompt string, chatHistory []*schema.Message, config *AIConfig) []*schema.Message {
+	var messages []*schema.Message
+
+	if systemPrompt != "" {
+		messages = append(messages, schema.SystemMessage(systemPrompt))
+	}
+
+	messages = append(messages, chatHistory...)
+
+	if len(config.PromptMultiContent) > 0 {
+		msg := buildUserMessage(config.PromptMultiContent)
+		if msg != nil {
+			messages = append(messages, msg)
+		} else {
+			messages = append(messages, schema.UserMessage(config.Prompt))
+		}
+	} else {
+		messages = append(messages, schema.UserMessage(config.Prompt))
+	}
+
+	return messages
+}
+
+// extractMultimodalTextContent 从多模态内容中提取纯文本部分
+func extractMultimodalTextContent(content interface{}) string {
+	if s, ok := content.(string); ok {
+		return s
+	}
+	parts, ok := content.([]interface{})
+	if !ok {
+		return fmt.Sprintf("%v", content)
+	}
+	var texts []string
+	for _, part := range parts {
+		p, ok := part.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		if t, _ := p["type"].(string); t == "text" {
+			if text, ok := p["text"].(string); ok {
+				texts = append(texts, text)
+			}
+		}
+	}
+	return strings.Join(texts, "\n")
 }

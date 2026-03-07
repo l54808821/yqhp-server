@@ -18,21 +18,7 @@ import (
 	"yqhp/workflow-engine/pkg/types"
 )
 
-// AgentMode 标识 Agent 运行模式
-type AgentMode string
-
-const (
-	AgentModeDirect AgentMode = "direct"
-	AgentModeReAct  AgentMode = "react"
-	AgentModePlan   AgentMode = "plan"
-	AgentModeRouter AgentMode = "router"
-)
-
-// AgentRunner 所有 Agent 模式的统一执行接口
-type AgentRunner interface {
-	Mode() AgentMode
-	Run(ctx context.Context, req *AgentRequest) (*AIOutput, error)
-}
+const reflectionConsecFailLimit = 2
 
 // AgentRequest 封装 Agent 执行所需的全部输入
 type AgentRequest struct {
@@ -54,7 +40,6 @@ type AgentCallbacks struct {
 	BlockID *BlockIDGenerator
 }
 
-// NewAgentCallbacks 从 ExecutionCallback 中提取 AIStreamCallback
 func NewAgentCallbacks(callback types.ExecutionCallback, stepID string) *AgentCallbacks {
 	cb := &AgentCallbacks{
 		BlockID: NewBlockIDGenerator(stepID),
@@ -85,10 +70,136 @@ func (g *BlockIDGenerator) Next() string {
 	return fmt.Sprintf("blk_%s_%d", g.prefix, atomic.AddInt64(&g.seq, 1))
 }
 
-// --- 共享的 LLM 调用和工具执行逻辑 ---
+// RunAgent 唯一的 Agent 执行入口，实现 ReAct 循环（Reason -> Act -> Observe）
+// 无工具时自然退化为单次 LLM 调用（第一轮无 tool_calls 直接返回）
+func RunAgent(ctx context.Context, req *AgentRequest) (*AIOutput, error) {
+	logger.Debug("[Agent] 开始执行, model=%s, stepID=%s, tools数量=%d, maxRounds=%d",
+		req.Config.Model, req.StepID, len(req.SchemaTools), req.MaxRounds)
+	startTime := time.Now()
 
-// callLLM 统一的 LLM 调用入口，支持流式和非流式，带重试
-// callbacks 可为 nil（非流式场景或不需要回调时）
+	output := &AIOutput{
+		Model:      req.Config.Model,
+		AgentTrace: &AgentTrace{Mode: "react"},
+	}
+
+	maxRounds := req.MaxRounds
+	if maxRounds <= 0 {
+		maxRounds = defaultMaxToolRounds
+	}
+
+	messages := make([]*schema.Message, len(req.Messages))
+	copy(messages, req.Messages)
+	toolTimeout := getToolTimeout(req.Config)
+	consecutiveFailures := 0
+
+	for round := 1; round <= maxRounds; round++ {
+		logger.Debug("[Agent] ===== 第 %d/%d 轮开始 (stepID=%s, 当前messages数=%d) =====",
+			round, maxRounds, req.StepID, len(messages))
+
+		resp, err := callLLM(ctx, req.ChatModel, messages, req.SchemaTools, req.Config, req.StepID, req.Callbacks)
+
+		if err != nil {
+			logger.Debug("[Agent] 第 %d 轮 LLM 调用失败, 总耗时=%v: %v", round, time.Since(startTime), err)
+			return nil, err
+		}
+
+		updateTokenUsage(output, resp)
+		roundThinking := resp.Content
+
+		if len(resp.ToolCalls) == 0 {
+			logger.Debug("[Agent] 第 %d 轮 LLM 未返回工具调用，直接输出 (长度=%d), 总耗时=%v",
+				round, len([]rune(resp.Content)), time.Since(startTime))
+			output.Content = resp.Content
+			if req.Callbacks.Stream != nil {
+				req.Callbacks.Stream.OnMessageComplete(ctx, req.StepID, toAIResult(output))
+			}
+			return output, nil
+		}
+
+		toolNames := make([]string, 0, len(resp.ToolCalls))
+		for _, tc := range resp.ToolCalls {
+			toolNames = append(toolNames, tc.Function.Name)
+		}
+		logger.Debug("[Agent] 第 %d 轮 LLM 返回 %d 个工具调用: %s",
+			round, len(resp.ToolCalls), strings.Join(toolNames, ", "))
+
+		if roundThinking != "" && req.Callbacks.Stream != nil {
+			thinkBlockID := req.Callbacks.BlockID.Next()
+			req.Callbacks.Stream.OnAIThinking(ctx, req.StepID, thinkBlockID, roundThinking)
+		}
+
+		messages = append(messages, resp)
+		toolResults := executeToolsConcurrently(
+			ctx, resp.ToolCalls, round, req.ExecCtx, req.ToolRegistry,
+			req.StepID, req.Callbacks, toolTimeout,
+		)
+
+		var roundToolCalls []ToolCallRecord
+		roundHasFailure := false
+		for _, r := range toolResults {
+			messages = append(messages, schema.ToolMessage(r.result.GetLLMContent(), r.tc.ID))
+			output.ToolCalls = append(output.ToolCalls, r.record)
+			roundToolCalls = append(roundToolCalls, r.record)
+			if r.record.IsError {
+				roundHasFailure = true
+			}
+		}
+
+		if roundHasFailure {
+			consecutiveFailures++
+		} else {
+			consecutiveFailures = 0
+		}
+
+		if consecutiveFailures >= reflectionConsecFailLimit {
+			reflectionPrompt := buildReflectionPrompt(round, consecutiveFailures, roundToolCalls)
+			messages = append(messages, schema.UserMessage(reflectionPrompt))
+			logger.Debug("[Agent] 第 %d 轮触发反思 (连续失败=%d)", round, consecutiveFailures)
+		}
+
+		output.AgentTrace.Rounds = append(output.AgentTrace.Rounds, AgentRound{
+			Round:     round,
+			Thinking:  roundThinking,
+			ToolCalls: roundToolCalls,
+		})
+	}
+
+	logger.Warn("[Agent] 轮次达到最大值 %d，生成最终回复 (stepID=%s)", maxRounds, req.StepID)
+	resp, err := callLLM(ctx, req.ChatModel, messages, nil, req.Config, req.StepID, nil)
+	if err != nil {
+		logger.Debug("[Agent] 最终回复生成失败, stepID=%s: %v", req.StepID, err)
+		return output, fmt.Errorf("最终回复生成失败: %w", err)
+	}
+	output.Content = resp.Content
+	updateTokenUsage(output, resp)
+	logger.Debug("[Agent] 执行完成, stepID=%s, 总轮次=%d, 总耗时=%v, tokens=%d",
+		req.StepID, maxRounds, time.Since(startTime), output.TotalTokens)
+	if req.Callbacks.Stream != nil {
+		req.Callbacks.Stream.OnMessageComplete(ctx, req.StepID, toAIResult(output))
+	}
+	return output, nil
+}
+
+// buildReflectionPrompt 连续工具失败后引导 LLM 反思
+func buildReflectionPrompt(round int, consecutiveFailures int, latestToolCalls []ToolCallRecord) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("[反思] 已执行 %d 轮，最近 %d 轮工具调用失败。\n\n", round, consecutiveFailures))
+
+	sb.WriteString("最近的工具调用：\n")
+	for _, tc := range latestToolCalls {
+		status := "成功"
+		if tc.IsError {
+			status = "失败"
+		}
+		sb.WriteString(fmt.Sprintf("- %s [%s]: %s\n", tc.ToolName, status, truncateRunes(tc.Result, 200)))
+	}
+
+	sb.WriteString("\n请分析失败原因，尝试替代方案。如果已有足够信息，请直接给出最终回答。")
+	return sb.String()
+}
+
+// --- LLM 调用 ---
+
 func callLLM(
 	ctx context.Context,
 	chatModel model.ToolCallingChatModel,
@@ -101,23 +212,12 @@ func callLLM(
 	maxRetries := 2
 	hasStream := config.Streaming && callbacks != nil && callbacks.Stream != nil
 
-	toolNames := make([]string, 0, len(tools))
-	for _, t := range tools {
-		toolNames = append(toolNames, t.Name)
-	}
-
 	for retry := 0; retry <= maxRetries; retry++ {
 		var resp *schema.Message
 		var err error
 
-		logger.Debug("[LLM] 调用 LLM, provider=%s, model=%s, streaming=%v, tools数量=%d, tools=%v, messages数量=%d, stepID=%s",
-			config.Provider, config.Model, config.Streaming, len(tools), toolNames, len(messages), stepID)
-		if logger.IsDebugEnabled() {
-			for i, msg := range messages {
-				logger.Debug("[LLM] 入参 messages[%d]: role=%s, content长度=%d, toolCalls=%d",
-					i, msg.Role, len([]rune(msg.Content)), len(msg.ToolCalls))
-			}
-		}
+		logger.Debug("[LLM] 调用, model=%s, streaming=%v, tools=%d, messages=%d, stepID=%s",
+			config.Model, config.Streaming, len(tools), len(messages), stepID)
 
 		callStart := time.Now()
 
@@ -134,21 +234,8 @@ func callLLM(
 		callDuration := time.Since(callStart)
 
 		if err == nil {
-			respToolNames := make([]string, 0, len(resp.ToolCalls))
-			for _, tc := range resp.ToolCalls {
-				respToolNames = append(respToolNames, tc.Function.Name)
-			}
-			tokenInfo := ""
-			if resp.ResponseMeta != nil && resp.ResponseMeta.Usage != nil {
-				tokenInfo = fmt.Sprintf(", promptTokens=%d, completionTokens=%d, totalTokens=%d",
-					resp.ResponseMeta.Usage.PromptTokens, resp.ResponseMeta.Usage.CompletionTokens, resp.ResponseMeta.Usage.TotalTokens)
-			}
-			finishReason := ""
-			if resp.ResponseMeta != nil && resp.ResponseMeta.FinishReason != "" {
-				finishReason = fmt.Sprintf(", finishReason=%s", resp.ResponseMeta.FinishReason)
-			}
-			logger.Debug("[LLM] 调用完成, 耗时=%v, content长度=%d, toolCalls=%d, toolCallNames=%v%s%s, stepID=%s",
-				callDuration, len([]rune(resp.Content)), len(resp.ToolCalls), respToolNames, tokenInfo, finishReason, stepID)
+			logger.Debug("[LLM] 完成, 耗时=%v, content长度=%d, toolCalls=%d, stepID=%s",
+				callDuration, len([]rune(resp.Content)), len(resp.ToolCalls), stepID)
 			return resp, nil
 		}
 
@@ -156,13 +243,13 @@ func callLLM(
 
 		if errClass == llmErrorTimeout && retry < maxRetries {
 			backoff := time.Duration(retry+1) * 5 * time.Second
-			logger.Warn("[LLM] 调用超时，%v 后重试 (%d/%d): %v", backoff, retry+1, maxRetries, err)
+			logger.Warn("[LLM] 超时，%v 后重试 (%d/%d): %v", backoff, retry+1, maxRetries, err)
 			time.Sleep(backoff)
 			continue
 		}
 
 		if errClass == llmErrorContextWindow && retry < maxRetries {
-			logger.Warn("[LLM] Context window 溢出，压缩消息后重试 (%d/%d): %v", retry+1, maxRetries, err)
+			logger.Warn("[LLM] Context window 溢出，压缩后重试 (%d/%d)", retry+1, maxRetries)
 			messages = compressMessagesCopy(messages)
 			continue
 		}
@@ -176,14 +263,13 @@ func callLLM(
 type llmErrorClass int
 
 const (
-	llmErrorUnknown       llmErrorClass = iota
-	llmErrorTimeout                     // 超时
-	llmErrorContextWindow               // 上下文窗口溢出
-	llmErrorRateLimit                   // 速率限制
-	llmErrorAuth                        // 认证失败
+	llmErrorUnknown llmErrorClass = iota
+	llmErrorTimeout
+	llmErrorContextWindow
+	llmErrorRateLimit
+	llmErrorAuth
 )
 
-// classifyLLMError 对 LLM 错误进行分类，用于决定重试策略
 func classifyLLMError(err error) llmErrorClass {
 	if err == nil {
 		return llmErrorUnknown
@@ -218,7 +304,6 @@ func classifyLLMError(err error) llmErrorClass {
 	return llmErrorUnknown
 }
 
-// compressMessagesCopy 智能压缩消息历史：对中间消息生成摘要而不是简单裁剪
 func compressMessagesCopy(messages []*schema.Message) []*schema.Message {
 	if len(messages) <= 4 {
 		return messages
@@ -237,13 +322,12 @@ func compressMessagesCopy(messages []*schema.Message) []*schema.Message {
 	summary := summarizeMessages(middleMessages)
 
 	result := make([]*schema.Message, 0, 2+keepLast)
-	result = append(result, messages[0]) // system prompt
-	result = append(result, schema.UserMessage(fmt.Sprintf("[以下是之前对话的摘要，供你参考]\n%s", summary)))
+	result = append(result, messages[0])
+	result = append(result, schema.UserMessage(fmt.Sprintf("[以下是之前对话的摘要]\n%s", summary)))
 	result = append(result, messages[len(messages)-keepLast:]...)
 	return result
 }
 
-// summarizeMessages 对中间消息提取关键信息生成摘要（无需 LLM 调用，基于规则压缩）
 func summarizeMessages(messages []*schema.Message) string {
 	var sb strings.Builder
 	sb.WriteString("对话历史摘要：\n")
@@ -314,12 +398,11 @@ func summarizeMessages(messages []*schema.Message) string {
 	return result
 }
 
-// streamWithToolsCalls 流式调用 LLM（带工具），收集 chunk 后合并为完整消息
+// --- 流式调用 ---
+
 func streamWithToolsCalls(ctx context.Context, chatModel model.ToolCallingChatModel, messages []*schema.Message, tools []*schema.ToolInfo, stepID string, callbacks *AgentCallbacks) (*schema.Message, error) {
-	logger.Debug("[LLM-Stream] 开始流式调用(带工具), tools数量=%d, stepID=%s", len(tools), stepID)
 	stream, err := chatModel.Stream(ctx, messages, model.WithTools(tools))
 	if err != nil {
-		logger.Debug("[LLM-Stream] 创建流失败: %v", err)
 		return nil, err
 	}
 	defer stream.Close()
@@ -333,7 +416,6 @@ func streamWithToolsCalls(ctx context.Context, chatModel model.ToolCallingChatMo
 			break
 		}
 		if err != nil {
-			logger.Debug("[LLM-Stream] 接收chunk出错(已收到%d个chunk): %v", len(chunks), err)
 			return nil, err
 		}
 		if chunk.Content != "" {
@@ -342,25 +424,22 @@ func streamWithToolsCalls(ctx context.Context, chatModel model.ToolCallingChatMo
 		chunks = append(chunks, chunk)
 	}
 
-	logger.Debug("[LLM-Stream] 流式调用(带工具)完成, 共收到 %d 个chunk, stepID=%s", len(chunks), stepID)
-
 	if len(chunks) == 0 {
 		return &schema.Message{Role: schema.Assistant}, nil
 	}
 
 	merged, err := schema.ConcatMessages(chunks)
+	logger.Debug("[LLM Stream] 收到结果：=%s", merged.Content)
+
 	if err != nil {
 		return nil, fmt.Errorf("合并流式消息失败: %w", err)
 	}
 	return merged, nil
 }
 
-// streamGenerate 流式调用 LLM（无工具），直接流式输出
 func streamGenerate(ctx context.Context, chatModel model.ToolCallingChatModel, messages []*schema.Message, stepID string, callbacks *AgentCallbacks) (*schema.Message, error) {
-	logger.Debug("[LLM-Stream] 开始流式调用(无工具), stepID=%s", stepID)
 	stream, err := chatModel.Stream(ctx, messages)
 	if err != nil {
-		logger.Debug("[LLM-Stream] 创建流失败: %v", err)
 		return nil, err
 	}
 	defer stream.Close()
@@ -368,7 +447,6 @@ func streamGenerate(ctx context.Context, chatModel model.ToolCallingChatModel, m
 	var contentBuilder strings.Builder
 	resp := &schema.Message{Role: schema.Assistant}
 	textBlockID := callbacks.BlockID.Next()
-	chunkCount := 0
 
 	for {
 		chunk, err := stream.Recv()
@@ -376,10 +454,8 @@ func streamGenerate(ctx context.Context, chatModel model.ToolCallingChatModel, m
 			break
 		}
 		if err != nil {
-			logger.Debug("[LLM-Stream] 接收chunk出错(已收到%d个chunk): %v", chunkCount, err)
 			return nil, err
 		}
-		chunkCount++
 		if chunk.Content != "" {
 			contentBuilder.WriteString(chunk.Content)
 			callbacks.Stream.OnAIChunk(ctx, stepID, textBlockID, chunk.Content)
@@ -394,14 +470,6 @@ func streamGenerate(ctx context.Context, chatModel model.ToolCallingChatModel, m
 		}
 	}
 	resp.Content = contentBuilder.String()
-
-	tokenInfo := ""
-	if resp.ResponseMeta != nil && resp.ResponseMeta.Usage != nil {
-		tokenInfo = fmt.Sprintf(", promptTokens=%d, completionTokens=%d, totalTokens=%d",
-			resp.ResponseMeta.Usage.PromptTokens, resp.ResponseMeta.Usage.CompletionTokens, resp.ResponseMeta.Usage.TotalTokens)
-	}
-	logger.Debug("[LLM-Stream] 流式调用(无工具)完成, chunks=%d, content长度=%d%s, stepID=%s",
-		chunkCount, len([]rune(resp.Content)), tokenInfo, stepID)
 	return resp, nil
 }
 
@@ -414,7 +482,6 @@ type toolCallResult struct {
 	record ToolCallRecord
 }
 
-// toolFallbackMap 定义工具降级映射：当一个工具失败时，可以尝试使用备选工具
 var toolFallbackMap = map[string]string{
 	"google_search": "bing_search",
 	"bing_search":   "google_search",
@@ -422,7 +489,6 @@ var toolFallbackMap = map[string]string{
 
 const maxToolRetries = 1
 
-// isRetryableError 判断工具错误是否可以重试
 func isRetryableError(err error, toolResult *types.ToolResult) bool {
 	if err == nil && toolResult != nil && !toolResult.IsError {
 		return false
@@ -443,7 +509,6 @@ func isRetryableError(err error, toolResult *types.ToolResult) bool {
 	return false
 }
 
-// executeToolsConcurrently 并发执行工具调用，支持自动重试和降级
 func executeToolsConcurrently(
 	ctx context.Context,
 	toolCalls []schema.ToolCall,
@@ -452,7 +517,6 @@ func executeToolsConcurrently(
 	toolRegistry *executor.ToolRegistry,
 	stepID string,
 	callbacks *AgentCallbacks,
-	planStepIndex int,
 	toolTimeout time.Duration,
 ) []toolCallResult {
 	results := make([]toolCallResult, len(toolCalls))
@@ -476,10 +540,9 @@ func executeToolsConcurrently(
 			defer toolCancel()
 
 			typesToolCall := &types.ToolCall{
-				ID:            toolCall.ID,
-				Name:          toolCall.Function.Name,
-				Arguments:     toolCall.Function.Arguments,
-				PlanStepIndex: planStepIndex,
+				ID:        toolCall.ID,
+				Name:      toolCall.Function.Name,
+				Arguments: toolCall.Function.Arguments,
 			}
 			toolBlockID := callbacks.BlockID.Next()
 			if callbacks.Stream != nil {
@@ -488,11 +551,9 @@ func executeToolsConcurrently(
 
 			callStart := time.Now()
 			toolName := toolCall.Function.Name
-			logger.Debug("[ToolExec] 开始执行工具 [%s], round=%d, 参数=%s", toolName, round, toolCall.Function.Arguments)
 
 			toolResult, err := toolRegistry.Execute(toolCtx, toolName, toolCall.Function.Arguments, execCtx)
 			if err != nil {
-				logger.Debug("[ToolExec] 工具 [%s] 执行出错: %v", toolName, err)
 				toolResult = types.NewErrorResult(fmt.Sprintf("工具执行错误: %v", err))
 			}
 
@@ -500,48 +561,36 @@ func executeToolsConcurrently(
 				toolResult = types.NewErrorResult(fmt.Sprintf("工具 %s 执行超时 (%v)", toolName, toolTimeout))
 			}
 
-			// 可重试错误的自动重试
 			if toolResult.IsError && isRetryableError(err, toolResult) {
 				for retry := 0; retry < maxToolRetries; retry++ {
-					logger.Debug("[ToolExec] 工具 [%s] 可重试错误，第 %d 次重试", toolName, retry+1)
 					time.Sleep(time.Duration(retry+1) * 2 * time.Second)
-
 					retryCtx, retryCancel := context.WithTimeout(ctx, toolTimeout)
 					toolResult, err = toolRegistry.Execute(retryCtx, toolName, toolCall.Function.Arguments, execCtx)
 					retryCancel()
-
 					if err != nil {
 						toolResult = types.NewErrorResult(fmt.Sprintf("工具执行错误: %v", err))
 					}
 					if !toolResult.IsError {
-						logger.Debug("[ToolExec] 工具 [%s] 重试成功", toolName)
 						break
 					}
 				}
 			}
 
-			// 降级到备选工具
 			if toolResult.IsError {
 				if fallbackTool, ok := toolFallbackMap[toolName]; ok {
 					if toolRegistry.Has(fallbackTool) {
-						logger.Debug("[ToolExec] 工具 [%s] 失败，降级到 [%s]", toolName, fallbackTool)
 						fallbackCtx, fallbackCancel := context.WithTimeout(ctx, toolTimeout)
 						fallbackResult, fallbackErr := toolRegistry.Execute(fallbackCtx, fallbackTool, toolCall.Function.Arguments, execCtx)
 						fallbackCancel()
-
 						if fallbackErr == nil && !fallbackResult.IsError {
 							toolResult = fallbackResult
-							toolResult.ForLLM = fmt.Sprintf("[原工具 %s 失败，已自动切换到 %s]\n%s", toolName, fallbackTool, fallbackResult.GetLLMContent())
-							logger.Debug("[ToolExec] 降级到 [%s] 成功", fallbackTool)
+							toolResult.ForLLM = fmt.Sprintf("[原工具 %s 失败，已切换到 %s]\n%s", toolName, fallbackTool, fallbackResult.GetLLMContent())
 						}
 					}
 				}
 			}
 
 			callDuration := time.Since(callStart)
-			logger.Debug("[ToolExec] 工具 [%s] 执行完成, 耗时=%v, isError=%v, 结果=%s",
-				toolName, callDuration, toolResult.IsError, truncateForLog(toolResult.GetLLMContent(), 500))
-
 			toolResult.ToolCallID = toolCall.ID
 			typesToolCall.DurationMs = callDuration.Milliseconds()
 
@@ -568,25 +617,7 @@ func executeToolsConcurrently(
 	return results
 }
 
-// appendToolResults 将工具执行结果追加到消息列表和输出中
-func appendToolResults(messages []*schema.Message, output *AIOutput, results []toolCallResult) []*schema.Message {
-	for _, r := range results {
-		toolMsg := schema.ToolMessage(r.result.GetLLMContent(), r.tc.ID)
-		messages = append(messages, toolMsg)
-		output.ToolCalls = append(output.ToolCalls, r.record)
-	}
-	return messages
-}
-
-// truncateForLog 截断字符串用于日志输出，避免超长日志
-func truncateForLog(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "...(truncated)"
-}
-
-// --- Token 统计辅助 ---
+// --- Token 统计 ---
 
 func updateTokenUsage(output *AIOutput, resp *schema.Message) {
 	if resp.ResponseMeta != nil {
@@ -601,13 +632,7 @@ func updateTokenUsage(output *AIOutput, resp *schema.Message) {
 	}
 }
 
-func mergeTokenUsage(dst, src *AIOutput) {
-	dst.PromptTokens += src.PromptTokens
-	dst.CompletionTokens += src.CompletionTokens
-	dst.TotalTokens += src.TotalTokens
-}
-
-// --- Schema 转换辅助 ---
+// --- Schema 转换 ---
 
 func toSchemaTools(defs []*types.ToolDefinition) []*schema.ToolInfo {
 	tools := make([]*schema.ToolInfo, 0, len(defs))
@@ -630,10 +655,35 @@ func toSchemaTools(defs []*types.ToolDefinition) []*schema.ToolInfo {
 	return tools
 }
 
-// getToolTimeout 从配置中获取工具超时时间
+func toAIResult(output *AIOutput) *types.AIResult {
+	return &types.AIResult{
+		Content:          output.Content,
+		PromptTokens:     output.PromptTokens,
+		CompletionTokens: output.CompletionTokens,
+		TotalTokens:      output.TotalTokens,
+		Model:            output.Model,
+		FinishReason:     output.FinishReason,
+	}
+}
+
 func getToolTimeout(config *AIConfig) time.Duration {
 	if config != nil && config.ToolTimeout > 0 {
 		return time.Duration(config.ToolTimeout) * time.Second
 	}
 	return defaultToolTimeout
+}
+
+func truncateForLog(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "...(truncated)"
+}
+
+func truncateRunes(s string, maxRunes int) string {
+	runes := []rune(s)
+	if len(runes) <= maxRunes {
+		return s
+	}
+	return string(runes[:maxRunes]) + "..."
 }

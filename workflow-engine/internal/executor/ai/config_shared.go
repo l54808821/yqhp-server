@@ -36,10 +36,6 @@ func (c *AIConfig) applyDefaults() {
 	if c.Provider == "" {
 		c.Provider = "openai"
 	}
-	if c.EnablePlanMode == nil {
-		t := true
-		c.EnablePlanMode = &t
-	}
 }
 
 // Validate 校验必填字段和值范围
@@ -195,30 +191,6 @@ func buildUserMessage(content interface{}) *schema.Message {
 		return nil
 	}
 	return msg
-}
-
-// extractMultimodalTextContent 从多模态内容中提取纯文本部分（用于 Plan 模式等需要文本的场景）
-func extractMultimodalTextContent(content interface{}) string {
-	if s, ok := content.(string); ok {
-		return s
-	}
-	parts, ok := content.([]interface{})
-	if !ok {
-		return fmt.Sprintf("%v", content)
-	}
-	var texts []string
-	for _, part := range parts {
-		p, ok := part.(map[string]interface{})
-		if !ok {
-			continue
-		}
-		if t, _ := p["type"].(string); t == "text" {
-			if text, ok := p["text"].(string); ok {
-				texts = append(texts, text)
-			}
-		}
-	}
-	return strings.Join(texts, "\n")
 }
 
 // extractUserInputFiles 在变量解析之前从执行上下文中提取 userinput.files，

@@ -11,11 +11,10 @@ type ToolDefinition struct {
 
 // ToolCall AI 模型发出的工具调用
 type ToolCall struct {
-	ID            string `json:"id"`
-	Name          string `json:"name"`
-	Arguments     string `json:"arguments"`
-	PlanStepIndex int    `json:"planStepIndex,omitempty"`
-	DurationMs    int64  `json:"durationMs,omitempty"`
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Arguments  string `json:"arguments"`
+	DurationMs int64  `json:"durationMs,omitempty"`
 }
 
 // ToolResult 工具执行结果（增强版）

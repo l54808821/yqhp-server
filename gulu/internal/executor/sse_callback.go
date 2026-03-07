@@ -144,11 +144,10 @@ func (c *SSECallback) OnAIToolCallStart(ctx context.Context, stepID, blockID str
 	c.writer.WriteEvent(&sse.Event{
 		Type: sse.EventAIToolCallStart,
 		Data: map[string]interface{}{
-			"blockId":       blockID,
-			"stepId":        stepID,
-			"toolName":      toolCall.Name,
-			"arguments":     toolCall.Arguments,
-			"planStepIndex": toolCall.PlanStepIndex,
+			"blockId":   blockID,
+			"stepId":    stepID,
+			"toolName":  toolCall.Name,
+			"arguments": toolCall.Arguments,
 		},
 	})
 }

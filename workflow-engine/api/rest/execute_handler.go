@@ -812,11 +812,10 @@ func (c *streamCallback) OnAIThinking(ctx context.Context, stepID, blockID, chun
 
 func (c *streamCallback) OnAIToolCallStart(ctx context.Context, stepID, blockID string, toolCall *types.ToolCall) {
 	c.writer.WriteEvent(string(types.EventTypeAIToolCallStart), map[string]interface{}{
-		"blockId":       blockID,
-		"stepId":        stepID,
-		"toolName":      toolCall.Name,
-		"arguments":     toolCall.Arguments,
-		"planStepIndex": toolCall.PlanStepIndex,
+		"blockId":   blockID,
+		"stepId":    stepID,
+		"toolName":  toolCall.Name,
+		"arguments": toolCall.Arguments,
 	})
 }
 

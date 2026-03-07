@@ -14,11 +14,11 @@ type AIConfig struct {
 	MaxTokens       *int     `json:"max_tokens,omitempty"`
 	TopP            *float32 `json:"top_p,omitempty"`
 	PresencePenalty *float32 `json:"presence_penalty,omitempty"`
-	SystemPrompt      string        `json:"system_prompt,omitempty"`
-	Prompt            string        `json:"prompt"`
-	PromptMultiContent []interface{} `json:"-"` // 运行时填充，多模态用户消息的原始 ContentPart 数组
-	Streaming         bool          `json:"streaming"`
-	Timeout         int      `json:"timeout,omitempty"`
+	SystemPrompt       string        `json:"system_prompt,omitempty"`
+	Prompt             string        `json:"prompt"`
+	PromptMultiContent []interface{} `json:"-"`
+	Streaming          bool          `json:"streaming"`
+	Timeout            int           `json:"timeout,omitempty"`
 
 	// ===== 工具配置 =====
 	Tools              []string             `json:"tools,omitempty"`
@@ -30,10 +30,6 @@ type AIConfig struct {
 	KnowledgeBases     []*KnowledgeBaseInfo `json:"knowledge_bases,omitempty"`
 	KBTopK             int                  `json:"kb_top_k,omitempty"`
 	KBScoreThreshold   float32              `json:"kb_score_threshold,omitempty"`
-
-	// ===== Plan 模式配置 =====
-	EnablePlanMode *bool `json:"enable_plan_mode,omitempty"`
-	MaxPlanSteps   int   `json:"max_plan_steps,omitempty"`
 
 	// ===== Fallback 配置 =====
 	FallbackModels []FallbackModelConfig `json:"fallback_models,omitempty"`
@@ -77,7 +73,7 @@ type KnowledgeBaseInfo struct {
 	EmbeddingDimension int     `json:"embedding_dimension,omitempty"`
 }
 
-// MCPServerConfig MCP 服务器连接配置（由 gulu handler 从数据库解析注入）
+// MCPServerConfig MCP 服务器连接配置
 type MCPServerConfig struct {
 	ID        int64             `json:"id"`
 	Name      string            `json:"name"`

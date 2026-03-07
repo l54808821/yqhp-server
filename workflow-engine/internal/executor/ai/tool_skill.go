@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"yqhp/workflow-engine/internal/executor"
 	"yqhp/workflow-engine/pkg/types"
@@ -24,9 +25,16 @@ func (t *SkillTool) Definition() *types.ToolDefinition {
 		names = append(names, s.Name)
 	}
 	namesJSON, _ := json.Marshal(names)
+
+	var sb strings.Builder
+	sb.WriteString("加载专业能力（Skill）的完整操作指令。需要时先调用此工具获取指令，然后按指令使用现有工具执行。\n\n可用 Skills：\n")
+	for _, s := range t.skills {
+		sb.WriteString(fmt.Sprintf("- %s: %s\n", s.Name, s.Description))
+	}
+
 	return &types.ToolDefinition{
 		Name:        "read_skill",
-		Description: "加载指定 Skill 的完整操作指令。当任务需要某个专业领域知识时，先调用此工具获取指令，然后按指令使用现有工具执行。",
+		Description: sb.String(),
 		Parameters: json.RawMessage(fmt.Sprintf(`{
 			"type": "object",
 			"properties": {

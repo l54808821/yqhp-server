@@ -220,8 +220,8 @@ func callLLM(
 		var resp *schema.Message
 		var err error
 
-		logger.Debug("[LLM] 调用, model=%s, streaming=%v, tools=%d, messages=%d, stepID=%s",
-			config.Model, config.Streaming, len(tools), len(messages), stepID)
+		logger.Debug("[LLM] 调用, model=%s, streaming=%v, tools=%d, messages=%v",
+			config.Model, config.Streaming, len(tools), messages)
 
 		callStart := time.Now()
 
@@ -442,7 +442,6 @@ func streamWithToolsCalls(ctx context.Context, chatModel model.ToolCallingChatMo
 	}
 
 	merged, err := schema.ConcatMessages(chunks)
-	logger.Debug("[LLM Stream] 收到结果：content=%s, reasoning=%s", merged.Content, merged.ReasoningContent)
 
 	if err != nil {
 		return nil, fmt.Errorf("合并流式消息失败: %w", err)

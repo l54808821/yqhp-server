@@ -104,9 +104,9 @@ func RunAgent(ctx context.Context, req *AgentRequest) (*AIOutput, error) {
 		}
 
 		updateTokenUsage(output, resp)
-		roundThinking := resp.Content
+		roundThinking := strings.TrimSpace(resp.Content)
 		if roundThinking == "" {
-			roundThinking = resp.ReasoningContent + "======"
+			roundThinking = strings.TrimSpace(resp.ReasoningContent)
 		}
 
 		if len(resp.ToolCalls) == 0 {
@@ -413,7 +413,7 @@ func streamWithToolsCalls(ctx context.Context, chatModel model.ToolCallingChatMo
 
 	var chunks []*schema.Message
 	textBlockID := callbacks.BlockID.Next()
-	thinkBlockID := callbacks.BlockID.Next()
+	thinkBlockID := ""
 	hasThinking := false
 
 	for {
@@ -425,6 +425,9 @@ func streamWithToolsCalls(ctx context.Context, chatModel model.ToolCallingChatMo
 			return nil, err
 		}
 		if chunk.ReasoningContent != "" {
+			if thinkBlockID == "" {
+				thinkBlockID = callbacks.BlockID.Next()
+			}
 			callbacks.Stream.OnAIThinking(ctx, stepID, thinkBlockID, chunk.ReasoningContent)
 			hasThinking = true
 		}

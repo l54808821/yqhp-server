@@ -11,6 +11,43 @@ import (
 	"github.com/gofiber/fiber/v2"
 )
 
+// ReportFileUploadRequest 报告文件上传请求（JSON body，内容为文本）
+type ReportFileUploadRequest struct {
+	Content  string `json:"content"`
+	FileName string `json:"file_name"`
+	FileType string `json:"file_type"`
+}
+
+// ReportFileUpload 上传报告文本内容为文件
+// POST /api/report-files
+func ReportFileUpload(c *fiber.Ctx) error {
+	var req ReportFileUploadRequest
+	if err := c.BodyParser(&req); err != nil {
+		return response.Error(c, "请求解析失败: "+err.Error())
+	}
+	if req.Content == "" {
+		return response.Error(c, "content 不能为空")
+	}
+	if req.FileName == "" {
+		req.FileName = "report.html"
+	}
+
+	storage := logic.GetFileStorage()
+	reader := strings.NewReader(req.Content)
+	relPath, err := storage.SaveAttachment("reports", req.FileName, reader)
+	if err != nil {
+		return response.Error(c, "保存报告文件失败: "+err.Error())
+	}
+
+	url := "/api/attachments/files/" + relPath
+
+	return response.Success(c, fiber.Map{
+		"url":      url,
+		"fileName": req.FileName,
+		"fileType": req.FileType,
+	})
+}
+
 // AttachmentUploadResult 附件上传返回
 type AttachmentUploadResult struct {
 	URL      string `json:"url"`

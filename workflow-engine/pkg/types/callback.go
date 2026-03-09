@@ -44,6 +44,15 @@ type AIStreamCallback interface {
 	// OnMessageComplete AI 消息完成
 	OnMessageComplete(ctx context.Context, stepID string, result *AIResult)
 
+	// OnAIArtifactStart 产物生成开始
+	OnAIArtifactStart(ctx context.Context, stepID, blockID string, fileType, title string)
+
+	// OnAIArtifactChunk 产物内容流式片段
+	OnAIArtifactChunk(ctx context.Context, stepID, blockID, chunk string)
+
+	// OnAIArtifactComplete 产物生成完成
+	OnAIArtifactComplete(ctx context.Context, stepID, blockID string, url string)
+
 	// OnAIError AI 错误
 	OnAIError(ctx context.Context, stepID string, err error)
 

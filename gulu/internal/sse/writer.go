@@ -28,8 +28,11 @@ const (
 	EventAIToolCallStart    EventType = "ai_tool_call_start"
 	EventAIToolCallComplete EventType = "ai_tool_call_complete"
 	EventAIPlanUpdate       EventType = "ai_plan_update" // 合并原 started/step_update/completed/modified
-	EventAIError EventType = "ai_error"
+	EventAIError            EventType = "ai_error"
 	EventAIInteraction      EventType = "ai_interaction_required"
+	EventAIArtifactStart    EventType = "ai_artifact_start"
+	EventAIArtifactChunk    EventType = "ai_artifact_chunk"
+	EventAIArtifactComplete EventType = "ai_artifact_complete"
 	EventMessageComplete    EventType = "message_complete"
 )
 

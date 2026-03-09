@@ -886,6 +886,31 @@ func (c *streamCallback) OnMessageComplete(ctx context.Context, stepID string, r
 	})
 }
 
+func (c *streamCallback) OnAIArtifactStart(ctx context.Context, stepID, blockID string, fileType, title string) {
+	c.writer.WriteEvent("ai_artifact_start", map[string]interface{}{
+		"blockId":  blockID,
+		"stepId":   stepID,
+		"fileType": fileType,
+		"title":    title,
+	})
+}
+
+func (c *streamCallback) OnAIArtifactChunk(ctx context.Context, stepID, blockID, chunk string) {
+	c.writer.WriteEvent("ai_artifact_chunk", map[string]interface{}{
+		"blockId": blockID,
+		"stepId":  stepID,
+		"chunk":   chunk,
+	})
+}
+
+func (c *streamCallback) OnAIArtifactComplete(ctx context.Context, stepID, blockID string, url string) {
+	c.writer.WriteEvent("ai_artifact_complete", map[string]interface{}{
+		"blockId": blockID,
+		"stepId":  stepID,
+		"url":     url,
+	})
+}
+
 func (c *streamCallback) OnAIError(ctx context.Context, stepID string, err error) {
 	c.writer.WriteEvent(string(types.EventTypeError), map[string]interface{}{
 		"stepId":  stepID,

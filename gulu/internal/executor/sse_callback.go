@@ -164,16 +164,20 @@ func (c *SSECallback) OnAIToolCallStart(ctx context.Context, stepID, blockID str
 }
 
 func (c *SSECallback) OnAIToolCallComplete(ctx context.Context, stepID, blockID string, toolCall *types.ToolCall, result *types.ToolResult) {
+	data := map[string]interface{}{
+		"blockId":    blockID,
+		"stepId":     stepID,
+		"toolName":   toolCall.Name,
+		"result":     result.GetLLMContent(),
+		"isError":    result.IsError,
+		"durationMs": toolCall.DurationMs,
+	}
+	if result.ForUser != "" {
+		data["forUser"] = result.ForUser
+	}
 	c.writer.WriteEvent(&sse.Event{
 		Type: sse.EventAIToolCallComplete,
-		Data: map[string]interface{}{
-			"blockId":    blockID,
-			"stepId":     stepID,
-			"toolName":   toolCall.Name,
-			"result":     result.GetLLMContent(),
-			"isError":    result.IsError,
-			"durationMs": toolCall.DurationMs,
-		},
+		Data: data,
 	})
 }
 
@@ -228,6 +232,40 @@ func (c *SSECallback) OnMessageComplete(ctx context.Context, stepID string, resu
 				"total_tokens":      result.TotalTokens,
 			},
 			"model": result.Model,
+		},
+	})
+}
+
+func (c *SSECallback) OnAIArtifactStart(ctx context.Context, stepID, blockID string, fileType, title string) {
+	c.writer.WriteEvent(&sse.Event{
+		Type: sse.EventAIArtifactStart,
+		Data: map[string]interface{}{
+			"blockId":  blockID,
+			"stepId":   stepID,
+			"fileType": fileType,
+			"title":    title,
+		},
+	})
+}
+
+func (c *SSECallback) OnAIArtifactChunk(ctx context.Context, stepID, blockID, chunk string) {
+	c.writer.WriteEvent(&sse.Event{
+		Type: sse.EventAIArtifactChunk,
+		Data: map[string]interface{}{
+			"blockId": blockID,
+			"stepId":  stepID,
+			"chunk":   chunk,
+		},
+	})
+}
+
+func (c *SSECallback) OnAIArtifactComplete(ctx context.Context, stepID, blockID string, url string) {
+	c.writer.WriteEvent(&sse.Event{
+		Type: sse.EventAIArtifactComplete,
+		Data: map[string]interface{}{
+			"blockId": blockID,
+			"stepId":  stepID,
+			"url":     url,
 		},
 	})
 }

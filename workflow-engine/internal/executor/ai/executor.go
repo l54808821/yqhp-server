@@ -205,6 +205,10 @@ func buildToolRegistry(ctx context.Context, config *AIConfig, execCtx *executor.
 
 	reg.Register(NewTodoTool())
 
+	reportTool := NewReportTool(config)
+	reportTool.SetContext(stepID, aiCallback)
+	reg.Register(reportTool)
+
 	if config.Interactive {
 		interactionTool := NewHumanInteractionTool(config)
 		interactionTool.SetContext(stepID, aiCallback)

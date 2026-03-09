@@ -42,6 +42,9 @@ func Setup(app *fiber.App) {
 	// 附件文件访问（无需认证，支持前端直接渲染和 LLM 访问）
 	app.Get("/api/attachments/files/*", handler.AttachmentServe)
 
+	// 报告文件上传（无需认证，供 workflow-engine 内部调用）
+	app.Post("/api/report-files", handler.ReportFileUpload)
+
 	// 创建执行相关组件（需要依赖注入的 handler）
 	engineClient := client.NewWorkflowEngineClient()
 	sched := scheduler.NewScheduler(engineClient)

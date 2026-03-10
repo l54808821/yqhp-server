@@ -11,6 +11,8 @@
 -- TRUNCATE TABLE sys_operation_log;
 -- TRUNCATE TABLE sys_login_log;
 -- TRUNCATE TABLE sys_user_token;
+-- TRUNCATE TABLE sys_job;
+-- TRUNCATE TABLE sys_job_log;
 -- TRUNCATE TABLE sys_oauth_provider;
 -- TRUNCATE TABLE sys_config;
 -- TRUNCATE TABLE sys_dict_data;
@@ -67,6 +69,53 @@ CREATE TABLE IF NOT EXISTS `sys_user_app` (
     KEY `idx_sys_user_app_app_id` (`app_id`),
     KEY `idx_sys_user_app_is_delete` (`is_delete`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='用户-应用关联表';
+
+-- =============================================
+-- 0.2 创建定时任务表（如果不存在）
+-- =============================================
+CREATE TABLE IF NOT EXISTS `sys_job` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `created_at` datetime DEFAULT NULL,
+  `updated_at` datetime DEFAULT NULL,
+  `is_delete` tinyint(1) DEFAULT '0',
+  `created_by` bigint unsigned DEFAULT NULL COMMENT '创建人ID',
+  `updated_by` bigint unsigned DEFAULT NULL COMMENT '更新人ID',
+  `name` varchar(100) NOT NULL COMMENT '任务名称',
+  `job_group` varchar(100) DEFAULT NULL COMMENT '任务分组',
+  `handler_name` varchar(200) NOT NULL COMMENT '处理器名称',
+  `cron_expression` varchar(100) NOT NULL COMMENT 'cron表达式',
+  `params` text COMMENT '任务参数(JSON)',
+  `status` tinyint NOT NULL DEFAULT '0' COMMENT '状态: 0-暂停 1-运行中',
+  `source` varchar(50) DEFAULT 'system' COMMENT '来源: system-系统任务 agent-Agent创建',
+  `source_id` bigint unsigned DEFAULT NULL COMMENT '来源ID(预留: 如agent_id)',
+  `misfire_policy` tinyint DEFAULT '0' COMMENT '错过策略: 0-忽略 1-立即执行',
+  `concurrent` tinyint DEFAULT '0' COMMENT '是否允许并发: 0-禁止 1-允许',
+  `retry_count` int DEFAULT '0' COMMENT '失败重试次数',
+  `retry_interval` int DEFAULT '0' COMMENT '重试间隔(秒)',
+  `remark` varchar(500) DEFAULT NULL COMMENT '备注',
+  PRIMARY KEY (`id`),
+  KEY `idx_sys_job_is_delete` (`is_delete`),
+  KEY `idx_sys_job_status` (`status`),
+  KEY `idx_sys_job_handler_name` (`handler_name`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='定时任务表';
+
+CREATE TABLE IF NOT EXISTS `sys_job_log` (
+  `id` bigint unsigned NOT NULL AUTO_INCREMENT,
+  `created_at` datetime DEFAULT NULL,
+  `job_id` bigint unsigned NOT NULL COMMENT '任务ID',
+  `job_name` varchar(100) NOT NULL COMMENT '任务名称',
+  `handler_name` varchar(200) DEFAULT NULL COMMENT '处理器名称',
+  `params` text COMMENT '执行参数',
+  `status` tinyint NOT NULL DEFAULT '0' COMMENT '执行状态: 0-失败 1-成功',
+  `error_message` text COMMENT '错误信息',
+  `start_time` datetime(3) DEFAULT NULL COMMENT '开始时间',
+  `end_time` datetime(3) DEFAULT NULL COMMENT '结束时间',
+  `duration` bigint DEFAULT NULL COMMENT '耗时(毫秒)',
+  PRIMARY KEY (`id`),
+  KEY `idx_sys_job_log_job_id` (`job_id`),
+  KEY `idx_sys_job_log_status` (`status`),
+  KEY `idx_sys_job_log_start_time` (`start_time`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='定时任务执行日志表';
 
 -- 为 sys_oauth_provider 表添加 app_id 字段（如果不存在）
 -- ALTER TABLE `sys_oauth_provider` ADD COLUMN IF NOT EXISTS `app_id` bigint unsigned DEFAULT NULL COMMENT '应用ID，NULL表示全局配置' AFTER `updated_by`;
@@ -184,6 +233,14 @@ INSERT INTO sys_resource (id, created_at, updated_at, is_delete, created_by, upd
 (39, NOW(), NOW(), 0, 1, 1, 1, 1, '日志管理', 'system:log', 2, '/system/log', 'system/log/index', NULL, 'ant-design:file-text-outlined', 9, 0, 1, 0, 1, NULL),
 (40, NOW(), NOW(), 0, 1, 1, 1, 39, '清空日志', 'system:log:delete', 3, NULL, NULL, NULL, NULL, 1, 0, 1, 0, 1, NULL);
 
+-- 定时任务
+INSERT INTO sys_resource (id, created_at, updated_at, is_delete, created_by, updated_by, app_id, parent_id, name, code, type, path, component, redirect, icon, sort, is_hidden, is_cache, is_frame, status, remark) VALUES
+(41, NOW(), NOW(), 0, 1, 1, 1, 1, '定时任务', 'system:job', 2, '/system/job', 'system/job/index', NULL, 'ant-design:clock-circle-outlined', 10, 0, 1, 0, 1, NULL),
+(42, NOW(), NOW(), 0, 1, 1, 1, 41, '查询任务', 'system:job:list', 3, NULL, NULL, NULL, NULL, 1, 0, 1, 0, 1, NULL),
+(43, NOW(), NOW(), 0, 1, 1, 1, 41, '新增任务', 'system:job:add', 3, NULL, NULL, NULL, NULL, 2, 0, 1, 0, 1, NULL),
+(44, NOW(), NOW(), 0, 1, 1, 1, 41, '编辑任务', 'system:job:edit', 3, NULL, NULL, NULL, NULL, 3, 0, 1, 0, 1, NULL),
+(45, NOW(), NOW(), 0, 1, 1, 1, 41, '删除任务', 'system:job:delete', 3, NULL, NULL, NULL, NULL, 4, 0, 1, 0, 1, NULL);
+
 -- =============================================
 -- 7. 初始化角色资源关联（管理员拥有所有权限）
 -- =============================================
@@ -197,7 +254,8 @@ INSERT INTO sys_role_resource (role_id, resource_id, is_delete) VALUES
 (1, 27, 0), (1, 28, 0), (1, 29, 0), (1, 30, 0),
 (1, 31, 0), (1, 32, 0), (1, 33, 0), (1, 34, 0),
 (1, 35, 0), (1, 36, 0), (1, 37, 0), (1, 38, 0),
-(1, 39, 0), (1, 40, 0);
+(1, 39, 0), (1, 40, 0),
+(1, 41, 0), (1, 42, 0), (1, 43, 0), (1, 44, 0), (1, 45, 0);
 
 -- =============================================
 -- 8. 初始化第三方登录配置

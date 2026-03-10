@@ -160,4 +160,20 @@ func Setup(app *fiber.App, db *gorm.DB) {
 	tableViews.Put("/:tableKey/default/:id", handler.TableViewSetDefault)
 	tableViews.Put("/:tableKey/sort", handler.TableViewUpdateSort)
 	tableViews.Delete("/:id", handler.TableViewDelete)
+
+	// 定时任务管理
+	job := sys.Group("/jobs")
+	job.Post("/list", perm("system:job:list"), handler.JobList)
+	job.Get("/:id", perm("system:job:list"), handler.JobGet)
+	job.Post("", perm("system:job:add"), handler.JobCreate)
+	job.Put("", perm("system:job:edit"), handler.JobUpdate)
+	job.Delete("/:id", perm("system:job:delete"), handler.JobDelete)
+	job.Put("/:id/status", perm("system:job:edit"), handler.JobChangeStatus)
+	job.Post("/:id/run", perm("system:job:edit"), handler.JobRunOnce)
+
+	// 任务执行日志
+	jobLog := sys.Group("/job-logs")
+	jobLog.Post("/list", perm("system:job:list"), handler.JobLogList)
+	jobLog.Get("/:id", perm("system:job:list"), handler.JobLogGet)
+	jobLog.Delete("", perm("system:job:delete"), handler.JobLogClean)
 }

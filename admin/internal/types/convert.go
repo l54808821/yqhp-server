@@ -290,3 +290,23 @@ func ToUserAppInfo(ua *model.SysUserApp) *UserAppInfo {
 func ToUserAppInfoList(userApps []*model.SysUserApp) []*UserAppInfo {
 	return CopyList[UserAppInfo](userApps)
 }
+
+// ========== Job 相关 ==========
+
+func ToJobInfo(j *model.SysJob) *JobInfo {
+	return Copy[JobInfo](j)
+}
+
+func ToJobInfoList(jobs []*model.SysJob) []*JobInfo {
+	return CopyList[JobInfo](jobs)
+}
+
+// ========== JobLog 相关 ==========
+
+func ToJobLogInfo(l *model.SysJobLog) *JobLogInfo {
+	return Copy[JobLogInfo](l)
+}
+
+func ToJobLogInfoList(logs []*model.SysJobLog) []*JobLogInfo {
+	return CopyList[JobLogInfo](logs)
+}

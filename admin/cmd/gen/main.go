@@ -71,6 +71,8 @@ func main() {
 		g.GenerateModel("sys_user_role"),
 		g.GenerateModel("sys_user_token"),
 		g.GenerateModel("sys_table_view"),
+		g.GenerateModel("sys_job"),
+		g.GenerateModel("sys_job_log"),
 	)
 
 	// 执行生成

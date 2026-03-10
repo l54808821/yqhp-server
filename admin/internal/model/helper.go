@@ -18,6 +18,8 @@ type (
 	UserApp       = SysUserApp
 	RoleResource  = SysRoleResource
 	TableView     = SysTableView
+	Job           = SysJob
+	JobLog        = SysJobLog
 )
 
 // 内置应用编码常量

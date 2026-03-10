@@ -75,7 +75,7 @@ func (s *Scheduler) addJob(name string, cronExpr string, fn func(ctx context.Con
 	wrappedFn := s.wrapWithLog(name, fn)
 
 	j, err := s.scheduler.NewJob(
-		gocron.CronJob(cronExpr, false),
+		gocron.CronJob(cronExpr, true),
 		gocron.NewTask(wrappedFn),
 		gocron.WithName(name),
 		gocron.WithTags(name),
@@ -108,7 +108,7 @@ func (s *Scheduler) UpdateCron(name string, cronExpr string) error {
 
 	newJob, err := s.scheduler.Update(
 		oldJob.ID(),
-		gocron.CronJob(cronExpr, false),
+		gocron.CronJob(cronExpr, true),
 		gocron.NewTask(taskFn),
 		gocron.WithName(name),
 		gocron.WithTags(name),

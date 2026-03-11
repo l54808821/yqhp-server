@@ -219,10 +219,19 @@ func buildToolRegistry(ctx context.Context, config *AIConfig, execCtx *executor.
 		reg.Register(NewKnowledgeTool(config.KnowledgeBases, config))
 	}
 
-	// Skill 工具链：始终注册，无需手动配置 skill_ids
-	reg.Register(NewFindSkillsTool(config))
-	reg.Register(NewUseSkillTool(config))
-	reg.Register(NewInstallSkillTool(config))
+	// Skill 工具链：配置了 find_skills 时，三个工具一起注册
+	hasSkillTools := false
+	for _, toolName := range config.Tools {
+		if toolName == "find_skills" {
+			hasSkillTools = true
+			break
+		}
+	}
+	if hasSkillTools || len(config.Skills) > 0 {
+		reg.Register(NewFindSkillsTool(config))
+		reg.Register(NewUseSkillTool(config))
+		reg.Register(NewInstallSkillTool(config))
+	}
 
 	var mcpClients []mcpCloser
 	if len(config.MCPServers) > 0 {

@@ -37,9 +37,23 @@ func (pb *PromptBuilder) Build() string {
 		sections = append(sections, interactiveInstruction)
 	}
 
+	if len(pb.config.Skills) > 0 {
+		sections = append(sections, pb.buildSkillsSection())
+	}
+
 	sections = append(sections, pb.buildDynamicContext())
 
 	return strings.Join(sections, "\n")
+}
+
+func (pb *PromptBuilder) buildSkillsSection() string {
+	var sb strings.Builder
+	sb.WriteString("\n[专业技能]\n")
+	sb.WriteString("以下 Skill 扩展了你的能力。当任务涉及相关领域时，调用 use_skill 工具加载完整操作指令后按指令执行。\n\n")
+	for _, s := range pb.config.Skills {
+		sb.WriteString(fmt.Sprintf("- %s (id=%d): %s\n", s.Name, s.ID, s.Description))
+	}
+	return sb.String()
 }
 
 func (pb *PromptBuilder) buildDynamicContext() string {

@@ -45,6 +45,12 @@ func Setup(app *fiber.App) {
 	// 报告文件上传（无需认证，供 workflow-engine 内部调用）
 	app.Post("/api/report-files", handler.ReportFileUpload)
 
+	// Skill 内部 API（无需认证，供 workflow-engine 的 find_skills / use_skill / install_skill 工具调用）
+	app.Get("/api/internal/skills/search", handler.SkillSearch)
+	app.Get("/api/internal/skills/:id/body", handler.SkillGetBody)
+	app.Get("/api/internal/skillshub/search", handler.SkillshubSearch)
+	app.Post("/api/internal/skillshub/install", handler.SkillshubInstall)
+
 	// 创建执行相关组件（需要依赖注入的 handler）
 	engineClient := client.NewWorkflowEngineClient()
 	sched := scheduler.NewScheduler(engineClient)
@@ -175,12 +181,14 @@ func Setup(app *fiber.App) {
 	skills := api.Group("/skills")
 	skills.Post("", handler.SkillCreate)
 	skills.Get("", handler.SkillList)
+	skills.Get("/search", handler.SkillSearch)
 	skills.Get("/categories", handler.SkillGetCategories)
 	skills.Post("/import", handler.SkillImport)
 	skills.Get("/:id", handler.SkillGetByID)
 	skills.Put("/:id", handler.SkillUpdate)
 	skills.Delete("/:id", handler.SkillDelete)
 	skills.Put("/:id/status", handler.SkillUpdateStatus)
+	skills.Get("/:id/body", handler.SkillGetBody)
 	skills.Get("/:id/export", handler.SkillExport)
 	skills.Get("/:id/resources", handler.SkillResourceList)
 	skills.Post("/:id/resources", handler.SkillResourceCreate)

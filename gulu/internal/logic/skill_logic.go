@@ -292,6 +292,112 @@ func (l *SkillLogic) GetCategories() ([]string, error) {
 	return categories, err
 }
 
+// ---------- 搜索（供 workflow-engine find_skills 调用） ----------
+
+// SkillSearchReq 内部搜索请求
+type SkillSearchReq struct {
+	Query    string `query:"q"`
+	Category string `query:"category"`
+	Limit    int    `query:"limit"`
+}
+
+// SkillSearchItem 搜索结果（轻量，不含 body）
+type SkillSearchItem struct {
+	ID          int64    `json:"id"`
+	Name        string   `json:"name"`
+	Slug        string   `json:"slug"`
+	Description string   `json:"description"`
+	Category    string   `json:"category"`
+	Tags        []string `json:"tags"`
+	Type        int32    `json:"type"`
+	Author      string   `json:"author"`
+}
+
+// Search 模糊搜索已启用的 Skill（name / description / tags / slug）
+func (l *SkillLogic) Search(req *SkillSearchReq) ([]*SkillSearchItem, error) {
+	q := query.Use(svc.Ctx.DB)
+	m := q.TSkill
+	status := int32(1)
+	qb := m.WithContext(l.ctx).Where(m.IsDelete.Is(false), m.Status.Eq(status))
+
+	if req.Query != "" {
+		keyword := "%" + req.Query + "%"
+		qb = qb.Where(
+			m.WithContext(l.ctx).Where(m.Name.Like(keyword)).
+				Or(m.Description.Like(keyword)).
+				Or(m.Slug.Like(keyword)).
+				Or(m.Tags.Like(keyword)),
+		)
+	}
+	if req.Category != "" {
+		qb = qb.Where(m.Category.Eq(req.Category))
+	}
+
+	limit := req.Limit
+	if limit <= 0 || limit > 50 {
+		limit = 10
+	}
+
+	list, err := qb.Order(m.Sort.Desc(), m.InstallCount.Desc()).Limit(limit).Find()
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]*SkillSearchItem, 0, len(list))
+	for _, item := range list {
+		si := &SkillSearchItem{
+			ID:   item.ID,
+			Name: item.Name,
+		}
+		if item.Description != nil {
+			si.Description = *item.Description
+		}
+		if item.Slug != nil {
+			si.Slug = *item.Slug
+		}
+		if item.Category != nil {
+			si.Category = *item.Category
+		}
+		if item.Type != nil {
+			si.Type = *item.Type
+		}
+		if item.Author != nil {
+			si.Author = *item.Author
+		}
+		si.Tags = unmarshalStringSlice(item.Tags)
+		result = append(result, si)
+	}
+	return result, nil
+}
+
+// GetSkillBody 获取单个 Skill 的摘要信息 + SKILL.md body（供 use_skill 工具调用）
+func (l *SkillLogic) GetSkillBody(id int64) (*SkillSearchItem, string, error) {
+	q := query.Use(svc.Ctx.DB)
+	m := q.TSkill
+	skill, err := m.WithContext(l.ctx).Where(m.ID.Eq(id), m.IsDelete.Is(false)).First()
+	if err != nil {
+		return nil, "", errors.New("Skill 不存在")
+	}
+	if skill.Status != nil && *skill.Status != 1 {
+		return nil, "", errors.New("Skill 已禁用")
+	}
+	si := &SkillSearchItem{
+		ID:   skill.ID,
+		Name: skill.Name,
+	}
+	if skill.Description != nil {
+		si.Description = *skill.Description
+	}
+	if skill.Slug != nil {
+		si.Slug = *skill.Slug
+	}
+	if skill.Category != nil {
+		si.Category = *skill.Category
+	}
+	body, _ := l.GetSKILLMDContent(id)
+	return si, body, nil
+}
+
 // ---------- SKILL.md 内容读取 ----------
 
 // GetSKILLMDContent 从 t_skill_resource 获取 SKILL.md 的 body（去掉 frontmatter）

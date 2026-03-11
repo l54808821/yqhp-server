@@ -92,6 +92,39 @@ func SkillList(c *fiber.Ctx) error {
 	return response.Page(c, list, total, req.Page, req.PageSize)
 }
 
+// SkillSearch 搜索 Skill（供 workflow-engine find_skills 工具内部调用）
+// GET /api/skills/search?q=代码审查&category=编程&limit=10
+func SkillSearch(c *fiber.Ctx) error {
+	var req logic.SkillSearchReq
+	if err := c.QueryParser(&req); err != nil {
+		return response.Error(c, "参数解析失败")
+	}
+	skillLogic := logic.NewSkillLogic(c.UserContext())
+	list, err := skillLogic.Search(&req)
+	if err != nil {
+		return response.Error(c, err.Error())
+	}
+	return response.Success(c, list)
+}
+
+// SkillGetBody 获取 Skill 摘要 + SKILL.md body（供 workflow-engine use_skill 工具调用）
+// GET /api/skills/:id/body
+func SkillGetBody(c *fiber.Ctx) error {
+	id, err := strconv.ParseInt(c.Params("id"), 10, 64)
+	if err != nil {
+		return response.Error(c, "无效的Skill ID")
+	}
+	skillLogic := logic.NewSkillLogic(c.UserContext())
+	info, body, err := skillLogic.GetSkillBody(id)
+	if err != nil {
+		return response.Error(c, err.Error())
+	}
+	return response.Success(c, map[string]interface{}{
+		"skill": info,
+		"body":  body,
+	})
+}
+
 // SkillUpdateStatus 更新Skill状态
 func SkillUpdateStatus(c *fiber.Ctx) error {
 	id, err := strconv.ParseInt(c.Params("id"), 10, 64)

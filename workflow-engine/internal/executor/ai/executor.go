@@ -219,9 +219,10 @@ func buildToolRegistry(ctx context.Context, config *AIConfig, execCtx *executor.
 		reg.Register(NewKnowledgeTool(config.KnowledgeBases, config))
 	}
 
-	if len(config.Skills) > 0 {
-		reg.Register(NewSkillTool(config.Skills))
-	}
+	// Skill 工具链：始终注册，无需手动配置 skill_ids
+	reg.Register(NewFindSkillsTool(config))
+	reg.Register(NewUseSkillTool(config))
+	reg.Register(NewInstallSkillTool(config))
 
 	var mcpClients []mcpCloser
 	if len(config.MCPServers) > 0 {

@@ -15,6 +15,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/xuri/excelize/v2"
 	"golang.org/x/net/html"
 
 	"yqhp/gulu/internal/model"
@@ -429,6 +430,8 @@ func (p *DocumentProcessor) extractText(doc *model.TKnowledgeDocument) (string, 
 		return extractTextFromPDF(data, storage.FullPath(*doc.FilePath))
 	case "docx":
 		return extractTextFromDOCX(data)
+	case "xlsx":
+		return extractTextFromExcel(data)
 	case "image":
 		return fmt.Sprintf("[图片文件: %s]", doc.Name), nil
 	default:
@@ -956,6 +959,156 @@ func extractTextFromHTML(data []byte) string {
 		text = strings.ReplaceAll(text, "\n\n\n", "\n\n")
 	}
 	return strings.TrimSpace(text)
+}
+
+// -----------------------------------------------
+// Excel 提取（使用 excelize）
+// -----------------------------------------------
+
+func extractTextFromExcel(data []byte) (string, error) {
+	f, err := excelize.OpenReader(bytes.NewReader(data))
+	if err != nil {
+		return "", fmt.Errorf("打开 Excel 文件失败: %w", err)
+	}
+	defer f.Close()
+
+	var result strings.Builder
+	for _, sheetName := range f.GetSheetList() {
+		rows, err := f.GetRows(sheetName)
+		if err != nil || len(rows) == 0 {
+			continue
+		}
+
+		headerIdx, colMap, _ := findExcelHeader(rows)
+		if len(colMap) == 0 {
+			continue
+		}
+
+		sortedCols := make([]int, 0, len(colMap))
+		for col := range colMap {
+			sortedCols = append(sortedCols, col)
+		}
+		sortInts(sortedCols)
+
+		for rowIdx := headerIdx + 1; rowIdx < len(rows); rowIdx++ {
+			row := rows[rowIdx]
+			if isEmptyRow(row) {
+				continue
+			}
+
+			var parts []string
+			for _, col := range sortedCols {
+				colName := colMap[col]
+				val := ""
+				if col < len(row) {
+					val = strings.TrimSpace(row[col])
+				}
+				hasLink, target, _ := f.GetCellHyperLink(sheetName, cellName(col, rowIdx))
+				if hasLink && target != "" {
+					val = fmt.Sprintf("[%s](%s)", val, target)
+				}
+				if val == "" {
+					val = "-"
+				}
+				val = strings.ReplaceAll(val, `"`, `\"`)
+				val = strings.Join(strings.Fields(val), " ")
+				parts = append(parts, fmt.Sprintf(`"%s":"%s"`, colName, val))
+			}
+			if len(parts) > 0 {
+				result.WriteString(strings.Join(parts, ";"))
+				result.WriteString("\n")
+			}
+		}
+	}
+
+	text := result.String()
+	if strings.TrimSpace(text) == "" {
+		return "", fmt.Errorf("Excel 文件内容为空")
+	}
+	return text, nil
+}
+
+// findExcelHeader 扫描前 10 行，找到最可能的表头行（非空列数 >= 2 的第一行）
+func findExcelHeader(rows [][]string) (int, map[int]string, int) {
+	scanLimit := 10
+	if len(rows) < scanLimit {
+		scanLimit = len(rows)
+	}
+
+	type candidate struct {
+		idx   int
+		count int
+		cols  map[int]string
+		max   int
+	}
+	var candidates []candidate
+
+	for i := 0; i < scanLimit; i++ {
+		cols := make(map[int]string)
+		maxCol := 0
+		for j, cell := range rows[i] {
+			trimmed := strings.TrimSpace(cell)
+			if trimmed != "" {
+				cols[j] = trimmed
+				if j+1 > maxCol {
+					maxCol = j + 1
+				}
+			}
+		}
+		if len(cols) == 0 {
+			continue
+		}
+		candidates = append(candidates, candidate{idx: i, count: len(cols), cols: cols, max: maxCol})
+	}
+
+	if len(candidates) == 0 {
+		return 0, nil, 0
+	}
+
+	for _, c := range candidates {
+		if c.count >= 2 {
+			return c.idx, c.cols, c.max
+		}
+	}
+
+	best := candidates[0]
+	for _, c := range candidates[1:] {
+		if c.count > best.count {
+			best = c
+		}
+	}
+	return best.idx, best.cols, best.max
+}
+
+func isEmptyRow(row []string) bool {
+	for _, cell := range row {
+		if strings.TrimSpace(cell) != "" {
+			return false
+		}
+	}
+	return true
+}
+
+// cellName 将 0-based 列索引和 0-based 行索引转为 Excel 单元格名称（如 A1、B2）
+func cellName(col, row int) string {
+	name := ""
+	c := col
+	for {
+		name = string(rune('A'+c%26)) + name
+		c = c/26 - 1
+		if c < 0 {
+			break
+		}
+	}
+	return fmt.Sprintf("%s%d", name, row+1)
+}
+
+func sortInts(a []int) {
+	for i := 1; i < len(a); i++ {
+		for j := i; j > 0 && a[j] < a[j-1]; j-- {
+			a[j], a[j-1] = a[j-1], a[j]
+		}
+	}
 }
 
 // -----------------------------------------------

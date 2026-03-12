@@ -1481,6 +1481,8 @@ func InferFileType(filename string) string {
 		return "csv"
 	case ".json":
 		return "json"
+	case ".xlsx", ".xls":
+		return "xlsx"
 	case ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp":
 		return "image"
 	default:

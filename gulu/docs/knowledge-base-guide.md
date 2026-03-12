@@ -291,6 +291,7 @@ go run cmd/gen/main.go
 |------|------|
 | 文本 | `.txt`、`.md`、`.csv`、`.json` |
 | 文档 | `.pdf`、`.docx`、`.doc`、`.html`、`.htm` |
+| 表格 | `.xlsx`、`.xls` |
 | 图片 | `.png`、`.jpg`、`.jpeg`、`.gif`、`.webp`、`.bmp`（需开启多模态） |
 
 也可通过 API 直接提交纯文本内容（适合 FAQ、短文本片段等）。

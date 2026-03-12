@@ -874,6 +874,18 @@ func (h *StreamExecutionHandler) resolveKnowledgeBaseConfigs(c *fiber.Ctx, confi
 			"score_threshold":     kbInfo.SimilarityThreshold,
 		}
 
+		// AI 节点级别的检索参数覆盖知识库默认值
+		if v, ok := config["kb_top_k"]; ok {
+			if topK, ok := v.(float64); ok && topK > 0 {
+				kbData["top_k"] = int(topK)
+			}
+		}
+		if v, ok := config["kb_score_threshold"]; ok {
+			if score, ok := v.(float64); ok && score > 0 {
+				kbData["score_threshold"] = score
+			}
+		}
+
 		// 如果有嵌入模型 ID，解析模型的 API 配置（自动从供应商解析凭证）
 		if kbInfo.EmbeddingModelID != nil && *kbInfo.EmbeddingModelID > 0 {
 			aiModelLogic := logic.NewAiModelLogic(c.Context())

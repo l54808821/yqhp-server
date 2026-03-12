@@ -68,6 +68,9 @@ func (t *KnowledgeTool) Execute(ctx context.Context, arguments string, execCtx *
 	}
 	topK := args.TopK
 	if topK <= 0 {
+		topK = t.config.KBTopK
+	}
+	if topK <= 0 {
 		topK = 5
 	}
 
@@ -76,7 +79,7 @@ func (t *KnowledgeTool) Execute(ctx context.Context, arguments string, execCtx *
 	guluHost := getGuluHost(t.config)
 	for _, kb := range t.knowledgeBases {
 		if kb.QdrantCollection != "" {
-			results := searchQdrant(ctx, kb, args.Query, topK, qdrantHost)
+			results := searchQdrant(ctx, kb, args.Query, topK, qdrantHost, t.config.KBScoreThreshold)
 			allResults = append(allResults, results...)
 		}
 		if kb.Type == "graph" {
@@ -109,14 +112,19 @@ type knowledgeChunk struct {
 	ChunkIndex int     `json:"chunk_index"`
 }
 
-func searchQdrant(ctx context.Context, kb *KnowledgeBaseInfo, query string, topK int, qdrantHost string) []knowledgeChunk {
+func searchQdrant(ctx context.Context, kb *KnowledgeBaseInfo, query string, topK int, qdrantHost string, fallbackScoreThreshold float32) []knowledgeChunk {
 	queryVector, err := callEmbeddingAPI(ctx, kb.EmbeddingBaseURL, kb.EmbeddingAPIKey, kb.EmbeddingModel, query)
 	if err != nil {
 		logger.Warn("[Knowledge] 知识库 %s 的查询向量化失败: %v", kb.Name, err)
 		return nil
 	}
 
-	hits, err := searchQdrantREST(ctx, qdrantHost, kb.QdrantCollection, queryVector, topK, float32(kb.ScoreThreshold))
+	scoreThreshold := float32(kb.ScoreThreshold)
+	if scoreThreshold <= 0 && fallbackScoreThreshold > 0 {
+		scoreThreshold = fallbackScoreThreshold
+	}
+
+	hits, err := searchQdrantREST(ctx, qdrantHost, kb.QdrantCollection, queryVector, topK, scoreThreshold)
 	if err != nil {
 		logger.Warn("[Knowledge] 知识库 %s 向量搜索失败: %v", kb.Name, err)
 		return nil

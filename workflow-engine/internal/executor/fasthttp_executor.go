@@ -148,15 +148,38 @@ func (e *FastHTTPExecutor) Execute(ctx context.Context, step *types.Step, execCt
 	// 8. 捕获请求信息用于调试（构建请求后立即记录，这样即使请求失败也能看到）
 	output.ActualRequest = e.captureRequestInfo(req, config)
 
-	// 9. 执行请求（统一使用 DoDeadline 确保超时始终生效）
-	var execErr error
+	// 9. Early exit if context is already cancelled (e.g. execution stopped)
+	if ctx.Err() != nil {
+		output.Error = "执行已取消"
+		result.Fail(ctx.Err())
+		return result, nil
+	}
+
+	// 10. 执行请求，同时监听 context 取消以支持快速停止。
+	// fasthttp 不原生支持 context，因此通过 goroutine + channel 包装。
+	type doResult struct{ err error }
+	done := make(chan doResult, 1)
 	deadline := time.Now().Add(timeout)
-	if e.GlobalConfig.Redirect.GetFollow() {
-		// 使用 DoRedirects + deadline：先设置请求超时，再执行重定向
-		req.SetTimeout(timeout)
-		execErr = e.client.DoRedirects(req, resp, e.GlobalConfig.Redirect.GetMaxRedirects())
-	} else {
-		execErr = e.client.DoDeadline(req, resp, deadline)
+
+	go func() {
+		var err error
+		if e.GlobalConfig.Redirect.GetFollow() {
+			req.SetTimeout(timeout)
+			err = e.client.DoRedirects(req, resp, e.GlobalConfig.Redirect.GetMaxRedirects())
+		} else {
+			err = e.client.DoDeadline(req, resp, deadline)
+		}
+		done <- doResult{err}
+	}()
+
+	var execErr error
+	select {
+	case <-ctx.Done():
+		output.Error = "执行已取消"
+		result.Fail(ctx.Err())
+		return result, nil
+	case r := <-done:
+		execErr = r.err
 	}
 
 	if execErr != nil {
@@ -170,16 +193,16 @@ func (e *FastHTTPExecutor) Execute(ctx context.Context, step *types.Step, execCt
 		return result, nil
 	}
 
-	// 10. 填充响应数据
+	// 11. 填充响应数据
 	e.fillResponseData(output, resp)
 
-	// 11. 执行后置处理器
+	// 12. 执行后置处理器
 	e.ExecutePostProcessors(ctx, step, execCtx, procExecutor, output, result.StartTime)
 
-	// 12. 收集日志和断言
+	// 13. 收集日志和断言
 	e.CollectLogsAndAssertions(execCtx, output)
 
-	// 13. 添加指标
+	// 14. 添加指标
 	result.AddMetric("http_status", float64(resp.StatusCode()))
 	result.AddMetric("http_response_size", float64(len(resp.Body())))
 	result.AddMetric("data_received", float64(len(resp.Body())))

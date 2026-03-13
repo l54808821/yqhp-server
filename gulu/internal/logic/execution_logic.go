@@ -296,13 +296,21 @@ func (l *ExecutionLogic) monitorExecution(dbID int64, guluExecID string, executi
 				continue
 			}
 
-			// Terminal state: fetch the final report from the engine and save to perf_detail table
+			// Terminal state: persist report BEFORE updating DB status so the
+			// report is available as soon as the frontend sees the terminal state.
 			if isTerminalStatus(dbStatus) {
-				l.updateExecutionStatus(dbID, dbStatus, state.EndTime)
-
-				// Save performance report to detail table
-				report, reportErr := engine.GetPerformanceReport(context.Background(), executionID)
-				if reportErr == nil && report != nil {
+				// Retry fetching the report — after a stop the TaskEngine may
+				// still be flushing metrics when we first detect the terminal state.
+				var report *types.PerformanceTestReport
+				for attempt := 0; attempt < 5; attempt++ {
+					r, err := engine.GetPerformanceReport(context.Background(), executionID)
+					if err == nil && r != nil {
+						report = r
+						break
+					}
+					time.Sleep(time.Duration(attempt+1) * 500 * time.Millisecond)
+				}
+				if report != nil {
 					perfLogic := NewPerfDetailLogic(context.Background())
 					if err := perfLogic.SaveFromReport(guluExecID, report); err != nil {
 						fmt.Printf("[monitorExecution] 保存性能报告到 detail 表失败: %v\n", err)
@@ -310,6 +318,10 @@ func (l *ExecutionLogic) monitorExecution(dbID int64, guluExecID string, executi
 				}
 
 				l.persistSampleLogs(guluExecID, engine)
+
+				// Update DB status last — the frontend will start fetching the
+				// report as soon as it sees the terminal status.
+				l.updateExecutionStatus(dbID, dbStatus, state.EndTime)
 
 				return
 			}
@@ -528,28 +540,29 @@ func (l *ExecutionLogic) GetReport(id int64) (*types.PerformanceTestReport, erro
 		return nil, errors.New("执行记录不存在")
 	}
 
-	// Try to get from perf_detail table (persisted report)
+	// 1. Try to get from perf_detail table (persisted report)
 	perfLogic := NewPerfDetailLogic(l.ctx)
 	detail, detailErr := perfLogic.GetByExecutionID(execution.ExecutionID)
 	if detailErr == nil && detail != nil {
 		return perfLogic.AssembleReport(execution, detail), nil
 	}
 
-	// Fallback: get from engine (if still running or recently completed)
+	// 2. Fallback: get from engine ControlSurface (in-memory, available
+	//    while the engine process has not restarted)
 	engine := workflow.GetEngine()
-	if engine == nil {
-		if isTerminalStatus(execution.Status) {
-			return nil, errors.New("该执行的报告数据不可用，可能在执行停止时未能生成")
+	if engine != nil {
+		engineExecID := l.resolveEngineID(execution.ExecutionID)
+		report, reportErr := engine.GetPerformanceReport(context.Background(), engineExecID)
+		if reportErr == nil && report != nil {
+			return report, nil
 		}
-		return nil, errors.New("报告尚未生成")
 	}
 
-	engineExecID := l.resolveEngineID(execution.ExecutionID)
-	report, reportErr := engine.GetPerformanceReport(context.Background(), engineExecID)
-	if reportErr != nil && isTerminalStatus(execution.Status) {
+	// 3. Neither source has the report
+	if isTerminalStatus(execution.Status) {
 		return nil, errors.New("该执行的报告数据不可用，可能在执行停止时未能生成")
 	}
-	return report, reportErr
+	return nil, errors.New("报告尚未生成，请稍后重试")
 }
 
 // ScaleVUs adjusts the VU count for a running execution.
@@ -597,6 +610,8 @@ func (l *ExecutionLogic) resolveEngineID(guluExecID string) string {
 }
 
 // Stop stops a running execution via the engine API.
+// The actual status update to "stopped" and report persistence are handled
+// by monitorExecution once the engine confirms the terminal state.
 func (l *ExecutionLogic) Stop(id int64) error {
 	execution, err := l.GetByID(id)
 	if err != nil {
@@ -608,28 +623,12 @@ func (l *ExecutionLogic) Stop(id int64) error {
 	}
 
 	engine := workflow.GetEngine()
-	if engine != nil {
-		engineExecID := l.resolveEngineID(execution.ExecutionID)
-		_ = engine.StopExecution(context.Background(), engineExecID)
+	if engine == nil {
+		return errors.New("引擎未启动")
 	}
 
-	now := time.Now()
-	q := query.Use(svc.Ctx.DB)
-	e := q.TExecution
-
-	var duration *int64
-	if execution.StartTime != nil {
-		d := now.Sub(*execution.StartTime).Milliseconds()
-		duration = &d
-	}
-
-	_, err = e.WithContext(l.ctx).Where(e.ID.Eq(id)).Updates(map[string]interface{}{
-		"status":     ExecutionStatusStopped,
-		"end_time":   now,
-		"duration":   duration,
-		"updated_at": now,
-	})
-	return err
+	engineExecID := l.resolveEngineID(execution.ExecutionID)
+	return engine.StopExecution(context.Background(), engineExecID)
 }
 
 // Pause pauses a running execution via the engine API.

@@ -818,18 +818,14 @@ func (m *WorkflowMaster) StopExecution(ctx context.Context, executionID string) 
 		return fmt.Errorf("执行未在运行或暂停状态: %s", execInfo.State.Status)
 	}
 
-	// 发送停止信号
+	// Only send the stop signal; the actual status transition to Aborted
+	// happens in simulateExecution after TaskEngine.Execute finishes cleanup
+	// and generates the final report.
 	select {
 	case <-execInfo.stopCh:
-		// 已经停止
 	default:
 		close(execInfo.stopCh)
 	}
-
-	execInfo.State.Status = types.ExecutionStatusAborted
-	now := time.Now()
-	execInfo.EndTime = &now
-	execInfo.State.EndTime = &now
 
 	return nil
 }

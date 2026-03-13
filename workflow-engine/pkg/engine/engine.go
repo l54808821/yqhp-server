@@ -247,6 +247,9 @@ func (e *Engine) GetPerformanceReport(ctx context.Context, executionID string) (
 	if cs == nil {
 		return nil, fmt.Errorf("no control surface for execution %s", executionID)
 	}
+	if cs.FinalReport == nil {
+		return nil, fmt.Errorf("report not yet available for execution %s", executionID)
+	}
 	return cs.FinalReport, nil
 }
 

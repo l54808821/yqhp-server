@@ -538,11 +538,18 @@ func (l *ExecutionLogic) GetReport(id int64) (*types.PerformanceTestReport, erro
 	// Fallback: get from engine (if still running or recently completed)
 	engine := workflow.GetEngine()
 	if engine == nil {
+		if isTerminalStatus(execution.Status) {
+			return nil, errors.New("该执行的报告数据不可用，可能在执行停止时未能生成")
+		}
 		return nil, errors.New("报告尚未生成")
 	}
 
 	engineExecID := l.resolveEngineID(execution.ExecutionID)
-	return engine.GetPerformanceReport(context.Background(), engineExecID)
+	report, reportErr := engine.GetPerformanceReport(context.Background(), engineExecID)
+	if reportErr != nil && isTerminalStatus(execution.Status) {
+		return nil, errors.New("该执行的报告数据不可用，可能在执行停止时未能生成")
+	}
+	return report, reportErr
 }
 
 // ScaleVUs adjusts the VU count for a running execution.

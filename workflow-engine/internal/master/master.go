@@ -516,6 +516,12 @@ func (m *WorkflowMaster) simulateExecution(ctx context.Context, execInfo *Execut
 
 		case <-ctx.Done():
 			taskEngine.Stop(context.Background())
+			// Wait for TaskEngine.Execute to finish cleanup and report generation
+			select {
+			case <-resultCh:
+			case <-errCh:
+			case <-time.After(10 * time.Second):
+			}
 			execInfo.mu.Lock()
 			execInfo.State.Status = types.ExecutionStatusAborted
 			now := time.Now()
@@ -526,6 +532,12 @@ func (m *WorkflowMaster) simulateExecution(ctx context.Context, execInfo *Execut
 
 		case <-execInfo.stopCh:
 			taskEngine.Stop(context.Background())
+			// Wait for TaskEngine.Execute to finish cleanup and report generation
+			select {
+			case <-resultCh:
+			case <-errCh:
+			case <-time.After(10 * time.Second):
+			}
 			execInfo.mu.Lock()
 			execInfo.State.Status = types.ExecutionStatusAborted
 			now := time.Now()

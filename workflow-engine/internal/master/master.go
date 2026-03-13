@@ -447,6 +447,12 @@ func (m *WorkflowMaster) simulateExecution(ctx context.Context, execInfo *Execut
 	errCh := make(chan error, 1)
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				errCh <- fmt.Errorf("task engine panic: %v", r)
+				logger.Debug("simulateExecution] task engine panic: %v", r)
+			}
+		}()
 		logger.Debug("simulateExecution] 开始执行任务...")
 		result, err := taskEngine.Execute(ctx, task)
 		logger.Debug("simulateExecution] 任务执行完成, result=%v, err=%v\n", result != nil, err)

@@ -423,23 +423,23 @@ func (e *TaskEngine) executeConstantVUs(ctx context.Context, task *types.Task, v
 		defer durationCancel()
 	}
 
-	// Guard: once stopping is true, startVU becomes a no-op to prevent
-	// the controller from launching new VUs after wg.Wait() returns.
-	var stopping atomic.Bool
-
-	// Track per-VU cancel functions for dynamic scaling
+	// Track per-VU cancel functions for dynamic scaling.
+	// vuMu 同时保护 stopping、vuCancels、nextVUID 和 wg.Add，
+	// 确保 stopping 检查与 wg.Add(1) 是原子的，避免 WaitGroup 竞态。
 	var vuMu sync.Mutex
+	stopping := false
 	vuCancels := make(map[int]context.CancelFunc)
 	nextVUID := 0
 
 	startVU := func() {
-		if stopping.Load() {
+		vuMu.Lock()
+		if stopping {
+			vuMu.Unlock()
 			return
 		}
-
-		vuMu.Lock()
 		id := nextVUID
 		nextVUID++
+		wg.Add(1)
 		vuMu.Unlock()
 
 		vu := e.vuPool.Acquire(id)
@@ -453,7 +453,6 @@ func (e *TaskEngine) executeConstantVUs(ctx context.Context, task *types.Task, v
 		vuCancels[id] = vuCancel
 		vuMu.Unlock()
 
-		wg.Add(1)
 		e.activeVUs.Add(1)
 
 		go func(vu *types.VirtualUser, schedCtx context.Context, baseCtx context.Context, id int) {
@@ -504,7 +503,10 @@ func (e *TaskEngine) executeConstantVUs(ctx context.Context, task *types.Task, v
 			case <-scheduleCtx.Done():
 				return
 			case <-ticker.C:
-				if stopping.Load() {
+				vuMu.Lock()
+				isStopping := stopping
+				vuMu.Unlock()
+				if isStopping {
 					return
 				}
 
@@ -530,14 +532,14 @@ func (e *TaskEngine) executeConstantVUs(ctx context.Context, task *types.Task, v
 	}()
 
 	// 等待所有 VU 完成。
-	// 注意：必须先让控制器停止，才能安全调用 wg.Wait()。
-	// 否则控制器可能在 wg.Wait() 返回后调用 startVU() → wg.Add(1)，
+	// 关键：必须先设置 stopping=true 并等控制器退出，才能安全调用 wg.Wait()。
+	// 否则控制器可能在 wg.Wait() 返回瞬间调用 startVU() → wg.Add(1)，
 	// 导致 "WaitGroup is reused before previous Wait has returned" panic。
 	//
-	// 流程：VU 全部结束 → scheduleCtx 超时或被取消 → 控制器退出 → wg.Wait() 安全返回
-	// 对于迭代模式（无 duration），VU 在迭代完成后自行退出，此时通过 stopAll 取消 scheduleCtx。
+	// 策略：在单独的 goroutine 中做第一次 wg.Wait()，
+	// 当所有 VU 结束或 scheduleCtx 超时后，加锁设置 stopping，
+	// 确保控制器退出后再在主 goroutine 做最终 wg.Wait()。
 
-	// 用一个额外的 goroutine 监听所有 VU 完成，然后触发 stopping + stopAll
 	vusDone := make(chan struct{})
 	go func() {
 		wg.Wait()
@@ -546,17 +548,19 @@ func (e *TaskEngine) executeConstantVUs(ctx context.Context, task *types.Task, v
 
 	select {
 	case <-vusDone:
-		// 所有 VU 已完成，先标记 stopping 防止控制器再启动新 VU
-		stopping.Store(true)
-		stopAll()
 	case <-scheduleCtx.Done():
-		// duration 超时或外部取消，标记 stopping
-		stopping.Store(true)
 	}
 
-	// 确保控制器退出
+	// 加锁设置 stopping，与 startVU 中的 wg.Add(1) 互斥
+	vuMu.Lock()
+	stopping = true
+	vuMu.Unlock()
+
+	stopAll()
+
+	// 等控制器退出（它会检查 stopping 或 scheduleCtx.Done 后 return）
 	<-controllerDone
-	// 确保所有 VU goroutine 退出（如果是 scheduleCtx.Done 先触发，VU 可能还在收尾）
+	// 确保所有 VU goroutine 完全退出
 	<-vusDone
 
 	return nil

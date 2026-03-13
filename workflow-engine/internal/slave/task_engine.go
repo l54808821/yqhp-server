@@ -529,10 +529,35 @@ func (e *TaskEngine) executeConstantVUs(ctx context.Context, task *types.Task, v
 		}
 	}()
 
-	wg.Wait()
-	stopping.Store(true)
-	stopAll()
+	// 等待所有 VU 完成。
+	// 注意：必须先让控制器停止，才能安全调用 wg.Wait()。
+	// 否则控制器可能在 wg.Wait() 返回后调用 startVU() → wg.Add(1)，
+	// 导致 "WaitGroup is reused before previous Wait has returned" panic。
+	//
+	// 流程：VU 全部结束 → scheduleCtx 超时或被取消 → 控制器退出 → wg.Wait() 安全返回
+	// 对于迭代模式（无 duration），VU 在迭代完成后自行退出，此时通过 stopAll 取消 scheduleCtx。
+
+	// 用一个额外的 goroutine 监听所有 VU 完成，然后触发 stopping + stopAll
+	vusDone := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(vusDone)
+	}()
+
+	select {
+	case <-vusDone:
+		// 所有 VU 已完成，先标记 stopping 防止控制器再启动新 VU
+		stopping.Store(true)
+		stopAll()
+	case <-scheduleCtx.Done():
+		// duration 超时或外部取消，标记 stopping
+		stopping.Store(true)
+	}
+
+	// 确保控制器退出
 	<-controllerDone
+	// 确保所有 VU goroutine 退出（如果是 scheduleCtx.Done 先触发，VU 可能还在收尾）
+	<-vusDone
 
 	return nil
 }
